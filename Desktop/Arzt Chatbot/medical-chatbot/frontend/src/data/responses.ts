@@ -278,17 +278,27 @@ export const responses: Record<string, ResponseTemplate> = {
       'Rezept anfordern',
       'Krankmeldung anfordern',
       'Überweisung anfordern',
+      'Beschwerden einschätzen',
       'Öffnungszeiten',
       'Leistungen',
       'Kontakt'
     ]
+  },
+  'fragebogen beschwerden starten': {
+    text: 'Gerne helfe ich Ihnen dabei, Ihre Beschwerden einzuschätzen. Ich stelle Ihnen nun einige strukturierte Fragen, um die Dringlichkeit besser beurteilen zu können.',
+    html: `
+        ⚕️ <strong>Medizinischer Beschwerde-Fragebogen</strong><br><br>
+        Ich werde Ihnen nun einige Fragen zu Ihren Beschwerden stellen. Bitte antworten Sie so genau wie möglich.<br><br>
+        <strong>Wichtig:</strong> Diese Einschätzung ersetzt keine ärztliche Diagnose, sondern dient nur zur Orientierung.
+    `,
+    quickReplies: ['Zurück zum Hauptmenü']
   },
   default: {
     text: 'Vielen Dank für Ihre Nachricht. Unser Team meldet sich zeitnah bei Ihnen.',
     links: [
       { icon: '📞', title: 'Dringend?', subtitle: 'Jetzt anrufen: 04488 528140', url: 'tel:04488528140', action: 'telefon' }
     ],
-    quickReplies: ['Termin vereinbaren', 'Rezept anfordern', 'Krankmeldung anfordern', 'Kontakt']
+    quickReplies: ['Termin vereinbaren', 'Rezept anfordern', 'Krankmeldung anfordern', 'Beschwerden einschätzen', 'Kontakt']
   },
   leistungen: {
     text: 'Unsere Leistungen im Überblick:',
@@ -337,6 +347,7 @@ export const DEFAULT_QUICK_REPLY_LABELS = [
   'Rezept anfordern',
   'Krankmeldung anfordern',
   'Überweisung anfordern',
+  'Beschwerden einschätzen',
   'Öffnungszeiten',
   'Leistungen',
   'Kontakt'

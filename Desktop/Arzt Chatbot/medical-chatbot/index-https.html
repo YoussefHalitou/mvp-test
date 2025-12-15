@@ -1,0 +1,18 @@
+<!-- 
+  INDEX.HTML MIT HTTPS-BACKEND
+  Verwende diese Version, nachdem SSL auf dem Server eingerichtet wurde
+  Ersetze 'https://chatbot.deine-domain.de' mit deiner Domain
+-->
+
+<!-- In deiner index.html, ändere diese Zeilen: -->
+
+<script>
+  // Widget-Konfiguration für HTTPS-Backend
+  window.ChatbotConfig = {
+    backendUrl: 'https://chatbot.deine-domain.de/api',  // ← Ändere zu deiner Domain!
+    apiKey: '12345'
+  };
+</script>
+
+<!-- Der Rest des Widget-Codes bleibt gleich, aber WebSocket funktioniert jetzt auch! -->
+

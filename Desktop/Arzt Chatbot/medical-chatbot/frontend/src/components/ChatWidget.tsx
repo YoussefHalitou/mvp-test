@@ -24,6 +24,30 @@ export const ChatWidget = () => {
 
   const isSendDisabled = !inputValue.trim();
 
+  // 🔹 helper to notify parent (the website with the iframe)
+  const notifyParentAboutState = useCallback((nextIsOpen: boolean) => {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(
+          {
+            source: 'carsten-chatbot',
+            type: nextIsOpen ? 'open' : 'close'
+          },
+          '*' // optional: later restrict to your domain
+        );
+      }
+    } catch (error) {
+      console.error('Failed to notify parent window', error);
+    }
+  }, []);
+
+  // 🔹 wrapped toggle that also informs parent
+  const handleToggleOpen = useCallback(() => {
+    const nextIsOpen = !isOpen;
+    notifyParentAboutState(nextIsOpen);
+    toggleOpen();
+  }, [isOpen, notifyParentAboutState, toggleOpen]);
+
   useEffect(() => {
     if (isOpen) {
       inputRef.current?.focus();
@@ -60,7 +84,8 @@ export const ChatWidget = () => {
 
   return (
     <>
-      <ChatButton onClick={toggleOpen} isOpen={isOpen} />
+      {/* 🔹 use handleToggleOpen instead of toggleOpen */}
+      <ChatButton onClick={handleToggleOpen} isOpen={isOpen} />
 
       <div
         className={clsx(
@@ -84,7 +109,7 @@ export const ChatWidget = () => {
             </button>
             <button
               type="button"
-              onClick={toggleOpen}
+              onClick={handleToggleOpen} // 🔹 also use wrapped handler here
               className="flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200 hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
               aria-label="Chat schließen"
             >

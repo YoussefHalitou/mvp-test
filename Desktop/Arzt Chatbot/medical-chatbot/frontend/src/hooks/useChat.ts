@@ -17,6 +17,7 @@ const QUICK_REPLY_LIBRARY: Record<string, QuickReplyOption> = {
   'Öffnungszeiten': { label: 'Öffnungszeiten', payload: 'Öffnungszeiten', icon: '🕑' },
   'Kontakt': { label: 'Kontakt', payload: 'Kontakt', icon: '☎️' },
   'Leistungen': { label: 'Leistungen', payload: 'Leistungen', icon: '🩺' },
+  'Beschwerden einschätzen': { label: 'Beschwerden einschätzen', payload: 'Fragebogen Beschwerden starten', icon: '⚕️' },
   'Zurück zum Hauptmenü': { label: 'Zurück zum Hauptmenü', payload: 'Zurück zum Hauptmenü', icon: '🏠' }
 };
 

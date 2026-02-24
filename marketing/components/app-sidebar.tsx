@@ -49,7 +49,11 @@ export function AppSidebar() {
             if (user) {
                 setUserEmail(user.email || 'Keine E-Mail');
                 // Derive name from metadata, or use the part before @ in email
-                const metaName = user.user_metadata?.full_name || user.user_metadata?.name;
+                const metaName = user.user_metadata?.full_name ||
+                    (user.user_metadata?.first_name && user.user_metadata?.last_name
+                        ? `${user.user_metadata.first_name} ${user.user_metadata.last_name}`
+                        : null) ||
+                    user.user_metadata?.name;
                 if (metaName) {
                     setUserName(metaName);
                 } else if (user.email) {

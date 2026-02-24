@@ -66,10 +66,13 @@ export function AppSidebar() {
     const handleLogout = async () => {
         try {
             await supabase.auth.signOut();
+            // Clear the middleware cookie
+            document.cookie = 'has_session=; path=/; max-age=0';
             // Force a hard redirect to clear Next.js client-side router cache
             window.location.assign('/login');
         } catch (error) {
             console.error('Error logging out:', error);
+            document.cookie = 'has_session=; path=/; max-age=0';
             window.location.assign('/login');
         }
     };

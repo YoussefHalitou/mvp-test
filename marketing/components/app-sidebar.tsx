@@ -14,7 +14,8 @@ import {
     Settings,
     Users,
     Truck,
-    Package
+    Package,
+    BarChart3
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,6 +31,7 @@ const MENU_ITEMS = [
     { href: '/calculation', label: 'Nachkalkulation', icon: Calculator },
     { href: '/projects', label: 'Projekte', icon: FolderKanban },
     { href: '/resources', label: 'Ressourcen', icon: Users },
+    { href: '/kpi', label: 'KPI & Statistik', icon: BarChart3 },
 ];
 
 export function AppSidebar() {

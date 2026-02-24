@@ -273,7 +273,7 @@ function EmployeesTab() {
 
     useEffect(() => { fetch(); }, [fetch]);
 
-    const openNew = () => { setEditing({ name: '', is_active: true, hourly_rate: 0, contract_type: 'Vollzeit' }); setIsNew(true); cc.initEditingValues(undefined); };
+    const openNew = () => { setEditing({ name: '', is_active: true, hourly_rate: 0, contract_type: 'Intern' }); setIsNew(true); cc.initEditingValues(undefined); };
     const openEdit = (e: Employee) => { setEditing({ ...e }); setIsNew(false); cc.initEditingValues(e.employee_id); };
 
     const save = async () => {
@@ -445,7 +445,7 @@ function EmployeesTab() {
                         <Field label="Rolle" value={editing.role || ''} onChange={v => setEditing({ ...editing, role: v })} />
                         <div><label className="block text-xs font-medium text-slate-500 mb-1">Vertrag</label>
                             <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={editing.contract_type || ''} onChange={e => setEditing({ ...editing, contract_type: e.target.value })}>
-                                <option value="">—</option><option value="Vollzeit">Vollzeit</option><option value="Teilzeit">Teilzeit</option><option value="Minijob">Minijob</option><option value="Freelance">Freelance</option>
+                                <option value="">—</option><option value="Intern">Intern</option><option value="Extern">Extern</option>
                             </select>
                         </div>
                         <Field label="Std./Woche" type="number" value={String(editing.weekly_hours_contract || '')} onChange={v => setEditing({ ...editing, weekly_hours_contract: +v })} />

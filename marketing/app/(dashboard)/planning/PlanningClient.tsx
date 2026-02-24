@@ -577,7 +577,7 @@ export function PlanningClient() {
                                 else if (viewMode === 'week') setCurrentDate(addDays(currentDate, -7));
                                 else if (viewMode === '3day') setCurrentDate(addDays(currentDate, -3));
                                 else if (viewMode === 'day') {
-                                    const prevD = addDays(new Date(selectedDay), -1);
+                                    const prevD = addDays(currentDate, -1);
                                     setSelectedDay(format(prevD, 'yyyy-MM-dd'));
                                     setCurrentDate(prevD);
                                 }
@@ -600,7 +600,7 @@ export function PlanningClient() {
                                 else if (viewMode === 'week') setCurrentDate(addDays(currentDate, 7));
                                 else if (viewMode === '3day') setCurrentDate(addDays(currentDate, 3));
                                 else if (viewMode === 'day') {
-                                    const nextD = addDays(new Date(selectedDay), 1);
+                                    const nextD = addDays(currentDate, 1);
                                     setSelectedDay(format(nextD, 'yyyy-MM-dd'));
                                     setCurrentDate(nextD);
                                 }

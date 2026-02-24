@@ -281,9 +281,7 @@ function EmployeesTab() {
         setSaving(true);
         try {
             if (isNew) {
-                const id = `EMP-${Date.now()}`;
-                const { error } = await supabase.from('t_employees').insert({
-                    employee_id: id,
+                const { data, error } = await supabase.from('t_employees').insert({
                     name: editing.name,
                     employee_code: editing.employee_code || null,
                     email: editing.email || null,
@@ -294,9 +292,9 @@ function EmployeesTab() {
                     hourly_rate: editing.hourly_rate || null,
                     notes: editing.notes || null,
                     is_active: editing.is_active ?? true,
-                });
+                }).select().single();
                 if (error) throw error;
-                await cc.saveData(id);
+                await cc.saveData(data.employee_id);
                 toast('Mitarbeiter erstellt');
             } else {
                 const { employee_id, created_at, updated_at, ...upd } = editing as Employee;

@@ -12,7 +12,7 @@ import { formatTimeInput } from '@/lib/timeUtils';
 
 import { SearchableSelect } from '@/components/ui/searchable-select';
 
-type Project = { project_id: string; name: string; project_code: string | null };
+type Project = { project_id: string; name: string; project_code: string | null; created_at?: string };
 type Employee = { employee_id: string; name: string; employee_code: string | null };
 type MorningPlan = { plan_id: string; project_id: string | null; project?: Project };
 type TimePair = Database['public']['Tables']['t_time_pairs']['Row'];
@@ -68,7 +68,7 @@ export default function TrackingPage() {
     }, []);
 
     const fetchProjects = useCallback(async () => {
-        const { data } = await supabase.from('t_projects').select('project_id, name, project_code').order('created_at', { ascending: false });
+        const { data } = await supabase.from('t_projects').select('project_id, name, project_code, created_at').order('created_at', { ascending: false });
         setProjects(data || []);
     }, []);
 
@@ -334,14 +334,19 @@ export default function TrackingPage() {
                     {viewMode === 'day' ? (
                         <div className="flex items-center gap-2 rounded-md border bg-white px-2 py-1">
                             <button onClick={() => setCurrentDate(addDays(currentDate, -1))} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"><ChevronLeft className="h-5 w-5" /></button>
-                            <div className="relative group min-w-[140px] text-center">
-                                <div className="flex items-center justify-center gap-2 font-medium text-slate-700 group-hover:text-blue-600 transition-colors cursor-pointer">
-                                    <Calendar className="h-4 w-4 text-slate-400 group-hover:text-blue-500" />
-                                    <span>{format(currentDate, 'EEEE, d. MMM', { locale: de })}</span>
-                                </div>
+                            <div className="flex items-center gap-2 font-medium text-slate-700 px-2 cursor-pointer relative"
+                                onClick={() => {
+                                    // Focus and open picker logic for desktop, though type="date" click works natively on most
+                                    const input = document.getElementById('tracking-date-picker') as HTMLInputElement | null;
+                                    if (input && input.showPicker) input.showPicker();
+                                }}
+                            >
+                                <Calendar className="h-4 w-4 text-slate-400" />
+                                <span className="absolute inset-0 z-10 opacity-0 pointer-events-none">{format(currentDate, 'EEEE, d. MMM', { locale: de })}</span>
                                 <input
+                                    id="tracking-date-picker"
                                     type="date"
-                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                    className="bg-transparent text-sm font-medium text-slate-700 outline-none cursor-pointer w-[125px] flex-1 z-20"
                                     value={format(currentDate, 'yyyy-MM-dd')}
                                     onChange={(e) => e.target.value && setCurrentDate(new Date(e.target.value))}
                                 />
@@ -349,9 +354,12 @@ export default function TrackingPage() {
                             <button onClick={() => setCurrentDate(addDays(currentDate, 1))} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"><ChevronRight className="h-5 w-5" /></button>
                         </div>
                     ) : (
-                        <div className="w-72">
+                        <div className="w-80">
                             <SearchableSelect
-                                options={projects.map(p => ({ value: p.project_id, label: p.name || 'Unbenannt' }))}
+                                options={projects.map(p => ({
+                                    value: p.project_id,
+                                    label: `${p.name || 'Unbenannt'}${p.created_at ? ` (${format(new Date(p.created_at), 'dd.MM.yyyy')})` : ''}`
+                                }))}
                                 value={selectedProjectId}
                                 onChange={setSelectedProjectId}
                                 placeholder="Projekt auswählen..."

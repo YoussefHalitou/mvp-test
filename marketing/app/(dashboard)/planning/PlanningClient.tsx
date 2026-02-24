@@ -576,6 +576,11 @@ export function PlanningClient() {
                                 if (viewMode === 'month') setCurrentDate(addMonths(currentDate, -1));
                                 else if (viewMode === 'week') setCurrentDate(addDays(currentDate, -7));
                                 else if (viewMode === '3day') setCurrentDate(addDays(currentDate, -3));
+                                else if (viewMode === 'day') {
+                                    const prevD = addDays(new Date(selectedDay), -1);
+                                    setSelectedDay(format(prevD, 'yyyy-MM-dd'));
+                                    setCurrentDate(prevD);
+                                }
                                 else setCurrentDate(addDays(currentDate, -1));
                             }} className="p-1 hover:bg-slate-100 rounded">
                                 <ChevronLeft className="h-5 w-5 text-slate-600" />
@@ -594,6 +599,11 @@ export function PlanningClient() {
                                 if (viewMode === 'month') setCurrentDate(addMonths(currentDate, 1));
                                 else if (viewMode === 'week') setCurrentDate(addDays(currentDate, 7));
                                 else if (viewMode === '3day') setCurrentDate(addDays(currentDate, 3));
+                                else if (viewMode === 'day') {
+                                    const nextD = addDays(new Date(selectedDay), 1);
+                                    setSelectedDay(format(nextD, 'yyyy-MM-dd'));
+                                    setCurrentDate(nextD);
+                                }
                                 else setCurrentDate(addDays(currentDate, 1));
                             }} className="p-1 hover:bg-slate-100 rounded">
                                 <ChevronRight className="h-5 w-5 text-slate-600" />

@@ -207,7 +207,7 @@ export default function TrackingPage() {
                     pair_id: row.pair_id || `${row.project_id}-${row.employee_id}-${dateStr}-${Date.now()}-${Math.random()}`,
                     project_id: row.project_id,
                     plan_id: row.plan_id,
-                    datum: dateStr,
+                    datum: row.datum || dateStr,
                     mitarbeiter: row.mitarbeiter,
                     lis_von: row.lis_von ? `${row.lis_von}:00` : null,
                     lis_bis: row.lis_bis ? `${row.lis_bis}:00` : null,
@@ -231,6 +231,28 @@ export default function TrackingPage() {
             const { error } = await supabase.from('t_time_pairs').delete().eq('pair_id', row.pair_id);
             if (error) { toast('Fehler beim Löschen', 'error'); fetchData(); }
         }
+    };
+
+    const addRowToProject = (projectId: string, projectName: string, projectCode: string) => {
+        const defaultDate = viewMode === 'project' ? format(new Date(), 'yyyy-MM-dd') : format(currentDate, 'yyyy-MM-dd');
+        setRows(prev => [...prev, {
+            _tempId: `manual-${Math.random()}`,
+            pair_id: null,
+            project_id: projectId === 'unassigned' ? null : projectId,
+            project_name: projectName,
+            project_code: projectCode,
+            plan_id: null,
+            mitarbeiter: '',
+            employee_id: null,
+            lis_von: '07:00',
+            lis_bis: '',
+            kunde_von: '',
+            kunde_bis: '',
+            pause_min: 0,
+            notes: '',
+            datum: defaultDate,
+            isNew: true,
+        }]);
     };
 
     // ---- WORK ASSIGNMENTS CRUD ----
@@ -433,13 +455,16 @@ export default function TrackingPage() {
                                 const projectCode = projectId === 'unassigned' ? '' : (projectRows[0]?.project_code || '');
 
                                 return (
-                                    <div key={projectId} className="overflow-hidden">
-                                        {viewMode === 'day' && (
-                                            <div className="flex items-center justify-between mb-3 px-1">
-                                                <h3 className="text-lg font-bold text-slate-800">{projectTitle}</h3>
-                                                {projectCode && <span className="text-xs font-mono bg-slate-100 px-2 py-1 rounded text-slate-500">{projectCode}</span>}
+                                    <div key={projectId} className="overflow-hidden mb-6">
+                                        <div className="flex items-center justify-between mb-3 px-1">
+                                            <div className="flex items-center gap-3">
+                                                {viewMode === 'day' && <h3 className="text-lg font-bold text-slate-800">{projectTitle}</h3>}
+                                                {viewMode === 'day' && projectCode && <span className="text-xs font-mono bg-slate-100 px-2 py-1 rounded text-slate-500">{projectCode}</span>}
                                             </div>
-                                        )}
+                                            <button onClick={() => addRowToProject(projectId, projectTitle, projectCode)} className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded transition-colors">
+                                                <Plus className="h-3 w-3" /> Mitarbeiter hinzufügen
+                                            </button>
+                                        </div>
                                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                                             <table className="w-full text-left text-sm">
                                                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-medium">
@@ -464,7 +489,11 @@ export default function TrackingPage() {
                                                             <td className="px-4 py-3 hidden"></td>
                                                             {viewMode === 'project' && (
                                                                 <td className="px-4 py-3 text-sm text-slate-600">
-                                                                    {row.datum ? format(new Date(row.datum), 'dd.MM.yyyy') : '—'}
+                                                                    {row.isNew ? (
+                                                                        <input type="date" className="bg-transparent border border-slate-200 rounded px-2 py-1 text-sm bg-white" value={row.datum || ''} onChange={e => updateRow(row._tempId, 'datum', e.target.value)} />
+                                                                    ) : (
+                                                                        row.datum ? format(new Date(row.datum), 'dd.MM.yyyy') : '—'
+                                                                    )}
                                                                 </td>
                                                             )}
                                                             <td className="px-4 py-3">

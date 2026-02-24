@@ -592,7 +592,7 @@ export function PlanningClient() {
                                         ? `${format(weekStart, 'd. MMM', { locale: de })} – ${format(weekEnd, 'd. MMM yyyy', { locale: de })}`
                                         : viewMode === '3day'
                                             ? `${format(currentDate, 'd. MMM', { locale: de })} – ${format(addDays(currentDate, 2), 'd. MMM', { locale: de })}`
-                                            : format(new Date(selectedDay), 'd. MMMM yyyy', { locale: de })
+                                            : format(currentDate, 'd. MMMM yyyy', { locale: de })
                                 }
                             </span>
                             <button onClick={() => {

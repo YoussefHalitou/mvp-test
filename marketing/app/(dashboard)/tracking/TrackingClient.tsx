@@ -370,7 +370,12 @@ export default function TrackingPage() {
                                     type="date"
                                     className="bg-transparent text-sm font-medium text-slate-700 outline-none cursor-pointer w-[125px] flex-1 z-20"
                                     value={format(currentDate, 'yyyy-MM-dd')}
-                                    onChange={(e) => e.target.value && setCurrentDate(new Date(e.target.value))}
+                                    onChange={(e) => {
+                                        if (e.target.value) {
+                                            const [y, m, d] = e.target.value.split('-');
+                                            setCurrentDate(new Date(Number(y), Number(m) - 1, Number(d)));
+                                        }
+                                    }}
                                 />
                             </div>
                             <button onClick={() => setCurrentDate(addDays(currentDate, 1))} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"><ChevronRight className="h-5 w-5" /></button>

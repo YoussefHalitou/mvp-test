@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/ui/toast';
-import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval } from 'date-fns';
+import { format, addDays, addMonths, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { de } from 'date-fns/locale';
 import {
     ChevronLeft, ChevronRight, Calendar as CalendarIcon, Plus,
@@ -29,13 +29,15 @@ import { ProjectCard } from './components/ProjectCard';
 import { VehicleList } from './components/VehicleList';
 import { EmployeeNotes } from './components/EmployeeNotes';
 import { TimelineView } from './components/TimelineView';
+import { MonthView } from './components/MonthView';
+import { ThreeDayView } from './components/ThreeDayView';
 import { PlanningExport } from './components/PlanningExport';
 
 const SERVICE_TYPES = ['Umzug', 'Entrümpelung', 'Transport', 'Einlagerung', 'Malerarbeiten', 'Kartonlieferung', 'Sonstiges'];
 
 export function PlanningClient() {
     const { toast } = useToast();
-    const [viewMode, setViewMode] = useState<'week' | 'day' | 'timeline'>('week');
+    const [viewMode, setViewMode] = useState<'month' | 'week' | '3day' | 'day' | 'timeline'>('week');
     const [currentDate, setCurrentDate] = useState(new Date());
     const [projects, setProjects] = useState<Project[]>([]);
     const [plans, setPlans] = useState<MorningPlan[]>([]);
@@ -68,8 +70,25 @@ export function PlanningClient() {
     const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
-    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
-    const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
+    // Compute date range based on view mode
+    const dateRange = React.useMemo(() => {
+        if (viewMode === 'month') {
+            const ms = startOfMonth(currentDate);
+            const me = endOfMonth(currentDate);
+            // Extend to full calendar weeks
+            const s = startOfWeek(ms, { weekStartsOn: 1 });
+            const e = endOfWeek(me, { weekStartsOn: 1 });
+            return { start: format(s, 'yyyy-MM-dd'), end: format(e, 'yyyy-MM-dd') };
+        }
+        if (viewMode === '3day') {
+            return { start: format(currentDate, 'yyyy-MM-dd'), end: format(addDays(currentDate, 2), 'yyyy-MM-dd') };
+        }
+        // week, day, timeline all use the week range
+        return { start: format(weekStart, 'yyyy-MM-dd'), end: format(weekEnd, 'yyyy-MM-dd') };
+    }, [viewMode, currentDate, weekStart, weekEnd]);
+
+    const weekStartStr = dateRange.start;
+    const weekEndStr = dateRange.end;
 
     // ---- DATA FETCHING ----
     const fetchData = useCallback(async () => {
@@ -531,50 +550,60 @@ export function PlanningClient() {
                 {/* Header */}
                 <header className="flex items-center justify-between border-b bg-white px-6 py-3 shadow-sm z-10 relative">
                     <div className="flex items-center gap-4">
-                        {(viewMode === 'day' || viewMode === 'timeline') && (
-                            <button onClick={() => setViewMode('week')} className="p-1.5 rounded hover:bg-slate-100 text-slate-600">
-                                <ArrowLeft className="h-5 w-5" />
-                            </button>
-                        )}
-                        <h1 className="text-2xl font-bold text-slate-800">
-                            {viewMode === 'week' ? 'Einsatzplanung' :
-                                viewMode === 'day' ? `Tagesplan: ${format(new Date(selectedDay), 'd. MMMM yyyy', { locale: de })}` :
-                                    `Timeline: ${format(new Date(selectedDay), 'd. MMMM yyyy', { locale: de })}`}
-                        </h1>
+                        <h1 className="text-2xl font-bold text-slate-800">Einsatzplanung</h1>
                     </div>
 
                     <div className="flex items-center gap-3">
-                        {viewMode !== 'week' && (
-                            <div className="flex p-1 bg-slate-100 rounded-lg mr-4">
+                        {/* View Mode Selector */}
+                        <div className="flex p-1 bg-slate-100 rounded-lg">
+                            {([['month', 'Monat'], ['week', 'Woche'], ['3day', '3 Tage'], ['day', 'Tag'], ['timeline', 'Timeline']] as const).map(([mode, label]) => (
                                 <button
-                                    onClick={() => setViewMode('day')}
+                                    key={mode}
+                                    onClick={() => setViewMode(mode)}
                                     className={cn(
                                         "px-3 py-1.5 text-xs font-semibold rounded-md transition-all",
-                                        viewMode === 'day' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                                        viewMode === mode ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
                                     )}
                                 >
-                                    Tagesansicht
+                                    {label}
                                 </button>
-                                <button
-                                    onClick={() => setViewMode('timeline')}
-                                    className={cn(
-                                        "px-3 py-1.5 text-xs font-semibold rounded-md transition-all",
-                                        viewMode === 'timeline' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                                    )}
-                                >
-                                    Timeline
-                                </button>
-                            </div>
-                        )}
-                        {viewMode === 'week' && (
-                            <div className="flex items-center gap-1 rounded-md border bg-white px-2 py-1">
-                                <button onClick={() => setCurrentDate(addDays(currentDate, -7))} className="p-1 hover:bg-slate-100 rounded"><ChevronLeft className="h-5 w-5 text-slate-600" /></button>
-                                <span className="min-w-[160px] text-center font-medium text-sm text-slate-700">
-                                    {format(weekStart, 'd. MMM', { locale: de })} – {format(weekEnd, 'd. MMM yyyy', { locale: de })}
-                                </span>
-                                <button onClick={() => setCurrentDate(addDays(currentDate, 7))} className="p-1 hover:bg-slate-100 rounded"><ChevronRight className="h-5 w-5 text-slate-600" /></button>
-                            </div>
-                        )}
+                            ))}
+                        </div>
+
+                        {/* Date Navigation */}
+                        <div className="flex items-center gap-1 rounded-md border bg-white px-2 py-1">
+                            <button onClick={() => {
+                                if (viewMode === 'month') setCurrentDate(addMonths(currentDate, -1));
+                                else if (viewMode === 'week') setCurrentDate(addDays(currentDate, -7));
+                                else if (viewMode === '3day') setCurrentDate(addDays(currentDate, -3));
+                                else setCurrentDate(addDays(currentDate, -1));
+                            }} className="p-1 hover:bg-slate-100 rounded">
+                                <ChevronLeft className="h-5 w-5 text-slate-600" />
+                            </button>
+                            <span className="min-w-[160px] text-center font-medium text-sm text-slate-700">
+                                {viewMode === 'month'
+                                    ? format(currentDate, 'MMMM yyyy', { locale: de })
+                                    : viewMode === 'week'
+                                        ? `${format(weekStart, 'd. MMM', { locale: de })} – ${format(weekEnd, 'd. MMM yyyy', { locale: de })}`
+                                        : viewMode === '3day'
+                                            ? `${format(currentDate, 'd. MMM', { locale: de })} – ${format(addDays(currentDate, 2), 'd. MMM', { locale: de })}`
+                                            : format(new Date(selectedDay), 'd. MMMM yyyy', { locale: de })
+                                }
+                            </span>
+                            <button onClick={() => {
+                                if (viewMode === 'month') setCurrentDate(addMonths(currentDate, 1));
+                                else if (viewMode === 'week') setCurrentDate(addDays(currentDate, 7));
+                                else if (viewMode === '3day') setCurrentDate(addDays(currentDate, 3));
+                                else setCurrentDate(addDays(currentDate, 1));
+                            }} className="p-1 hover:bg-slate-100 rounded">
+                                <ChevronRight className="h-5 w-5 text-slate-600" />
+                            </button>
+                            <button onClick={() => { setCurrentDate(new Date()); setSelectedDay(format(new Date(), 'yyyy-MM-dd')); }}
+                                className="ml-1 px-2 py-1 text-xs text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors font-medium">
+                                Heute
+                            </button>
+                        </div>
+
                         <button
                             onClick={() => setIsCompact(!isCompact)}
                             className={cn(
@@ -604,8 +633,8 @@ export function PlanningClient() {
 
                 {/* Main Content */}
                 <div className="flex flex-1 overflow-hidden">
-                    {/* Sidebar: Projects (Visible in Week View only) */}
-                    {viewMode === 'week' && (
+                    {/* Sidebar: Projects (Visible in Week and 3-Day View) */}
+                    {(viewMode === 'week' || viewMode === '3day') && (
                         <div className={cn("border-r bg-white flex flex-col transition-all duration-300", sidebarOpen ? "w-80" : "w-10")}>
                             <div className="p-3 border-b bg-slate-50/50 flex items-center justify-between">
                                 {sidebarOpen ? (
@@ -649,7 +678,23 @@ export function PlanningClient() {
                         </div>
                     )}
 
-                    {viewMode === 'week' ? (
+                    {viewMode === 'month' ? (
+                        /* ============ MONTH VIEW ============ */
+                        <MonthView
+                            currentDate={currentDate}
+                            plans={plans}
+                            onDayClick={(dateStr) => { setSelectedDay(dateStr); setCurrentDate(new Date(dateStr)); setViewMode('day'); }}
+                        />
+                    ) : viewMode === '3day' ? (
+                        /* ============ 3-DAY VIEW ============ */
+                        <ThreeDayView
+                            startDate={currentDate}
+                            plans={plans}
+                            onDayClick={(dateStr) => { setSelectedDay(dateStr); setViewMode('day'); }}
+                            onDelete={handleDeletePlan}
+                            onEditPlan={openEditPlan}
+                        />
+                    ) : viewMode === 'week' ? (
                         /* ============ WEEK VIEW ============ */
                         <div className="flex-1 flex flex-col overflow-hidden">
                             {/* Calendar Grid */}

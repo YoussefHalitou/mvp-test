@@ -4,6 +4,7 @@ import { useState, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Building2, CheckCircle, Loader2 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 const industries = [
   { id: 'moving', name: 'Umzugsunternehmen', icon: '🚚' },
@@ -33,6 +34,8 @@ function RegisterForm() {
   const [error, setError] = useState('')
 
   const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -76,31 +79,27 @@ function RegisterForm() {
     setError('')
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-          company_name: formData.companyName,
-          industry: formData.industry,
-          tier: formData.tier,
-        }),
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            full_name: `${formData.firstName} ${formData.lastName}`,
+            company_name: formData.companyName,
+            industry: formData.industry,
+            tier: formData.tier
+          }
+        }
       })
 
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.detail || 'Registrierung fehlgeschlagen')
+      if (signUpError) {
+        throw new Error(signUpError.message || 'Registrierung fehlgeschlagen')
       }
 
-      // Store tokens
-      localStorage.setItem('access_token', data.access_token)
-      localStorage.setItem('refresh_token', data.refresh_token)
       // Set cookie for middleware auth check
-      document.cookie = 'has_session=1; path=/; max-age=604800'
+      document.cookie = 'has_session=true; path=/; max-age=604800'
 
       // Redirect to dashboard
       window.location.href = '/dashboard'
@@ -228,6 +227,39 @@ function RegisterForm() {
                   {error}
                 </div>
               )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+                    Vorname
+                  </label>
+                  <input
+                    type="text"
+                    id="firstName"
+                    name="firstName"
+                    required
+                    value={formData.firstName}
+                    onChange={handleChange}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    placeholder="Max"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">
+                    Nachname
+                  </label>
+                  <input
+                    type="text"
+                    id="lastName"
+                    name="lastName"
+                    required
+                    value={formData.lastName}
+                    onChange={handleChange}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    placeholder="Mustermann"
+                  />
+                </div>
+              </div>
 
               <div>
                 <label htmlFor="companyName" className="block text-sm font-medium text-gray-700 mb-1">

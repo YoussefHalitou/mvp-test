@@ -485,7 +485,7 @@ function VehiclesTab() {
     const { toast } = useToast();
     const [items, setItems] = useState<Vehicle[]>([]);
     const [loading, setLoading] = useState(true);
-    const [editing, setEditing] = useState<Partial<Vehicle> | null>(null);
+    const [editing, setEditing] = useState<Partial<Vehicle & { cost_per_unit: number, price_per_unit: number, gas_cost_per_unit: number, gas_price_per_unit: number }> | null>(null);
     const [isNew, setIsNew] = useState(false);
     const [saving, setSaving] = useState(false);
 
@@ -750,10 +750,10 @@ function VehiclesTab() {
                         <Field label="Einheit" value={editing.unit || ''} onChange={v => setEditing({ ...editing, unit: v })} placeholder="z.B. km, Std" />
                         <Field label="Status" value={editing.status || ''} onChange={v => setEditing({ ...editing, status: v })} />
                         <Field label="Inhalt / Notizen" value={editing.inhalt || ''} onChange={v => setEditing({ ...editing, inhalt: v })} />
-                        <Field label="EK / KM (€)" value={String(editing.cost_per_unit || '')} onChange={v => setEditing({ ...editing, cost_per_unit: v })} type="number" />
-                        <Field label="VK / KM (€)" value={String(editing.price_per_unit || '')} onChange={v => setEditing({ ...editing, price_per_unit: v })} type="number" />
-                        <Field label="Kraftstoff EK (€)" value={String(editing.gas_cost_per_unit || '')} onChange={v => setEditing({ ...editing, gas_cost_per_unit: v })} type="number" />
-                        <Field label="Kraftstoff VK (€)" value={String(editing.gas_price_per_unit || '')} onChange={v => setEditing({ ...editing, gas_price_per_unit: v })} type="number" />
+                        <Field label="EK / KM (€)" value={String(editing.cost_per_unit || '')} onChange={v => setEditing({ ...editing, cost_per_unit: Number(v) || 0 })} type="number" />
+                        <Field label="VK / KM (€)" value={String(editing.price_per_unit || '')} onChange={v => setEditing({ ...editing, price_per_unit: Number(v) || 0 })} type="number" />
+                        <Field label="Kraftstoff EK (€)" value={String(editing.gas_cost_per_unit || '')} onChange={v => setEditing({ ...editing, gas_cost_per_unit: Number(v) || 0 })} type="number" />
+                        <Field label="Kraftstoff VK (€)" value={String(editing.gas_price_per_unit || '')} onChange={v => setEditing({ ...editing, gas_price_per_unit: Number(v) || 0 })} type="number" />
                     </div>
                 </Modal>
             )}

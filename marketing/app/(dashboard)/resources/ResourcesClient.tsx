@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/ui/toast';
 import {
-    Users, Truck, Package, Wrench, Plus, Pencil, Trash2, X, Save, Loader2, Check
+    Users, Truck, Package, Wrench, Plus, Pencil, Trash2, X, Save, Loader2, Check,
+    Settings, Eye, EyeOff, Columns3
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -113,6 +114,92 @@ export default function ResourcesPage() {
     );
 }
 
+// ============ CUSTOM COLUMNS HOOK (Supabase-backed) ============
+
+type CustomCol = { id: string; label: string; type: 'text' | 'number' };
+
+function useCustomColumns(tableName: string) {
+    const [customColumns, setCustomColumns] = useState<CustomCol[]>([]);
+    const [customData, setCustomData] = useState<Record<string, Record<string, string>>>({});
+    // Temp state for editing custom values (works for both new and existing records)
+    const [editingCustomValues, setEditingCustomValues] = useState<Record<string, string>>({});
+
+    const fetchColumns = useCallback(async () => {
+        const { data } = await supabase
+            .from('t_custom_columns')
+            .select('*')
+            .eq('table_name', tableName)
+            .order('sort_order');
+        if (data) {
+            setCustomColumns(data.map((d: any) => ({ id: d.id, label: d.column_name, type: d.column_type as 'text' | 'number' })));
+        }
+    }, [tableName]);
+
+    const fetchData = useCallback(async (recordIds: string[]) => {
+        if (recordIds.length === 0) return;
+        const { data } = await supabase
+            .from('t_custom_column_data')
+            .select('custom_column_id, record_id, value')
+            .in('record_id', recordIds);
+        if (data) {
+            const map: Record<string, Record<string, string>> = {};
+            data.forEach((d: any) => {
+                if (!map[d.record_id]) map[d.record_id] = {};
+                map[d.record_id][d.custom_column_id] = d.value || '';
+            });
+            setCustomData(map);
+        }
+    }, []);
+
+    const addColumn = useCallback(async (name: string, type: 'text' | 'number') => {
+        const id = `custom_${Date.now()}`;
+        const { error } = await supabase.from('t_custom_columns').insert({
+            id, table_name: tableName, column_name: name, column_type: type, sort_order: customColumns.length
+        });
+        if (!error) {
+            setCustomColumns(prev => [...prev, { id, label: name, type }]);
+        }
+    }, [tableName, customColumns.length]);
+
+    const deleteColumn = useCallback(async (id: string) => {
+        const { error } = await supabase.from('t_custom_columns').delete().eq('id', id);
+        if (!error) {
+            setCustomColumns(prev => prev.filter(c => c.id !== id));
+        }
+    }, []);
+
+    const initEditingValues = useCallback((recordId: string | undefined) => {
+        if (recordId && customData[recordId]) {
+            setEditingCustomValues({ ...customData[recordId] });
+        } else {
+            setEditingCustomValues({});
+        }
+    }, [customData]);
+
+    const setEditingValue = useCallback((colId: string, value: string) => {
+        setEditingCustomValues(prev => ({ ...prev, [colId]: value }));
+    }, []);
+
+    const saveData = useCallback(async (recordId: string) => {
+        const entries = Object.entries(editingCustomValues).filter(([, v]) => v !== '');
+        if (entries.length === 0) return;
+        const rows = entries.map(([colId, value]) => ({
+            custom_column_id: colId,
+            record_id: recordId,
+            value,
+        }));
+        await supabase.from('t_custom_column_data').upsert(rows, { onConflict: 'custom_column_id,record_id' });
+        // Update local cache
+        setCustomData(prev => ({ ...prev, [recordId]: { ...prev[recordId], ...editingCustomValues } }));
+    }, [editingCustomValues]);
+
+    return {
+        customColumns, customData, editingCustomValues,
+        fetchColumns, fetchData, addColumn, deleteColumn,
+        initEditingValues, setEditingValue, saveData,
+    };
+}
+
 // ============ EMPLOYEES TAB ============
 
 function EmployeesTab() {
@@ -126,7 +213,7 @@ function EmployeesTab() {
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
     // Column Definitions
-    const initialColumns = [
+    const initialColumns: { id: string; label: string; align?: string }[] = [
         { id: 'employee_code', label: 'Kürzel' },
         { id: 'name', label: 'Name' },
         { id: 'role', label: 'Rolle' },
@@ -138,6 +225,40 @@ function EmployeesTab() {
 
     // Persisted Column Order
     const [columnOrder, setColumnOrder] = useLocalStorage<string[]>('employees_column_order', initialColumns.map(c => c.id));
+    // Hidden Columns
+    const [hiddenColumns, setHiddenColumns] = useLocalStorage<string[]>('employees_hidden_columns', []);
+    // Custom Columns (Supabase-backed)
+    const cc = useCustomColumns('employees');
+
+    // All columns = built-in + custom
+    const allColumns = React.useMemo(() => [
+        ...initialColumns,
+        ...cc.customColumns.map(c => ({ id: c.id, label: c.label, align: c.type === 'number' ? 'right' : undefined, isCustom: true as const }))
+    ], [cc.customColumns]);
+
+    // Sync column order when custom columns are added/removed
+    React.useEffect(() => {
+        const allIds = allColumns.map(c => c.id);
+        const hasNew = allIds.some(id => !columnOrder.includes(id));
+        const hasRemoved = columnOrder.some(id => !allIds.some(c => c === id));
+        if (hasNew || hasRemoved) {
+            setColumnOrder(prev => {
+                const existing = prev.filter(id => allIds.includes(id));
+                const newIds = allIds.filter(id => !existing.includes(id));
+                return [...existing, ...newIds];
+            });
+        }
+    }, [allColumns]);
+
+    const toggleColumn = (colId: string) => {
+        setHiddenColumns(prev => prev.includes(colId) ? prev.filter(id => id !== colId) : [...prev, colId]);
+    };
+
+    const deleteCustomColumn = (id: string) => {
+        cc.deleteColumn(id);
+        setColumnOrder(prev => prev.filter(cid => cid !== id));
+        setHiddenColumns(prev => prev.filter(cid => cid !== id));
+    };
 
     const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor));
 
@@ -145,20 +266,24 @@ function EmployeesTab() {
         setLoading(true);
         const { data } = await supabase.from('t_employees').select('*').order('name');
         setItems(data || []);
+        await cc.fetchColumns();
+        if (data && data.length > 0) await cc.fetchData(data.map((d: any) => d.employee_id));
         setLoading(false);
-    }, []);
+    }, [cc.fetchColumns, cc.fetchData]);
 
     useEffect(() => { fetch(); }, [fetch]);
 
-    const openNew = () => { setEditing({ name: '', is_active: true, hourly_rate: 0, contract_type: 'Vollzeit' }); setIsNew(true); };
-    const openEdit = (e: Employee) => { setEditing({ ...e }); setIsNew(false); };
+    const openNew = () => { setEditing({ name: '', is_active: true, hourly_rate: 0, contract_type: 'Vollzeit' }); setIsNew(true); cc.initEditingValues(undefined); };
+    const openEdit = (e: Employee) => { setEditing({ ...e }); setIsNew(false); cc.initEditingValues(e.employee_id); };
 
     const save = async () => {
         if (!editing?.name) return;
         setSaving(true);
         try {
             if (isNew) {
+                const id = `EMP-${Date.now()}`;
                 const { error } = await supabase.from('t_employees').insert({
+                    employee_id: id,
                     name: editing.name,
                     employee_code: editing.employee_code || null,
                     email: editing.email || null,
@@ -171,11 +296,13 @@ function EmployeesTab() {
                     is_active: editing.is_active ?? true,
                 });
                 if (error) throw error;
+                await cc.saveData(id);
                 toast('Mitarbeiter erstellt');
             } else {
                 const { employee_id, created_at, updated_at, ...upd } = editing as Employee;
                 const { error } = await supabase.from('t_employees').update(upd).eq('employee_id', employee_id);
                 if (error) throw error;
+                await cc.saveData(employee_id);
                 toast('Mitarbeiter aktualisiert');
             }
             setEditing(null);
@@ -235,30 +362,46 @@ function EmployeesTab() {
             case 'weekly_hours_contract': return <td className="px-4 py-3 text-right font-mono">{e.weekly_hours_contract ?? '—'}</td>;
             case 'hourly_rate': return <td className="px-4 py-3 text-right font-mono">{e.hourly_rate ? `${e.hourly_rate.toFixed(2)} €` : '—'}</td>;
             case 'is_active': return <td className="px-4 py-3 text-center">{e.is_active ? <Check className="h-4 w-4 text-green-600 mx-auto" /> : <X className="h-4 w-4 text-slate-300 mx-auto" />}</td>;
-            default: return <td className="px-4 py-3 text-slate-500">-</td>;
+            default: {
+                // Custom column
+                const val = cc.customData[e.employee_id]?.[colId] || '';
+                const col = cc.customColumns.find(c => c.id === colId);
+                return <td className={cn('px-4 py-3', col?.type === 'number' ? 'text-right font-mono' : 'text-slate-600')}>{val || '—'}</td>;
+            }
         }
     };
 
     if (loading) return <LoadingSpinner />;
 
-    // Derived ordered columns
-    const orderedColumns = columnOrder.map(id => initialColumns.find(c => c.id === id)!).filter(Boolean);
+    // Derived ordered columns (visible only)
+    const orderedColumns = columnOrder.map(id => allColumns.find(c => c.id === id)!).filter(Boolean);
+    const visibleColumns = orderedColumns.filter(col => !hiddenColumns.includes(col.id));
 
     return (
         <>
             <div className="flex items-center justify-between mb-4">
                 <span className="text-sm text-slate-500">{items.length} Mitarbeiter</span>
-                <button onClick={openNew} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
-                    <Plus className="h-4 w-4" /> Hinzufügen
-                </button>
+                <div className="flex items-center gap-2">
+                    <ColumnSettingsDropdown
+                        allColumns={allColumns.map(c => ({ id: c.id, label: c.label, isCustom: 'isCustom' in c && c.isCustom === true }))}
+                        hiddenColumns={hiddenColumns}
+                        onToggle={toggleColumn}
+                        customColumns={cc.customColumns}
+                        onAddCustomColumn={cc.addColumn}
+                        onDeleteCustomColumn={deleteCustomColumn}
+                    />
+                    <button onClick={openNew} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
+                        <Plus className="h-4 w-4" /> Hinzufügen
+                    </button>
+                </div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 border-b text-xs font-medium text-slate-500 uppercase">
-                            <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
+                            <SortableContext items={visibleColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
                                 <tr>
-                                    {orderedColumns.map(col => (
+                                    {visibleColumns.map(col => (
                                         <SortableHeader
                                             key={col.id}
                                             id={col.id}
@@ -278,7 +421,7 @@ function EmployeesTab() {
                         <tbody className="divide-y divide-slate-100">
                             {sortedItems.map(e => (
                                 <tr key={e.employee_id} className="hover:bg-slate-50 group cursor-pointer" onClick={() => openEdit(e)}>
-                                    {orderedColumns.map(col => (
+                                    {visibleColumns.map(col => (
                                         <React.Fragment key={col.id}>
                                             {renderCell(e, col.id)}
                                         </React.Fragment>
@@ -314,6 +457,22 @@ function EmployeesTab() {
                     </div>
                     <div className="mt-3"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editing.is_active ?? true} onChange={e => setEditing({ ...editing, is_active: e.target.checked })} className="rounded" /> Aktiv</label></div>
                     <Field label="Notizen" value={editing.notes || ''} onChange={v => setEditing({ ...editing, notes: v })} textarea />
+                    {cc.customColumns.length > 0 && (
+                        <div className="border-t border-slate-200 pt-3 mt-3">
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Eigene Spalten</p>
+                            <div className="grid grid-cols-2 gap-3">
+                                {cc.customColumns.map(col => (
+                                    <Field
+                                        key={col.id}
+                                        label={col.label}
+                                        type={col.type === 'number' ? 'number' : 'text'}
+                                        value={cc.editingCustomValues[col.id] || ''}
+                                        onChange={v => cc.setEditingValue(col.id, v)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </Modal>
             )}
         </>
@@ -333,7 +492,7 @@ function VehiclesTab() {
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
     // Column Definitions
-    const initialColumns = [
+    const initialColumns: { id: string; label: string; align?: string }[] = [
         { id: 'vehicle_id', label: 'ID' },
         { id: 'nickname', label: 'Spitzname' },
         { id: 'unit', label: 'Einheit' },
@@ -347,6 +506,29 @@ function VehiclesTab() {
 
     // Persisted Column Order
     const [columnOrder, setColumnOrder] = useLocalStorage<string[]>('vehicles_column_order_v4', initialColumns.map(c => c.id));
+    const [hiddenColumns, setHiddenColumns] = useLocalStorage<string[]>('vehicles_hidden_columns', []);
+    const cc = useCustomColumns('vehicles');
+
+    const allColumns = React.useMemo(() => [
+        ...initialColumns,
+        ...cc.customColumns.map(c => ({ id: c.id, label: c.label, align: c.type === 'number' ? 'right' : undefined, isCustom: true as const }))
+    ], [cc.customColumns]);
+
+    React.useEffect(() => {
+        const allIds = allColumns.map(c => c.id);
+        const hasNew = allIds.some(id => !columnOrder.includes(id));
+        const hasRemoved = columnOrder.some(id => !allIds.some(c => c === id));
+        if (hasNew || hasRemoved) {
+            setColumnOrder(prev => {
+                const existing = prev.filter(id => allIds.includes(id));
+                const newIds = allIds.filter(id => !existing.includes(id));
+                return [...existing, ...newIds];
+            });
+        }
+    }, [allColumns]);
+
+    const toggleColumn = (colId: string) => setHiddenColumns(prev => prev.includes(colId) ? prev.filter(id => id !== colId) : [...prev, colId]);
+    const deleteCustomColumn = (id: string) => { cc.deleteColumn(id); setColumnOrder(prev => prev.filter(cid => cid !== id)); setHiddenColumns(prev => prev.filter(cid => cid !== id)); };
 
     const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor));
 
@@ -370,13 +552,15 @@ function VehiclesTab() {
         });
 
         setItems(flatData);
+        await cc.fetchColumns();
+        if (flatData.length > 0) await cc.fetchData(flatData.map((d: any) => d.vehicle_id));
         setLoading(false);
-    }, []);
+    }, [cc.fetchColumns, cc.fetchData]);
 
     useEffect(() => { fetch(); }, [fetch]);
 
-    const openNew = () => { setEditing({ nickname: '', vehicle_id: `v-${Date.now()}`, is_deleted: false, cost_per_unit: 0, price_per_unit: 0, gas_cost_per_unit: 0, gas_price_per_unit: 0 }); setIsNew(true); };
-    const openEdit = (v: any) => { setEditing({ ...v }); setIsNew(false); };
+    const openNew = () => { setEditing({ nickname: '', vehicle_id: `v-${Date.now()}`, is_deleted: false, cost_per_unit: 0, price_per_unit: 0, gas_cost_per_unit: 0, gas_price_per_unit: 0 }); setIsNew(true); cc.initEditingValues(undefined); };
+    const openEdit = (v: any) => { setEditing({ ...v }); setIsNew(false); cc.initEditingValues(v.vehicle_id); };
 
     const save = async () => {
         if (!editing?.nickname) return;
@@ -402,9 +586,10 @@ function VehiclesTab() {
                     gas_price_per_unit: Number(editing.gas_price_per_unit) || 0,
                     currency: 'EUR'
                 });
+                await cc.saveData(vid);
                 toast('Fahrzeug erstellt');
             } else {
-                const { created_at, updated_at, rates, cost_per_unit, price_per_unit, gas_cost_per_unit, gas_price_per_unit, ...upd } = editing as any; // remove flattened props before update
+                const { created_at, updated_at, rates, cost_per_unit, price_per_unit, gas_cost_per_unit, gas_price_per_unit, ...upd } = editing as any;
                 const { error } = await supabase.from('t_vehicles').update(upd).eq('vehicle_id', editing.vehicle_id);
                 if (error) throw error;
                 await supabase.from('t_vehicle_rates').upsert({
@@ -415,6 +600,7 @@ function VehiclesTab() {
                     gas_price_per_unit: Number(editing.gas_price_per_unit) || 0,
                     currency: 'EUR'
                 });
+                await cc.saveData(editing.vehicle_id!);
                 toast('Fahrzeug aktualisiert');
             }
             setEditing(null);
@@ -482,30 +668,45 @@ function VehiclesTab() {
             case 'gas_cost_per_unit': return <td className="px-4 py-3 text-right font-mono text-slate-500">{v.gas_cost_per_unit ? `${v.gas_cost_per_unit.toFixed(2)} €` : '—'}</td>;
             case 'price_per_unit': return <td className="px-4 py-3 text-right font-mono">{v.price_per_unit ? `${v.price_per_unit.toFixed(2)} €` : '—'}</td>;
             case 'gas_price_per_unit': return <td className="px-4 py-3 text-right font-mono text-slate-500">{v.gas_price_per_unit ? `${v.gas_price_per_unit.toFixed(2)} €` : '—'}</td>;
-            default: return <td className="px-4 py-3 text-slate-500">-</td>;
+            default: {
+                const val = cc.customData[v.vehicle_id]?.[colId] || '';
+                const col = cc.customColumns.find(c => c.id === colId);
+                return <td className={cn('px-4 py-3', col?.type === 'number' ? 'text-right font-mono' : 'text-slate-600')}>{val || '—'}</td>;
+            }
         }
     };
 
     if (loading) return <LoadingSpinner />;
 
-    // Derived ordered columns
-    const orderedColumns = columnOrder.map(id => initialColumns.find(c => c.id === id)!).filter(Boolean);
+    // Derived ordered columns (visible only)
+    const orderedColumns = columnOrder.map(id => allColumns.find(c => c.id === id)!).filter(Boolean);
+    const visibleColumns = orderedColumns.filter(col => !hiddenColumns.includes(col.id));
 
     return (
         <>
             <div className="flex items-center justify-between mb-4">
                 <span className="text-sm text-slate-500">{items.length} Fahrzeuge</span>
-                <button onClick={openNew} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
-                    <Plus className="h-4 w-4" /> Hinzufügen
-                </button>
+                <div className="flex items-center gap-2">
+                    <ColumnSettingsDropdown
+                        allColumns={allColumns.map(c => ({ id: c.id, label: c.label, isCustom: 'isCustom' in c && c.isCustom === true }))}
+                        hiddenColumns={hiddenColumns}
+                        onToggle={toggleColumn}
+                        customColumns={cc.customColumns}
+                        onAddCustomColumn={cc.addColumn}
+                        onDeleteCustomColumn={deleteCustomColumn}
+                    />
+                    <button onClick={openNew} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
+                        <Plus className="h-4 w-4" /> Hinzufügen
+                    </button>
+                </div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 border-b text-xs font-medium text-slate-500 uppercase">
-                            <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
+                            <SortableContext items={visibleColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
                                 <tr>
-                                    {orderedColumns.map(col => (
+                                    {visibleColumns.map(col => (
                                         <SortableHeader
                                             key={col.id}
                                             id={col.id}
@@ -525,7 +726,7 @@ function VehiclesTab() {
                         <tbody className="divide-y divide-slate-100">
                             {sortedItems.map(v => (
                                 <tr key={v.vehicle_id} className="hover:bg-slate-50 group cursor-pointer" onClick={() => openEdit(v)}>
-                                    {orderedColumns.map(col => (
+                                    {visibleColumns.map(col => (
                                         <React.Fragment key={col.id}>
                                             {renderCell(v, col.id)}
                                         </React.Fragment>
@@ -571,7 +772,7 @@ function MaterialsTab() {
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
     // Column Definitions
-    const initialColumns = [
+    const initialColumns: { id: string; label: string; align?: string }[] = [
         { id: 'name', label: 'Material' },
         { id: 'unit', label: 'Einheit' },
         { id: 'category', label: 'Kategorie' },
@@ -582,6 +783,25 @@ function MaterialsTab() {
 
     // Persisted Column Order
     const [columnOrder, setColumnOrder] = useLocalStorage<string[]>('materials_column_order', initialColumns.map(c => c.id));
+    const [hiddenColumns, setHiddenColumns] = useLocalStorage<string[]>('materials_hidden_columns', []);
+    const cc = useCustomColumns('materials');
+
+    const allColumns = React.useMemo(() => [
+        ...initialColumns,
+        ...cc.customColumns.map(c => ({ id: c.id, label: c.label, align: c.type === 'number' ? 'right' : undefined, isCustom: true as const }))
+    ], [cc.customColumns]);
+
+    React.useEffect(() => {
+        const allIds = allColumns.map(c => c.id);
+        const hasNew = allIds.some(id => !columnOrder.includes(id));
+        const hasRemoved = columnOrder.some(id => !allIds.some(c => c === id));
+        if (hasNew || hasRemoved) {
+            setColumnOrder(prev => { const existing = prev.filter(id => allIds.includes(id)); const newIds = allIds.filter(id => !existing.includes(id)); return [...existing, ...newIds]; });
+        }
+    }, [allColumns]);
+
+    const toggleColumn = (colId: string) => setHiddenColumns(prev => prev.includes(colId) ? prev.filter(id => id !== colId) : [...prev, colId]);
+    const deleteCustomColumn = (id: string) => { cc.deleteColumn(id); setColumnOrder(prev => prev.filter(cid => cid !== id)); setHiddenColumns(prev => prev.filter(cid => cid !== id)); };
 
     const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor));
 
@@ -600,20 +820,22 @@ function MaterialsTab() {
         });
 
         setItems(flatData);
+        await cc.fetchColumns();
+        if (flatData.length > 0) await cc.fetchData(flatData.map((d: any) => d.material_id));
         setLoading(false);
-    }, []);
+    }, [cc.fetchColumns, cc.fetchData]);
 
     useEffect(() => { fetch(); }, [fetch]);
 
     const openNew = () => {
         setEditing({ material_id: '', name: '', unit: 'Stk', category: '', vat_rate: 19, cost_per_unit: 0, price_per_unit: 0 });
         setIsNew(true);
+        cc.initEditingValues(undefined);
     };
     const openEdit = (m: any) => {
-        // m is already flattened from fetch, but if we save and don't re-fetch properly it might be an issue. 
-        // ideally we trust 'm' has cost/price from the flattened state.
         setEditing({ ...m });
         setIsNew(false);
+        cc.initEditingValues(m.material_id);
     };
 
     const save = async () => {
@@ -630,6 +852,7 @@ function MaterialsTab() {
                 await supabase.from('t_material_prices').upsert({
                     material_id: id, cost_per_unit: Number(editing.cost_per_unit) || 0, price_per_unit: Number(editing.price_per_unit) || 0
                 });
+                await cc.saveData(id);
                 toast('Material erstellt');
             } else {
                 const { error } = await supabase.from('t_materials').update({
@@ -640,6 +863,7 @@ function MaterialsTab() {
                 await supabase.from('t_material_prices').upsert({
                     material_id: editing.material_id, cost_per_unit: Number(editing.cost_per_unit) || 0, price_per_unit: Number(editing.price_per_unit) || 0
                 });
+                await cc.saveData(editing.material_id);
                 toast('Material aktualisiert');
             }
             setEditing(null); fetch();
@@ -700,40 +924,48 @@ function MaterialsTab() {
             case 'cost_per_unit': return <td className="px-4 py-3 text-right font-mono">{m.cost_per_unit ? `${m.cost_per_unit.toFixed(2)} €` : '—'}</td>;
             case 'price_per_unit': return <td className="px-4 py-3 text-right font-mono">{m.price_per_unit ? `${m.price_per_unit.toFixed(2)} €` : '—'}</td>;
             case 'vat_rate': return <td className="px-4 py-3 text-right">{m.vat_rate ? `${m.vat_rate}%` : '—'}</td>;
-            default: return <td className="px-4 py-3 text-slate-500">-</td>;
+            default: {
+                const val = cc.customData[m.material_id]?.[colId] || '';
+                const col = cc.customColumns.find(c => c.id === colId);
+                return <td className={cn('px-4 py-3', col?.type === 'number' ? 'text-right font-mono' : 'text-slate-600')}>{val || '—'}</td>;
+            }
         }
     };
 
     if (loading) return <LoadingSpinner />;
 
-    // Derived ordered columns
-    const orderedColumns = columnOrder.map(id => initialColumns.find(c => c.id === id)!).filter(Boolean);
+    // Derived ordered columns (visible only)
+    const orderedColumns = columnOrder.map(id => allColumns.find(c => c.id === id)!).filter(Boolean);
+    const visibleColumns = orderedColumns.filter(col => !hiddenColumns.includes(col.id));
 
     return (
         <>
             <div className="flex items-center justify-between mb-4">
                 <span className="text-sm text-slate-500">{items.length} Materialien</span>
-                <button onClick={openNew} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
-                    <Plus className="h-4 w-4" /> Hinzufügen
-                </button>
+                <div className="flex items-center gap-2">
+                    <ColumnSettingsDropdown
+                        allColumns={allColumns.map(c => ({ id: c.id, label: c.label, isCustom: 'isCustom' in c && c.isCustom === true }))}
+                        hiddenColumns={hiddenColumns}
+                        onToggle={toggleColumn}
+                        customColumns={cc.customColumns}
+                        onAddCustomColumn={cc.addColumn}
+                        onDeleteCustomColumn={deleteCustomColumn}
+                    />
+                    <button onClick={openNew} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
+                        <Plus className="h-4 w-4" /> Hinzufügen
+                    </button>
+                </div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 border-b text-xs font-medium text-slate-500 uppercase">
-                            <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
+                            <SortableContext items={visibleColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
                                 <tr>
-                                    {orderedColumns.map(col => (
-                                        <SortableHeader
-                                            key={col.id}
-                                            id={col.id}
-                                            onClick={() => handleSort(col.id)}
-                                            sortDirection={sortConfig?.key === col.id ? sortConfig.direction : undefined}
-                                        >
-                                            <div className={cn("flex items-center gap-1",
-                                                col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start')}>
-                                                {col.label}
-                                            </div>
+                                    {visibleColumns.map(col => (
+                                        <SortableHeader key={col.id} id={col.id} onClick={() => handleSort(col.id)}
+                                            sortDirection={sortConfig?.key === col.id ? sortConfig.direction : undefined}>
+                                            <div className={cn("flex items-center gap-1", col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start')}>{col.label}</div>
                                         </SortableHeader>
                                     ))}
                                     <th className="w-20"></th>
@@ -743,7 +975,7 @@ function MaterialsTab() {
                         <tbody className="divide-y divide-slate-100">
                             {sortedItems.map(m => (
                                 <tr key={m.material_id} className="hover:bg-slate-50 group cursor-pointer" onClick={() => openEdit(m)}>
-                                    {orderedColumns.map(col => (
+                                    {visibleColumns.map(col => (
                                         <React.Fragment key={col.id}>
                                             {renderCell(m, col.id)}
                                         </React.Fragment>
@@ -787,7 +1019,7 @@ function ServicesTab() {
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
     // Column Definitions
-    const initialColumns = [
+    const initialColumns: { id: string; label: string; align?: string }[] = [
         { id: 'name', label: 'Leistung' },
         { id: 'default_unit', label: 'Einheit' },
         { id: 'category', label: 'Kategorie' },
@@ -796,6 +1028,25 @@ function ServicesTab() {
 
     // Persisted Column Order
     const [columnOrder, setColumnOrder] = useLocalStorage<string[]>('services_column_order', initialColumns.map(c => c.id));
+    const [hiddenColumns, setHiddenColumns] = useLocalStorage<string[]>('services_hidden_columns', []);
+    const cc = useCustomColumns('services');
+
+    const allColumns = React.useMemo(() => [
+        ...initialColumns,
+        ...cc.customColumns.map(c => ({ id: c.id, label: c.label, align: c.type === 'number' ? 'right' : undefined, isCustom: true as const }))
+    ], [cc.customColumns]);
+
+    React.useEffect(() => {
+        const allIds = allColumns.map(c => c.id);
+        const hasNew = allIds.some(id => !columnOrder.includes(id));
+        const hasRemoved = columnOrder.some(id => !allIds.some(c => c === id));
+        if (hasNew || hasRemoved) {
+            setColumnOrder(prev => { const existing = prev.filter(id => allIds.includes(id)); const newIds = allIds.filter(id => !existing.includes(id)); return [...existing, ...newIds]; });
+        }
+    }, [allColumns]);
+
+    const toggleColumn = (colId: string) => setHiddenColumns(prev => prev.includes(colId) ? prev.filter(id => id !== colId) : [...prev, colId]);
+    const deleteCustomColumn = (id: string) => { cc.deleteColumn(id); setColumnOrder(prev => prev.filter(cid => cid !== id)); setHiddenColumns(prev => prev.filter(cid => cid !== id)); };
 
     const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor));
 
@@ -803,13 +1054,15 @@ function ServicesTab() {
         setLoading(true);
         const { data } = await supabase.from('t_services').select('*, prices:t_service_prices(*)').eq('is_active', true).order('name');
         setItems(data || []);
+        await cc.fetchColumns();
+        if (data && data.length > 0) await cc.fetchData(data.map((d: any) => d.service_id));
         setLoading(false);
-    }, []);
+    }, [cc.fetchColumns, cc.fetchData]);
 
     useEffect(() => { fetch(); }, [fetch]);
 
-    const openNew = () => { setEditing({ name: '', default_unit: 'Std', is_active: true, prices: [] }); setIsNew(true); };
-    const openEdit = (s: any) => { setEditing({ ...s, prices: s.prices || [] }); setIsNew(false); };
+    const openNew = () => { setEditing({ name: '', default_unit: 'Std', is_active: true, prices: [] }); setIsNew(true); cc.initEditingValues(undefined); };
+    const openEdit = (s: any) => { setEditing({ ...s, prices: s.prices || [] }); setIsNew(false); cc.initEditingValues(s.service_id); };
 
     const save = async () => {
         if (!editing?.name) return;
@@ -859,6 +1112,7 @@ function ServicesTab() {
             }
 
             toast(isNew ? 'Leistung erstellt' : 'Leistung aktualisiert');
+            await cc.saveData(sid);
             setEditing(null);
             fetch();
         } catch (err) {
@@ -947,40 +1201,48 @@ function ServicesTab() {
                     </div>
                 </td>
             );
-            default: return <td className="px-4 py-3 text-slate-500">-</td>;
+            default: {
+                const val = cc.customData[s.service_id]?.[colId] || '';
+                const col = cc.customColumns.find(c => c.id === colId);
+                return <td className={cn('px-4 py-3', col?.type === 'number' ? 'text-right font-mono' : 'text-slate-600')}>{val || '—'}</td>;
+            }
         }
     };
 
     if (loading) return <LoadingSpinner />;
 
-    // Derived ordered columns
-    const orderedColumns = columnOrder.map(id => initialColumns.find(c => c.id === id)!).filter(Boolean);
+    // Derived ordered columns (visible only)
+    const orderedColumns = columnOrder.map(id => allColumns.find(c => c.id === id)!).filter(Boolean);
+    const visibleColumns = orderedColumns.filter(col => !hiddenColumns.includes(col.id));
 
     return (
         <>
             <div className="flex items-center justify-between mb-4">
                 <span className="text-sm text-slate-500">{items.length} Leistungen</span>
-                <button onClick={openNew} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
-                    <Plus className="h-4 w-4" /> Hinzufügen
-                </button>
+                <div className="flex items-center gap-2">
+                    <ColumnSettingsDropdown
+                        allColumns={allColumns.map(c => ({ id: c.id, label: c.label, isCustom: 'isCustom' in c && c.isCustom === true }))}
+                        hiddenColumns={hiddenColumns}
+                        onToggle={toggleColumn}
+                        customColumns={cc.customColumns}
+                        onAddCustomColumn={cc.addColumn}
+                        onDeleteCustomColumn={deleteCustomColumn}
+                    />
+                    <button onClick={openNew} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
+                        <Plus className="h-4 w-4" /> Hinzufügen
+                    </button>
+                </div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 border-b text-xs font-medium text-slate-500 uppercase">
-                            <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
+                            <SortableContext items={visibleColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
                                 <tr>
-                                    {orderedColumns.map(col => (
-                                        <SortableHeader
-                                            key={col.id}
-                                            id={col.id}
-                                            onClick={() => handleSort(col.id)}
-                                            sortDirection={sortConfig?.key === col.id ? sortConfig.direction : undefined}
-                                        >
-                                            <div className={cn("flex items-center gap-1",
-                                                col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start')}>
-                                                {col.label}
-                                            </div>
+                                    {visibleColumns.map(col => (
+                                        <SortableHeader key={col.id} id={col.id} onClick={() => handleSort(col.id)}
+                                            sortDirection={sortConfig?.key === col.id ? sortConfig.direction : undefined}>
+                                            <div className={cn("flex items-center gap-1", col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start')}>{col.label}</div>
                                         </SortableHeader>
                                     ))}
                                     <th className="w-20"></th>
@@ -990,7 +1252,7 @@ function ServicesTab() {
                         <tbody className="divide-y divide-slate-100">
                             {sortedItems.map(s => (
                                 <tr key={s.service_id} className="hover:bg-slate-50 group cursor-pointer" onClick={() => openEdit(s)}>
-                                    {orderedColumns.map(col => (
+                                    {visibleColumns.map(col => (
                                         <React.Fragment key={col.id}>
                                             {renderCell(s, col.id)}
                                         </React.Fragment>
@@ -1089,6 +1351,168 @@ function ServicesTab() {
 }
 
 // ============ SHARED COMPONENTS ============
+
+// --- Column Settings Dropdown ---
+function ColumnSettingsDropdown({
+    allColumns,
+    hiddenColumns,
+    onToggle,
+    customColumns,
+    onAddCustomColumn,
+    onDeleteCustomColumn,
+}: {
+    allColumns: { id: string; label: string; isCustom?: boolean }[];
+    hiddenColumns: string[];
+    onToggle: (colId: string) => void;
+    customColumns?: { id: string; label: string; type: 'text' | 'number' }[];
+    onAddCustomColumn?: (name: string, type: 'text' | 'number') => void;
+    onDeleteCustomColumn?: (id: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const [addingCol, setAddingCol] = useState(false);
+    const [newColName, setNewColName] = useState('');
+    const [newColType, setNewColType] = useState<'text' | 'number'>('text');
+    const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+    // Close on outside click
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setOpen(false);
+                setAddingCol(false);
+            }
+        };
+        if (open) document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [open]);
+
+    const handleAdd = () => {
+        if (newColName.trim() && onAddCustomColumn) {
+            onAddCustomColumn(newColName.trim(), newColType);
+            setNewColName('');
+            setNewColType('text');
+            setAddingCol(false);
+        }
+    };
+
+    const hiddenCount = hiddenColumns.length;
+
+    return (
+        <div className="relative" ref={dropdownRef}>
+            <button
+                onClick={() => setOpen(!open)}
+                className={cn(
+                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium border transition-all',
+                    hiddenCount > 0
+                        ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+                )}
+            >
+                <Columns3 className="h-4 w-4" />
+                Spalten
+                {hiddenCount > 0 && (
+                    <span className="ml-1 text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full font-semibold">
+                        {hiddenCount} ausgeblendet
+                    </span>
+                )}
+            </button>
+
+            {open && (
+                <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-slate-200 shadow-xl z-50 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Sichtbare Spalten</p>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto py-1">
+                        {allColumns.map(col => {
+                            const isHidden = hiddenColumns.includes(col.id);
+                            const isCustom = col.isCustom;
+                            return (
+                                <div key={col.id} className="flex items-center justify-between px-4 py-2 hover:bg-slate-50 group">
+                                    <button
+                                        onClick={() => onToggle(col.id)}
+                                        className="flex items-center gap-3 flex-1 text-left"
+                                    >
+                                        <div className={cn(
+                                            'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
+                                            isHidden
+                                                ? 'border-slate-300 bg-white'
+                                                : 'border-blue-500 bg-blue-500'
+                                        )}>
+                                            {!isHidden && <Check className="h-3 w-3 text-white" />}
+                                        </div>
+                                        <span className={cn('text-sm', isHidden ? 'text-slate-400' : 'text-slate-700 font-medium')}>
+                                            {col.label}
+                                        </span>
+                                        {isCustom && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Eigene</span>}
+                                    </button>
+                                    {isCustom && onDeleteCustomColumn && (
+                                        <button
+                                            onClick={() => onDeleteCustomColumn(col.id)}
+                                            className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {onAddCustomColumn && (
+                        <div className="border-t border-slate-100 p-3">
+                            {!addingCol ? (
+                                <button
+                                    onClick={() => setAddingCol(true)}
+                                    className="flex items-center gap-2 w-full text-sm text-blue-600 hover:text-blue-700 font-medium px-1 py-1.5 rounded-lg hover:bg-blue-50 transition-colors"
+                                >
+                                    <Plus className="h-4 w-4" /> Spalte hinzufügen
+                                </button>
+                            ) : (
+                                <div className="space-y-2">
+                                    <input
+                                        autoFocus
+                                        placeholder="Spaltenname"
+                                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                        value={newColName}
+                                        onChange={e => setNewColName(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleAdd()}
+                                    />
+                                    <div className="flex items-center gap-2">
+                                        <select
+                                            value={newColType}
+                                            onChange={e => setNewColType(e.target.value as 'text' | 'number')}
+                                            className="flex-1 px-2 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500"
+                                        >
+                                            <option value="text">Text</option>
+                                            <option value="number">Zahl</option>
+                                        </select>
+                                        <button onClick={handleAdd} disabled={!newColName.trim()}
+                                            className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                                        >Hinzufügen</button>
+                                        <button onClick={() => { setAddingCol(false); setNewColName(''); }}
+                                            className="px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700"
+                                        >×</button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {hiddenCount > 0 && (
+                        <div className="border-t border-slate-100 px-4 py-2.5">
+                            <button
+                                onClick={() => hiddenColumns.forEach(id => onToggle(id))}
+                                className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                            >
+                                Alle einblenden
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
 
 function LoadingSpinner() {
     return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;

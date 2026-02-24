@@ -103,12 +103,21 @@ export function AppSidebar() {
             {/* User Profile */}
             <div className="border-t border-white/10 p-3">
                 <div className={cn('flex items-center gap-3', collapsed && 'justify-center')}>
-                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
-                        <span className="text-white text-sm font-bold">{COMPANY.initials}</span>
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0 ring-2 ring-white/10 shadow-lg shadow-blue-500/20">
+                        <span className="text-white text-xs font-bold tracking-tight">{COMPANY.initials}</span>
                     </div>
                     {!collapsed && (
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-white truncate">{COMPANY.user}</p>
+                            <div className="flex items-center gap-2">
+                                <p className="text-sm font-semibold text-white truncate">{COMPANY.user}</p>
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-md border border-amber-400/20">
+                                    <span className="relative flex h-1.5 w-1.5">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-400" />
+                                    </span>
+                                    Demo
+                                </span>
+                            </div>
                             <p className="text-xs text-slate-400 truncate">{COMPANY.role}</p>
                         </div>
                     )}

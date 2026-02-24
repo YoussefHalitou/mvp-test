@@ -761,6 +761,48 @@ export interface Database {
                     notes?: string | null
                 }
             }
+            t_custom_columns: {
+                Row: {
+                    id: string
+                    table_name: string
+                    column_name: string
+                    column_type: string
+                    sort_order: number | null
+                    created_at: string | null
+                }
+                Insert: {
+                    id: string
+                    table_name: string
+                    column_name: string
+                    column_type?: string
+                    sort_order?: number | null
+                }
+                Update: {
+                    id?: string
+                    table_name?: string
+                    column_name?: string
+                    column_type?: string
+                    sort_order?: number | null
+                }
+            }
+            t_custom_column_data: {
+                Row: {
+                    id: number
+                    custom_column_id: string
+                    record_id: string
+                    value: string | null
+                }
+                Insert: {
+                    custom_column_id: string
+                    record_id: string
+                    value?: string | null
+                }
+                Update: {
+                    custom_column_id?: string
+                    record_id?: string
+                    value?: string | null
+                }
+            }
         }
     }
 }

@@ -116,6 +116,33 @@ export interface Database {
                     is_active?: boolean | null
                 }
             }
+            t_employee_events: {
+                Row: {
+                    id: string
+                    employee_id: string
+                    event_type: string
+                    start_date: string
+                    end_date: string
+                    notes: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    employee_id: string
+                    event_type: string
+                    start_date: string
+                    end_date: string
+                    notes?: string | null
+                }
+                Update: {
+                    id?: string
+                    employee_id?: string
+                    event_type?: string
+                    start_date?: string
+                    end_date?: string
+                    notes?: string | null
+                }
+            }
             t_morningplan: {
                 Row: {
                     plan_id: string

@@ -32,6 +32,7 @@ const MENU_ITEMS = [
     { href: '/tracking', label: 'Rückerfassung', icon: Clock },
     { href: '/calculation', label: 'Nachkalkulation', icon: Calculator },
     { href: '/projects', label: 'Projekte', icon: FolderKanban },
+    { href: '/leave-planner', label: 'Urlaubs-/Terminplaner', icon: Calendar },
     { href: '/resources', label: 'Ressourcen', icon: Users },
     { href: '/kpi', label: 'KPI & Statistik', icon: BarChart3 },
 ];

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/supabase';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, X, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, X, Loader2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -35,12 +35,13 @@ export default function LeavePlannerClient() {
     const [eventType, setEventType] = useState<string>('Urlaub');
     const [startDate, setStartDate] = useState<string>('');
     const [endDate, setEndDate] = useState<string>('');
+    const [startTime, setStartTime] = useState<string>('');
+    const [endTime, setEndTime] = useState<string>('');
     const [notes, setNotes] = useState<string>('');
 
     useEffect(() => {
         fetchData();
 
-        // Use an interval to periodically refresh data, keeping the matrix updated
         const interval = setInterval(fetchData, 60000);
         return () => clearInterval(interval);
     }, []);
@@ -76,6 +77,8 @@ export default function LeavePlannerClient() {
             setEventType(eventToEdit.event_type);
             setStartDate(eventToEdit.start_date);
             setEndDate(eventToEdit.end_date);
+            setStartTime(eventToEdit.start_time?.substring(0, 5) || '');
+            setEndTime(eventToEdit.end_time?.substring(0, 5) || '');
             setNotes(eventToEdit.notes || '');
         } else {
             setEditingEvent(null);
@@ -83,6 +86,8 @@ export default function LeavePlannerClient() {
             const dateStr = date ? format(date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
             setStartDate(dateStr);
             setEndDate(dateStr);
+            setStartTime('');
+            setEndTime('');
             setEventType('Urlaub');
             setNotes('');
         }
@@ -99,11 +104,14 @@ export default function LeavePlannerClient() {
 
         setIsSaving(true);
         try {
+            const hasTime = ['Termin', 'Schulung'].includes(eventType);
             const payload = {
                 employee_id: selectedEmployeeId,
                 event_type: eventType,
                 start_date: startDate,
                 end_date: endDate,
+                start_time: hasTime && startTime ? startTime : null,
+                end_time: hasTime && endTime ? endTime : null,
                 notes: notes || null,
             };
 
@@ -280,7 +288,7 @@ export default function LeavePlannerClient() {
                                             const isEnd = dayStr === event.end_date;
 
                                             eventClasses = cn(
-                                                "cursor-pointer border-y transition-all hover:brightness-95 h-full py-1 text-center shadow-sm",
+                                                "cursor-pointer border-y transition-all hover:brightness-95 h-full py-1 text-center shadow-sm relative overflow-hidden",
                                                 EVENT_COLORS[event.event_type] || "bg-slate-100",
                                                 isStart ? "rounded-l-md border-l ml-1" : "-ml-[1px]",
                                                 isEnd ? "rounded-r-md border-r mr-1" : "-mr-[1px]",
@@ -288,10 +296,21 @@ export default function LeavePlannerClient() {
                                             );
 
                                             if (isStart || day.getDate() === 1 || day.getDay() === 1) {
+                                                const timeStr = (event.start_time && event.end_time)
+                                                    ? `${event.start_time.substring(0, 5)}-${event.end_time.substring(0, 5)}`
+                                                    : '';
+
                                                 content = (
-                                                    <span className="text-[10px] whitespace-nowrap px-1 font-semibold truncate block w-full mt-[2px]">
-                                                        {event.event_type.charAt(0)}
-                                                    </span>
+                                                    <div className="flex flex-col items-center justify-center h-full px-0.5 leading-tight">
+                                                        <span className="text-[10px] font-bold truncate block w-full">
+                                                            {event.event_type.charAt(0)}
+                                                        </span>
+                                                        {timeStr && (
+                                                            <span className="text-[8px] font-medium opacity-80 whitespace-nowrap">
+                                                                {timeStr}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 );
                                             }
                                         }
@@ -307,7 +326,7 @@ export default function LeavePlannerClient() {
                                                 onClick={() => !event ? openModal(employee.employee_id, day) : openModal(employee.employee_id, day, event)}
                                             >
                                                 {event ? (
-                                                    <div className={eventClasses} title={`${event.event_type}${event.notes ? ': ' + event.notes : ''}`}>
+                                                    <div className={eventClasses} title={`${event.event_type}${event.start_time ? ' (' + event.start_time.substring(0, 5) + ' - ' + event.end_time?.substring(0, 5) + ')' : ''}${event.notes ? ': ' + event.notes : ''}`}>
                                                         {content}
                                                     </div>
                                                 ) : null}
@@ -426,6 +445,40 @@ export default function LeavePlannerClient() {
                                             />
                                         </div>
                                     </div>
+
+                                    {/* Conditional Time Fields */}
+                                    {['Termin', 'Schulung'].includes(eventType) && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            className="grid grid-cols-2 gap-4 pt-2"
+                                        >
+                                            <div className="space-y-1.5">
+                                                <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                                                    <Clock className="w-4 h-4 text-slate-400" />
+                                                    Von
+                                                </label>
+                                                <input
+                                                    type="time"
+                                                    value={startTime}
+                                                    onChange={(e) => setStartTime(e.target.value)}
+                                                    className="w-full rounded-xl border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-900 focus:border-blue-500 focus:ring-blue-500 outline-none"
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                                                    <Clock className="w-4 h-4 text-slate-400" />
+                                                    Bis
+                                                </label>
+                                                <input
+                                                    type="time"
+                                                    value={endTime}
+                                                    onChange={(e) => setEndTime(e.target.value)}
+                                                    className="w-full rounded-xl border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-900 focus:border-blue-500 focus:ring-blue-500 outline-none"
+                                                />
+                                            </div>
+                                        </motion.div>
+                                    )}
 
                                     <div className="space-y-1.5">
                                         <label className="text-sm font-medium text-slate-700">Notizen (Optional)</label>

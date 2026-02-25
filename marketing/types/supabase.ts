@@ -123,6 +123,8 @@ export interface Database {
                     event_type: string
                     start_date: string
                     end_date: string
+                    start_time: string | null
+                    end_time: string | null
                     notes: string | null
                     created_at: string
                 }
@@ -132,6 +134,8 @@ export interface Database {
                     event_type: string
                     start_date: string
                     end_date: string
+                    start_time?: string | null
+                    end_time?: string | null
                     notes?: string | null
                 }
                 Update: {
@@ -140,6 +144,8 @@ export interface Database {
                     event_type?: string
                     start_date?: string
                     end_date?: string
+                    start_time?: string | null
+                    end_time?: string | null
                     notes?: string | null
                 }
             }

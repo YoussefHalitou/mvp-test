@@ -4,19 +4,32 @@ import { format, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Clock, Pencil, Truck } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MorningPlan } from './types';
+import { MorningPlan, EmployeeEvent, Employee } from './types';
+
+const EVENT_EMOJI: Record<string, string> = {
+    'Urlaub': '🏖',
+    'Termin': '📅',
+    'Krankheit': '🤒',
+    'Schulung': '📚',
+    'Sonstiges': '📌',
+};
 
 interface DroppableDayProps {
     day: Date;
     plans: MorningPlan[];
+    employeeEvents?: EmployeeEvent[];
+    employees?: Employee[];
     onDelete: (id: string, e: React.MouseEvent) => void;
     onEditPlan: (plan: MorningPlan) => void;
 }
 
-export function DroppableDay({ day, plans, onDelete, onEditPlan }: DroppableDayProps) {
+export function DroppableDay({ day, plans, employeeEvents = [], employees = [], onDelete, onEditPlan }: DroppableDayProps) {
     const dateStr = format(day, 'yyyy-MM-dd');
     const { setNodeRef, isOver } = useDroppable({ id: `day-${dateStr}`, data: { date: dateStr } });
     const isToday = isSameDay(day, new Date());
+
+    const dayEvents = employeeEvents.filter(e => e.start_date <= dateStr && e.end_date >= dateStr);
+    const employeeMap = new Map(employees.map(e => [e.employee_id, e]));
 
     return (
         <div ref={setNodeRef}
@@ -27,6 +40,26 @@ export function DroppableDay({ day, plans, onDelete, onEditPlan }: DroppableDayP
                 <span className={cn("text-base font-bold w-7 h-7 flex items-center justify-center rounded-full",
                     isToday ? "bg-blue-600 text-white" : "text-slate-700")}>{format(day, 'd')}</span>
             </div>
+
+            {/* Employee Events */}
+            {dayEvents.length > 0 && (
+                <div className="px-1.5 py-1 bg-amber-50/80 border-b border-amber-100 space-y-0.5">
+                    {dayEvents.slice(0, 3).map(ev => {
+                        const emp = employeeMap.get(ev.employee_id);
+                        const name = emp?.name?.split(' ')[0] || '?';
+                        const emoji = EVENT_EMOJI[ev.event_type] || '📌';
+                        return (
+                            <div key={ev.id} className="text-[9px] text-amber-800 truncate" title={`${emp?.name}: ${ev.event_type}`}>
+                                {emoji} {name}
+                            </div>
+                        );
+                    })}
+                    {dayEvents.length > 3 && (
+                        <div className="text-[8px] text-amber-500 font-medium">+{dayEvents.length - 3}</div>
+                    )}
+                </div>
+            )}
+
             <div className="flex-1 p-1.5 bg-slate-50/30 space-y-1.5 overflow-y-auto">
                 {plans.map(plan => (
                     <div key={plan.plan_id} className="relative rounded-md border border-slate-200 bg-white p-2 shadow-sm group hover:border-blue-200 transition-colors cursor-default" onClick={e => e.stopPropagation()}>
@@ -36,7 +69,7 @@ export function DroppableDay({ day, plans, onDelete, onEditPlan }: DroppableDayP
                         </div>
                         <div className="text-xs font-semibold text-blue-700 truncate mb-0.5">{plan.project?.name || 'Unbekannt'}</div>
                         <div className="text-[10px] text-slate-500 flex items-center gap-2 mb-1">
-                            <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{plan.start_time?.substring(0, 5) || '07:00'}</span>
+                            <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{plan.start_time?.substring(0, 5) || '–'}</span>
                             {plan.vehicle_names && <span className="flex items-center gap-0.5"><Truck className="h-2.5 w-2.5" />{plan.vehicle_names}</span>}
                         </div>
                         {plan.service_type && <div className="text-[9px] text-slate-400 mb-0.5">{plan.service_type}</div>}
@@ -44,11 +77,10 @@ export function DroppableDay({ day, plans, onDelete, onEditPlan }: DroppableDayP
                             {(plan.staff || []).map(s => (
                                 <span key={s.id} className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full truncate max-w-[60px]">{s.employee?.name?.split(' ')[0] || '?'}</span>
                             ))}
-
                         </div>
                     </div>
                 ))}
-                {plans.length === 0 && !isOver && (
+                {plans.length === 0 && dayEvents.length === 0 && !isOver && (
                     <div className="h-full min-h-[80px] border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center text-slate-300 text-[10px]">Frei</div>
                 )}
             </div>

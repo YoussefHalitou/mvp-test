@@ -63,7 +63,7 @@ export function TimelineView({ plans, selectedDay }: TimelineViewProps) {
                                         <div className="font-bold text-slate-800 text-sm truncate">{plan.project?.name}</div>
                                         <div className="flex items-center gap-2 mt-1">
                                             <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 font-bold">
-                                                {plan.start_time?.substring(0, 5) || '07:00'}
+                                                {plan.start_time?.substring(0, 5) || '–'}
                                             </span>
                                             <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
                                                 {plan.vehicle_names || 'Kein Fahrzeug'}

@@ -836,6 +836,51 @@ export interface Database {
                     value?: string | null
                 }
             }
+            t_folders: {
+                Row: {
+                    id: string
+                    name: string
+                    parent_id: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    name: string
+                    parent_id?: string | null
+                }
+                Update: {
+                    id?: string
+                    name?: string
+                    parent_id?: string | null
+                }
+            }
+            t_files: {
+                Row: {
+                    id: string
+                    name: string
+                    folder_id: string | null
+                    storage_path: string
+                    size: number
+                    mime_type: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    name: string
+                    folder_id?: string | null
+                    storage_path: string
+                    size: number
+                    mime_type?: string | null
+                }
+                Update: {
+                    id?: string
+                    name?: string
+                    folder_id?: string | null
+                    storage_path?: string
+                    size?: number
+                    mime_type?: string | null
+                }
+            }
         }
     }
 }

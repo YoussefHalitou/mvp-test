@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/supabase';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isSameDay } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, addMonths, subMonths, addWeeks, subWeeks, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, X, Loader2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,7 @@ export default function LeavePlannerClient() {
     const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
     const [editingEvent, setEditingEvent] = useState<EmployeeEvent | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
 
     // Form State
     const [eventType, setEventType] = useState<string>('Urlaub');
@@ -41,7 +42,6 @@ export default function LeavePlannerClient() {
 
     useEffect(() => {
         fetchData();
-
         const interval = setInterval(fetchData, 60000);
         return () => clearInterval(interval);
     }, []);
@@ -52,10 +52,8 @@ export default function LeavePlannerClient() {
                 supabase.from('t_employees').select('*').eq('is_active', true).order('name'),
                 supabase.from('t_employee_events').select('*')
             ]);
-
             if (empsRes.error) throw empsRes.error;
             if (eventsRes.error) throw eventsRes.error;
-
             setEmployees(empsRes.data || []);
             setEvents(eventsRes.data || []);
         } catch (error) {
@@ -65,9 +63,34 @@ export default function LeavePlannerClient() {
         }
     };
 
-    const currentMonthStart = startOfMonth(currentDate);
-    const currentMonthEnd = endOfMonth(currentDate);
-    const daysInMonth = eachDayOfInterval({ start: currentMonthStart, end: currentMonthEnd });
+    // Date calculations
+    const visibleDays = useMemo(() => {
+        if (viewMode === 'month') {
+            return eachDayOfInterval({ start: startOfMonth(currentDate), end: endOfMonth(currentDate) });
+        } else {
+            const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+            const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
+            return eachDayOfInterval({ start: weekStart, end: weekEnd });
+        }
+    }, [currentDate, viewMode]);
+
+    const headerLabel = useMemo(() => {
+        if (viewMode === 'month') {
+            return format(currentDate, 'MMMM yyyy', { locale: de });
+        } else {
+            const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+            const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
+            return `${format(weekStart, 'd. MMM', { locale: de })} – ${format(weekEnd, 'd. MMM yyyy', { locale: de })}`;
+        }
+    }, [currentDate, viewMode]);
+
+    const navigateBack = () => {
+        setCurrentDate(viewMode === 'month' ? subMonths(currentDate, 1) : subWeeks(currentDate, 1));
+    };
+
+    const navigateForward = () => {
+        setCurrentDate(viewMode === 'month' ? addMonths(currentDate, 1) : addWeeks(currentDate, 1));
+    };
 
     const openModal = (employeeId?: string, date?: Date, eventToEdit?: EmployeeEvent) => {
         setIsModalOpen(true);
@@ -122,22 +145,16 @@ export default function LeavePlannerClient() {
                     .eq('id', editingEvent.id)
                     .select()
                     .single();
-
                 if (error) throw error;
-                if (data) {
-                    setEvents(events.map(ev => ev.id === editingEvent.id ? data : ev));
-                }
+                if (data) setEvents(events.map(ev => ev.id === editingEvent.id ? data : ev));
             } else {
                 const { data, error } = await supabase
                     .from('t_employee_events')
                     .insert(payload)
                     .select()
                     .single();
-
                 if (error) throw error;
-                if (data) {
-                    setEvents([...events, data]);
-                }
+                if (data) setEvents([...events, data]);
             }
             closeModal();
         } catch (error) {
@@ -154,11 +171,7 @@ export default function LeavePlannerClient() {
 
         setIsSaving(true);
         try {
-            const { error } = await supabase
-                .from('t_employee_events')
-                .delete()
-                .eq('id', editingEvent.id);
-
+            const { error } = await supabase.from('t_employee_events').delete().eq('id', editingEvent.id);
             if (error) throw error;
             setEvents(events.filter(ev => ev.id !== editingEvent.id));
             closeModal();
@@ -203,18 +216,41 @@ export default function LeavePlannerClient() {
                 </div>
 
                 <div className="flex items-center gap-4">
+                    {/* View Mode Toggle */}
+                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                        <button
+                            onClick={() => setViewMode('month')}
+                            className={cn(
+                                "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+                                viewMode === 'month' ? "bg-white shadow text-slate-800" : "text-slate-500 hover:text-slate-700"
+                            )}
+                        >
+                            Monat
+                        </button>
+                        <button
+                            onClick={() => setViewMode('week')}
+                            className={cn(
+                                "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+                                viewMode === 'week' ? "bg-white shadow text-slate-800" : "text-slate-500 hover:text-slate-700"
+                            )}
+                        >
+                            Woche
+                        </button>
+                    </div>
+
+                    {/* Navigation */}
                     <div className="flex items-center bg-white rounded-xl shadow-sm border border-slate-200 p-1">
                         <button
-                            onClick={() => setCurrentDate(subMonths(currentDate, 1))}
+                            onClick={navigateBack}
                             className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-colors"
                         >
                             <ChevronLeft className="w-5 h-5" />
                         </button>
-                        <div className="w-40 text-center font-medium text-slate-700 capitalize">
-                            {format(currentDate, 'MMMM yyyy', { locale: de })}
+                        <div className="w-48 text-center font-medium text-slate-700 capitalize text-sm">
+                            {headerLabel}
                         </div>
                         <button
-                            onClick={() => setCurrentDate(addMonths(currentDate, 1))}
+                            onClick={navigateForward}
                             className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-colors"
                         >
                             <ChevronRight className="w-5 h-5" />
@@ -233,27 +269,27 @@ export default function LeavePlannerClient() {
 
             {/* Matrix View */}
             <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
+                <div className="overflow-auto flex-1">
+                    <table className="w-full border-collapse table-fixed">
                         <thead>
                             <tr>
-                                <th className="sticky left-0 z-10 bg-slate-50 p-4 font-semibold text-slate-700 text-left border-b border-r border-slate-200 min-w-[200px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                <th className="sticky left-0 z-10 bg-slate-50 p-4 font-semibold text-slate-700 text-left border-b border-r border-slate-200 w-[180px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                     Mitarbeiter
                                 </th>
-                                {daysInMonth.map(day => (
+                                {visibleDays.map(day => (
                                     <th
                                         key={day.toISOString()}
                                         className={cn(
-                                            "p-2 text-center border-b border-slate-200 min-w-[40px] text-xs font-medium",
+                                            "p-1.5 text-center border-b border-slate-200 text-xs font-medium",
                                             day.getDay() === 0 || day.getDay() === 6
                                                 ? "bg-slate-100 text-slate-500"
                                                 : "bg-slate-50 text-slate-700"
                                         )}
                                     >
-                                        <div className="flex flex-col items-center gap-1">
+                                        <div className="flex flex-col items-center gap-0.5">
                                             <span className="text-[10px] uppercase">{format(day, 'E', { locale: de })}</span>
                                             <span className={cn(
-                                                "w-6 h-6 rounded-full flex items-center justify-center",
+                                                "w-6 h-6 rounded-full flex items-center justify-center text-xs",
                                                 isSameDay(day, new Date()) && "bg-blue-600 text-white shadow-sm"
                                             )}>
                                                 {format(day, 'd')}
@@ -266,16 +302,16 @@ export default function LeavePlannerClient() {
                         <tbody className="divide-y divide-slate-100">
                             {employees.length === 0 ? (
                                 <tr>
-                                    <td colSpan={daysInMonth.length + 1} className="py-8 text-center text-slate-500">
+                                    <td colSpan={visibleDays.length + 1} className="py-8 text-center text-slate-500">
                                         Keine Mitarbeiter gefunden.
                                     </td>
                                 </tr>
                             ) : employees.map(employee => (
                                 <tr key={employee.employee_id} className="group hover:bg-slate-50/50 transition-colors">
-                                    <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 p-4 font-medium text-slate-700 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] transition-colors">
+                                    <td className="sticky left-0 z-10 bg-white group-hover:bg-slate-50 p-3 font-medium text-slate-700 text-sm border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] transition-colors truncate w-[180px]">
                                         {employee.name}
                                     </td>
-                                    {daysInMonth.map(day => {
+                                    {visibleDays.map(day => {
                                         const event = getEventForDay(employee.employee_id, day);
                                         const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
@@ -290,8 +326,8 @@ export default function LeavePlannerClient() {
                                             eventClasses = cn(
                                                 "cursor-pointer border-y transition-all hover:brightness-95 h-full py-1 text-center shadow-sm relative overflow-hidden",
                                                 EVENT_COLORS[event.event_type] || "bg-slate-100",
-                                                isStart ? "rounded-l-md border-l ml-1" : "-ml-[1px]",
-                                                isEnd ? "rounded-r-md border-r mr-1" : "-mr-[1px]",
+                                                isStart ? "rounded-l-md border-l ml-0.5" : "-ml-[1px]",
+                                                isEnd ? "rounded-r-md border-r mr-0.5" : "-mr-[1px]",
                                                 !isStart && !isEnd && "border-x-transparent border-slate-200/50"
                                             );
 
@@ -303,7 +339,7 @@ export default function LeavePlannerClient() {
                                                 content = (
                                                     <div className="flex flex-col items-center justify-center h-full px-0.5 leading-tight">
                                                         <span className="text-[10px] font-bold truncate block w-full">
-                                                            {event.event_type.charAt(0)}
+                                                            {viewMode === 'week' ? event.event_type : event.event_type.charAt(0)}
                                                         </span>
                                                         {timeStr && (
                                                             <span className="text-[8px] font-medium opacity-80 whitespace-nowrap">
@@ -319,7 +355,8 @@ export default function LeavePlannerClient() {
                                             <td
                                                 key={day.toISOString()}
                                                 className={cn(
-                                                    "p-1 text-center h-[56px] relative",
+                                                    "p-0.5 text-center relative",
+                                                    viewMode === 'week' ? "h-[64px]" : "h-[48px]",
                                                     isWeekend ? "bg-slate-50/50" : "",
                                                     !event && "cursor-pointer hover:bg-blue-50 transition-colors"
                                                 )}

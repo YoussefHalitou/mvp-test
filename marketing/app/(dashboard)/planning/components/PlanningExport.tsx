@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { format } from 'date-fns';
-import { Download, Loader2, Calendar, X } from 'lucide-react';
+import { Download, Loader2, Calendar, X, FileText, FileType } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/components/ui/toast';
 
@@ -10,13 +10,48 @@ export function PlanningExport() {
     const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
     const [loading, setLoading] = useState(false);
     const [mode, setMode] = useState<'morning' | 'calc'>('morning');
+    const [exportFormat, setExportFormat] = useState<'html' | 'pdf'>('html');
 
     const handleExport = async () => {
-        if (mode === 'morning') await handleExportMorningPlan();
-        else await handleExportNachkalkulation();
+        if (mode === 'morning') {
+            const html = await buildMorningPlanHtml();
+            if (!html) return;
+            await downloadInFormat(html, `MorningPlan_${date}`);
+        } else {
+            const html = await buildNachkalkulationHtml();
+            if (!html) return;
+            await downloadInFormat(html, `Nachkalkulation_Sammel_${date}`);
+        }
     };
 
-    const handleExportMorningPlan = async () => {
+    const downloadInFormat = async (html: string, baseName: string) => {
+        try {
+            if (exportFormat === 'html') {
+                downloadHtml(html, `${baseName}.html`);
+                toast(`${baseName}.html exportiert`, 'success');
+            } else if (exportFormat === 'pdf') {
+                const html2pdf = (await import('html2pdf.js')).default;
+                const container = document.createElement('div');
+                container.innerHTML = html;
+                document.body.appendChild(container);
+                await html2pdf().set({
+                    margin: 8,
+                    filename: `${baseName}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { scale: 2, useCORS: true },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                }).from(container).save();
+                document.body.removeChild(container);
+                toast(`${baseName}.pdf exportiert`, 'success');
+            }
+            setOpen(false);
+        } catch (error) {
+            console.error(error);
+            toast('Fehler beim Export.', 'error');
+        }
+    };
+
+    const buildMorningPlanHtml = async (): Promise<string | null> => {
         setLoading(true);
         try {
             // 1. Fetch Data
@@ -66,7 +101,7 @@ export function PlanningExport() {
                 const orderA = a.sort_order || 0;
                 const orderB = b.sort_order || 0;
                 if (orderA !== orderB) return orderA - orderB;
-                return (a.start_time || '07:00').localeCompare(b.start_time || '07:00');
+                return (a.start_time || '').localeCompare(b.start_time || '');
             };
 
             const sortStaff = (a: any, b: any) => {
@@ -131,7 +166,7 @@ export function PlanningExport() {
                     return {
                         name,
                         notizen: n.notizen,
-                        is_external: empObj?.contract_type === 'Freelancer' || empObj?.role === 'Subunternehmer' // Simple heuristic
+                        is_external: empObj?.contract_type === 'Freelance' || empObj?.contract_type === 'Extern'
                     };
                 });
 
@@ -369,17 +404,17 @@ export function PlanningExport() {
             </body></html>
             `;
 
-            downloadHtml(html, `MorningPlan_${date}.html`);
-            toast(`MorningPlan exportiert: MorningPlan_${date}.html`, 'success');
-            setOpen(false);
+            return html;
         } catch (error) {
             console.error(error);
             toast("Fehler beim Export.", 'error');
+            return null;
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
-    const handleExportNachkalkulation = async () => {
+    const buildNachkalkulationHtml = async (): Promise<string | null> => {
         setLoading(true);
         try {
             // Fetch Plans to get Active Projects on this day
@@ -389,7 +424,7 @@ export function PlanningExport() {
             if (projectIds.length === 0) {
                 toast("Keine Projekte für dieses Datum gefunden.", "info");
                 setLoading(false);
-                return;
+                return null;
             }
 
             // Fetch ALL data for these projects
@@ -602,15 +637,14 @@ export function PlanningExport() {
             </html>
             `;
 
-            downloadHtml(fullHtml, `Nachkalkulation_Sammel_${date}.html`);
-            toast(`Nachkalkulation exportiert`, 'success');
-            setOpen(false);
-
+            return fullHtml;
         } catch (error) {
             console.error(error);
             toast("Fehler beim Export.", "error");
+            return null;
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const downloadHtml = (html: string, filename: string) => {
@@ -679,6 +713,24 @@ export function PlanningExport() {
                                     Exportiert eine Sammel-Nachkalkulation für alle Projekte, die an diesem Datum eingeplant sind.
                                 </p>
                             )}
+
+                            <div className="space-y-1.5">
+                                <label className="block text-xs font-medium text-slate-500">Format wählen</label>
+                                <div className="flex bg-slate-100 p-1 rounded-lg">
+                                    <button
+                                        onClick={() => setExportFormat('html')}
+                                        className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1.5 ${exportFormat === 'html' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                                    >
+                                        <FileText className="h-3 w-3" /> HTML
+                                    </button>
+                                    <button
+                                        onClick={() => setExportFormat('pdf')}
+                                        className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1.5 ${exportFormat === 'pdf' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                                    >
+                                        <FileType className="h-3 w-3" /> PDF
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
                         <div className="flex justify-end gap-2 bg-slate-50 px-4 py-3 border-t">

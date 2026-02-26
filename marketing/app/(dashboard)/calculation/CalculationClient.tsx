@@ -154,9 +154,9 @@ export default function CalculationPage() {
 
         const [tpRes, matRes, vehRes, svcRes, revRes, extRes, discRes] = await Promise.all([
             supabase.from('t_time_pairs').select('*').eq('project_id', pid).order('datum'),
-            supabase.from('t_project_material_usage').select('*, material:t_materials(name, unit), prices:t_material_prices(cost_per_unit, price_per_unit)').eq('project_id', pid),
+            supabase.from('t_project_material_usage').select('*, material:t_materials(name, unit, prices:t_material_prices(cost_per_unit, price_per_unit))').eq('project_id', pid),
             supabase.from('t_project_vehicle_costs').select('*, vehicle:t_vehicles(nickname)').eq('project_id', pid),
-            supabase.from('t_project_service_usage').select('*, service:t_services(name, default_unit), prices:t_service_prices(cost_per_unit, supplier)').eq('project_id', pid),
+            supabase.from('t_project_service_usage').select('*, service:t_services(name, default_unit, prices:t_service_prices(cost_per_unit, supplier))').eq('project_id', pid),
             supabase.from('t_project_revenue_items').select('*').eq('project_id', pid).order('sort_order'),
             supabase.from('t_project_costs_extra').select('*').eq('project_id', pid),
             supabase.from('t_project_discounts').select('*').eq('project_id', pid),
@@ -174,7 +174,7 @@ export default function CalculationPage() {
         }));
 
         setMaterials((matRes.data as any || []).map((m: any) => {
-            const p = Array.isArray(m.prices) ? m.prices[0] : m.prices;
+            const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;
             return {
                 id: m.id, material_id: m.material_id, material_name: m.material?.name || m.material_id, unit: m.material?.unit || '',
                 quantity: m.quantity, cost_per_unit: p?.cost_per_unit || 0, price_per_unit: p?.price_per_unit || 0,
@@ -189,9 +189,9 @@ export default function CalculationPage() {
         })));
 
         setServices((svcRes.data as any || []).map((s: any) => {
-            const p = Array.isArray(s.prices) ? s.prices[0] : s.prices;
+            const p = Array.isArray(s.service?.prices) ? s.service.prices[0] : s.service?.prices;
             return {
-                id: s.id, service_id: s.service_id, service_name: s.service?.name || s.service_id, supplier: p?.supplier || '',
+                id: s.id, service_id: s.service_id, service_name: s.service?.name || s.service_id, supplier: s.supplier || p?.supplier || '',
                 quantity: s.quantity || 1, unit: s.service?.default_unit || 'Std', cost_per_unit: p?.cost_per_unit || 0,
                 total_cost: +((s.quantity || 1) * (p?.cost_per_unit || 0)).toFixed(2)
             };
@@ -211,13 +211,18 @@ export default function CalculationPage() {
     const personalKosten = useMemo(() => personnel.reduce((s, p) => s + p.kosten, 0), [personnel]);
     const materialKosten = useMemo(() => materials.reduce((s, m) => s + m.total_cost, 0), [materials]);
     const materialErloes = useMemo(() => materials.reduce((s, m) => s + m.total_price, 0), [materials]);
-    const vehicleKosten = useMemo(() => vehicles.reduce((s, v) => s + v.total_cost, 0), [vehicles]);
+    const vehicleErloes = useMemo(() => vehicles.reduce((s, v) => s + v.total_cost, 0), [vehicles]);
     const serviceKosten = useMemo(() => services.reduce((s, sv) => s + sv.total_cost, 0), [services]);
     const extraKosten = useMemo(() => extraCosts.reduce((s, e) => s + e.cost, 0), [extraCosts]);
     const revenueTotal = useMemo(() => revenue.reduce((s, r) => s + r.line_total, 0), [revenue]);
-    const discountTotal = useMemo(() => discounts.reduce((s, d) => s + d.value, 0), [discounts]);
-    const totalCosts = personalKosten + materialKosten + vehicleKosten + serviceKosten + extraKosten;
-    const totalRevenue = revenueTotal + materialErloes - discountTotal;
+    const totalCosts = personalKosten + materialKosten + serviceKosten + extraKosten;
+    const baseRevenue = revenueTotal + materialErloes + vehicleErloes;
+    const discountTotal = useMemo(() => discounts.reduce((s, d) => {
+        const mode = (d as any).mode || d.discount_type;
+        if (mode === 'percent') return s + (baseRevenue * (d.value / 100)); // Apply % to revenue
+        return s + d.value;
+    }, 0), [discounts, baseRevenue]);
+    const totalRevenue = baseRevenue - discountTotal;
     const margin = totalRevenue - totalCosts;
     const marginPct = totalRevenue > 0 ? (margin / totalRevenue) * 100 : 0;
 
@@ -342,28 +347,29 @@ export default function CalculationPage() {
 
     // ---- DISCOUNT CRUD ----
     const addDiscountRow = () => {
-        setDiscounts(prev => [...prev, { discount_id: `temp-${Date.now()}`, discount_type: 'flat', label: '', value: 0, isNew: true }]);
+        setDiscounts(prev => [...prev, { id: `temp-${Date.now()}`, mode: 'flat', description: '', value: 0, isNew: true } as any]);
     };
-    const updateDiscount = (id: string, field: keyof DiscountRow, value: any) => {
-        setDiscounts(prev => prev.map(d => d.discount_id === id ? { ...d, [field]: value } : d));
+    const updateDiscount = (id: string, field: string, value: any) => {
+        setDiscounts(prev => prev.map(d => (d as any).id === id || (d as any).discount_id === id ? { ...d, [field]: value } : d));
     };
     const saveDiscounts = async () => {
         if (!selectedProjectId) return;
         try {
-            await Promise.all(discounts.map(d => {
-                const record = { project_id: selectedProjectId, discount_type: d.discount_type, label: d.label, value: d.value };
-                return d.isNew || d.discount_id.startsWith('temp-')
+            await Promise.all(discounts.map((d: any) => {
+                const record = { project_id: selectedProjectId, mode: d.mode || d.discount_type, description: d.description || d.label, value: d.value, target: 'total' };
+                const currentId = d.id || d.discount_id;
+                return d.isNew || currentId.startsWith('temp-')
                     ? supabase.from('t_project_discounts').insert(record)
-                    : supabase.from('t_project_discounts').update(record).eq('discount_id', d.discount_id);
+                    : supabase.from('t_project_discounts').update(record).eq('id', currentId);
             }));
             toast('Rabatte gespeichert');
             loadProjectData(selectedProjectId);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteDiscount = async (id: string) => {
-        if (id.startsWith('temp-')) { setDiscounts(prev => prev.filter(d => d.discount_id !== id)); return; }
-        setDiscounts(prev => prev.filter(d => d.discount_id !== id));
-        const { error } = await supabase.from('t_project_discounts').delete().eq('discount_id', id);
+        if (id.startsWith('temp-')) { setDiscounts(prev => prev.filter(d => (d as any).id !== id && (d as any).discount_id !== id)); return; }
+        setDiscounts(prev => prev.filter(d => (d as any).id !== id && (d as any).discount_id !== id));
+        const { error } = await supabase.from('t_project_discounts').delete().eq('id', id);
         if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData(selectedProjectId); }
     };
 
@@ -403,6 +409,7 @@ export default function CalculationPage() {
         <style>body{font-family:system-ui;margin:2rem;color:#1e293b}h1{font-size:1.5rem}h2{margin-top:1.5rem;font-size:1.1rem;border-bottom:2px solid #e2e8f0;padding-bottom:4px}table{width:100%;border-collapse:collapse;margin:.5rem 0}th,td{border:1px solid #e2e8f0;padding:6px 10px;text-align:left;font-size:.8rem}th{background:#f1f5f9;font-weight:600}.right{text-align:right}.kpi{display:flex;gap:1rem;margin:1rem 0}.kpi-card{flex:1;border:1px solid #e2e8f0;border-radius:8px;padding:.75rem;text-align:center}.kpi-label{font-size:.7rem;color:#64748b;text-transform:uppercase}.kpi-value{font-size:1.3rem;font-weight:700;margin-top:2px}.positive{color:#16a34a}.negative{color:#dc2626}</style></head><body>
         <h1>Nachkalkulation: ${selectedProject?.anrede || ''} ${selectedProject?.name || ''}</h1>
         <p>${selectedProject?.strasse || ''} ${selectedProject?.nr || ''}, ${selectedProject?.plz || ''} ${selectedProject?.ort || ''}</p>
+        <p><strong>Projektdatum:</strong> ${selectedProject?.project_date ? new Date(selectedProject.project_date).toLocaleDateString('de-DE') : '—'}</p>
         <div class="kpi"><div class="kpi-card"><div class="kpi-label">Gesamtkosten</div><div class="kpi-value">${eur(totalCosts)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Gesamterlöse</div><div class="kpi-value">${eur(totalRevenue)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Marge</div><div class="kpi-value ${margin >= 0 ? 'positive' : 'negative'}">${eur(margin)}</div></div>
@@ -410,18 +417,24 @@ export default function CalculationPage() {
         <h2>1. Personalkosten (${eur(personalKosten)})</h2><table><tr><th>Datum</th><th>Mitarbeiter</th><th>LiS Std.</th><th class="right">Satz</th><th class="right">Kosten</th></tr>
         ${personnel.map(p => `<tr><td>${p.datum}</td><td>${p.mitarbeiter}</td><td>${p.lis_stunden.toFixed(2)}</td><td class="right">${eur(p.satz)}</td><td class="right">${eur(p.kosten)}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(personalKosten)}</th></tr></table>
-        <h2>2. Materialkosten (${eur(materialKosten)})</h2><table><tr><th>Material</th><th>Menge</th><th>Einheit</th><th class="right">EK</th><th class="right">Kosten</th></tr>
-        ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.total_cost)}</td></tr>`).join('')}
-        <tr><th colspan="4">Summe</th><th class="right">${eur(materialKosten)}</th></tr></table>
-        <h2>3. Fahrzeugkosten (${eur(vehicleKosten)})</h2><table><tr><th>Fahrzeug</th><th>Typ</th><th>Wert</th><th class="right">Satz</th><th class="right">Kosten</th></tr>
+        <h2>2. Material (${eur(materialKosten)})</h2><table><tr><th>Material</th><th>Menge</th><th>Einheit</th><th class="right">EK</th><th class="right">VK</th><th class="right">Kosten</th><th class="right">Erlöse</th></tr>
+        ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.price_per_unit)}</td><td class="right">${eur(m.total_cost)}</td><td class="right">${eur(m.total_price)}</td></tr>`).join('')}
+        <tr><th colspan="5">Summe</th><th class="right">${eur(materialKosten)}</th><th class="right">${eur(materialErloes)}</th></tr></table>
+        <h2>3. Fahrzeug (${eur(vehicleErloes)})</h2><table><tr><th>Fahrzeug</th><th>Typ</th><th>Wert</th><th class="right">Satz</th><th class="right">Erlöse</th></tr>
         ${vehicles.map(v => `<tr><td>${v.fahrzeug}</td><td>${v.usage_type}</td><td>${v.usage_value}</td><td class="right">${eur(v.cost_per_unit)}</td><td class="right">${eur(v.total_cost)}</td></tr>`).join('')}
-        <tr><th colspan="4">Summe</th><th class="right">${eur(vehicleKosten)}</th></tr></table>
+        <tr><th colspan="4">Summe Erlöse</th><th class="right">${eur(vehicleErloes)}</th></tr></table>
         <h2>4. Dienstleistungskosten (${eur(serviceKosten)})</h2><table><tr><th>Leistung</th><th>Lieferant</th><th>Menge</th><th class="right">EK</th><th class="right">Kosten</th></tr>
         ${services.map(s => `<tr><td>${s.service_name}</td><td>${s.supplier}</td><td>${s.quantity}</td><td class="right">${eur(s.cost_per_unit)}</td><td class="right">${eur(s.total_cost)}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(serviceKosten)}</th></tr></table>
-        <h2>5. Erlöse (${eur(revenueTotal)})</h2><table><tr><th>Position</th><th>Menge</th><th>Einheit</th><th class="right">Preis</th><th class="right">Gesamt</th></tr>
+        <h2>5. Sonderkosten (${eur(extraKosten)})</h2><table><tr><th>Typ</th><th>Beschreibung</th><th class="right">Betrag</th></tr>
+        ${extraCosts.map(e => `<tr><td>${e.cost_type}</td><td>${e.description}</td><td class="right">${eur(e.cost)}</td></tr>`).join('')}
+        <tr><th colspan="2">Summe</th><th class="right">${eur(extraKosten)}</th></tr></table>
+        <h2>6. Rabatte / Nachlässe (${eur(discountTotal)})</h2><table><tr><th>Bezeichnung</th><th>Typ</th><th class="right">Wert</th><th class="right">Betrag</th></tr>
+        ${discounts.map((d: any) => `<tr><td>${d.description || d.label}</td><td>${(d.mode || d.discount_type) === 'percent' ? 'Prozent' : 'Pauschal'}</td><td class="right">${(d.mode || d.discount_type) === 'percent' ? `${d.value}%` : eur(d.value)}</td><td class="right">${eur((d.mode || d.discount_type) === 'percent' ? baseRevenue * (d.value / 100) : d.value)}</td></tr>`).join('')}
+        <tr><th colspan="3">Summe Abzug</th><th class="right">${eur(discountTotal)}</th></tr></table>
+        <h2>7. Erlöse Manuell (${eur(revenueTotal)})</h2><table><tr><th>Position</th><th>Menge</th><th>Einheit</th><th class="right">Preis</th><th class="right">Gesamt</th></tr>
         ${revenue.map(r => `<tr><td>${r.position_label}</td><td>${r.qty}</td><td>${r.unit}</td><td class="right">${eur(r.unit_price)}</td><td class="right">${eur(r.line_total)}</td></tr>`).join('')}
-        <tr><th colspan="4">Summe Erlöse</th><th class="right">${eur(revenueTotal)}</th></tr></table>
+        <tr><th colspan="4">Summe Erlöse Manuell</th><th class="right">${eur(revenueTotal)}</th></tr></table>
         </body></html>`;
         const blob = new Blob([html], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
@@ -611,7 +624,7 @@ export default function CalculationPage() {
                             </CostSection>
 
                             {/* Material Costs */}
-                            <CostSection title="Materialkosten" icon={<Package className="h-5 w-5" />} total={materialKosten} color="amber"
+                            <CostSection title="Material" icon={<Package className="h-5 w-5" />} total={materialKosten} color="amber"
                                 actions={<div className="flex gap-2">
                                     <button onClick={() => { setAddMatForm({ material_id: '', quantity: 1 }); setAddMatModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Material</button>
                                     <button onClick={saveMaterials} className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
@@ -637,14 +650,14 @@ export default function CalculationPage() {
                             </CostSection>
 
                             {/* Vehicle Costs */}
-                            <CostSection title="Fahrzeugkosten" icon={<Truck className="h-5 w-5" />} total={vehicleKosten} color="sky"
+                            <CostSection title="Fahrzeug" icon={<Truck className="h-5 w-5" />} total={vehicleErloes} color="green"
                                 actions={<div className="flex gap-2">
                                     <button onClick={() => { setAddVehForm({ vehicle_id: '', usage_type: 'km', usage_value: 0, cost_per_unit: 0, notes: '' }); setAddVehModal(true); }} className="flex items-center gap-1 text-xs text-sky-700 hover:text-sky-900"><Plus className="h-3.5 w-3.5" /> Fahrzeug</button>
                                     <button onClick={saveVehicleCosts} className="flex items-center gap-1 text-xs bg-sky-600 text-white px-2 py-1 rounded hover:bg-sky-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
                                 </div>}>
                                 <table className="w-full text-sm">
                                     <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                        <tr><th className="px-4 py-2 text-left">Fahrzeug</th><th className="px-4 py-2 w-20">Typ</th><th className="px-4 py-2 text-right w-24">Wert</th><th className="px-4 py-2 text-right w-28">Satz (€)</th><th className="px-4 py-2 text-right">Kosten</th><th className="w-10"></th></tr>
+                                        <tr><th className="px-4 py-2 text-left">Fahrzeug</th><th className="px-4 py-2 w-20">Typ</th><th className="px-4 py-2 text-right w-24">Wert</th><th className="px-4 py-2 text-right w-28">Satz (€)</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {vehicles.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">Keine Fahrzeugkosten</td></tr> : vehicles.map(v => (
@@ -716,14 +729,17 @@ export default function CalculationPage() {
                                         <tr><th className="px-4 py-2 text-left">Bezeichnung</th><th className="px-4 py-2 w-24">Typ</th><th className="px-4 py-2 text-right w-32">Wert (€)</th><th className="w-10"></th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {discounts.length === 0 ? <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">Keine Rabatte</td></tr> : discounts.map(d => (
-                                            <tr key={d.discount_id} className="hover:bg-slate-50 group">
-                                                <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={d.label} onChange={e => updateDiscount(d.discount_id, 'label', e.target.value)} placeholder="Beschreibung..." /></td>
-                                                <td className="px-4 py-1.5"><select className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1 py-1 text-sm" value={d.discount_type} onChange={e => updateDiscount(d.discount_id, 'discount_type', e.target.value)}><option value="flat">Pauschal</option><option value="percent">Prozent</option></select></td>
-                                                <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={d.value} onChange={e => updateDiscount(d.discount_id, 'value', +e.target.value)} /></td>
-                                                <td className="px-2"><button onClick={() => deleteDiscount(d.discount_id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
-                                            </tr>
-                                        ))}
+                                        {discounts.length === 0 ? <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">Keine Rabatte</td></tr> : discounts.map((d: any) => {
+                                            const rowId = d.id || d.discount_id;
+                                            return (
+                                                <tr key={rowId} className="hover:bg-slate-50 group">
+                                                    <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={d.description || d.label || ''} onChange={e => updateDiscount(rowId, 'description', e.target.value)} placeholder="Beschreibung..." /></td>
+                                                    <td className="px-4 py-1.5"><select className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1 py-1 text-sm" value={d.mode || d.discount_type || 'flat'} onChange={e => updateDiscount(rowId, 'mode', e.target.value)}><option value="flat">Pauschal</option><option value="percent">Prozent</option></select></td>
+                                                    <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={d.value} onChange={e => updateDiscount(rowId, 'value', +e.target.value)} /></td>
+                                                    <td className="px-2"><button onClick={() => deleteDiscount(rowId)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
+                                                </tr>
+                                            )
+                                        })}
                                     </tbody>
                                 </table>
                             </CostSection>
@@ -803,7 +819,20 @@ export default function CalculationPage() {
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
                                     <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.quantity} onChange={e => setAddSvcForm({ ...addSvcForm, quantity: +e.target.value })} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Lieferant</label>
-                                    <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.supplier} onChange={e => setAddSvcForm({ ...addSvcForm, supplier: e.target.value })} /></div>
+                                    {(() => {
+                                        const s = serviceCatalog.find((x: any) => x.service_id === addSvcForm.service_id);
+                                        const suppliers = Array.from(new Set((s?.prices || []).map((p: any) => p.supplier).filter(Boolean)));
+                                        if (suppliers.length > 0) {
+                                            return (
+                                                <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.supplier} onChange={e => setAddSvcForm({ ...addSvcForm, supplier: e.target.value })}>
+                                                    <option value="">Wählen...</option>
+                                                    {suppliers.map((sup: any) => <option key={sup} value={sup}>{sup}</option>)}
+                                                </select>
+                                            );
+                                        }
+                                        return <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.supplier} onChange={e => setAddSvcForm({ ...addSvcForm, supplier: e.target.value })} />;
+                                    })()}
+                                </div>
                             </div>
                         </div>
                     </Modal>}

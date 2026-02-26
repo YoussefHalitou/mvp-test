@@ -87,7 +87,7 @@ export default function FilesClient() {
             setBreadcrumb([{ id: null, name: 'Dateien' }]);
         } else {
             // Build breadcrumb path
-            const bc = [{ id: null, name: 'Dateien' }];
+            const bc: { id: string | null; name: string }[] = [{ id: null, name: 'Dateien' }];
             const buildPath = (id: string | null): void => {
                 if (!id) return;
                 const folder = folders.find(f => f.id === id);

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 // Routes that require authentication
-const protectedPaths = ['/dashboard', '/mitarbeiter', '/projekte', '/zeiterfassung', '/planning']
+const protectedPaths = ['/dashboard', '/mitarbeiter', '/projekte', '/zeiterfassung', '/planning', '/mobile']
 
 export function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl
@@ -43,5 +43,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-    matcher: ['/dashboard/:path*', '/mitarbeiter/:path*', '/projekte/:path*', '/zeiterfassung/:path*', '/planning/:path*', '/login', '/'],
+    matcher: ['/dashboard/:path*', '/mitarbeiter/:path*', '/projekte/:path*', '/zeiterfassung/:path*', '/planning/:path*', '/mobile/:path*', '/login', '/'],
 }

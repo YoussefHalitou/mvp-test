@@ -116,6 +116,39 @@ export interface Database {
                     is_active?: boolean | null
                 }
             }
+            t_employee_events: {
+                Row: {
+                    id: string
+                    employee_id: string
+                    event_type: string
+                    start_date: string
+                    end_date: string
+                    start_time: string | null
+                    end_time: string | null
+                    notes: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    employee_id: string
+                    event_type: string
+                    start_date: string
+                    end_date: string
+                    start_time?: string | null
+                    end_time?: string | null
+                    notes?: string | null
+                }
+                Update: {
+                    id?: string
+                    employee_id?: string
+                    event_type?: string
+                    start_date?: string
+                    end_date?: string
+                    start_time?: string | null
+                    end_time?: string | null
+                    notes?: string | null
+                }
+            }
             t_morningplan: {
                 Row: {
                     plan_id: string
@@ -801,6 +834,51 @@ export interface Database {
                     custom_column_id?: string
                     record_id?: string
                     value?: string | null
+                }
+            }
+            t_folders: {
+                Row: {
+                    id: string
+                    name: string
+                    parent_id: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    name: string
+                    parent_id?: string | null
+                }
+                Update: {
+                    id?: string
+                    name?: string
+                    parent_id?: string | null
+                }
+            }
+            t_files: {
+                Row: {
+                    id: string
+                    name: string
+                    folder_id: string | null
+                    storage_path: string
+                    size: number
+                    mime_type: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    name: string
+                    folder_id?: string | null
+                    storage_path: string
+                    size: number
+                    mime_type?: string | null
+                }
+                Update: {
+                    id?: string
+                    name?: string
+                    folder_id?: string | null
+                    storage_path?: string
+                    size?: number
+                    mime_type?: string | null
                 }
             }
         }

@@ -20,7 +20,7 @@ import {
 } from '@dnd-kit/sortable';
 
 // Types
-import { Project, Employee, Vehicle, MorningPlan, StaffRowType, VehicleDailyStatus, EmployeeDailyNote, PlanTemplate } from './components/types';
+import { Project, Employee, Vehicle, MorningPlan, StaffRowType, VehicleDailyStatus, EmployeeDailyNote, PlanTemplate, EmployeeEvent } from './components/types';
 
 // Components
 import { DraggableProject } from './components/DraggableProject';
@@ -32,6 +32,7 @@ import { TimelineView } from './components/TimelineView';
 import { MonthView } from './components/MonthView';
 import { ThreeDayView } from './components/ThreeDayView';
 import { PlanningExport } from './components/PlanningExport';
+import { EmployeeEventsBanner } from './components/EmployeeEventsBanner';
 
 const SERVICE_TYPES = ['Umzug', 'Entrümpelung', 'Transport', 'Einlagerung', 'Malerarbeiten', 'Kartonlieferung', 'Sonstiges'];
 
@@ -49,10 +50,11 @@ export function PlanningClient() {
     const [loading, setLoading] = useState(true);
     const [selectedDay, setSelectedDay] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
     const [isCompact, setIsCompact] = useState(false);
+    const [employeeEvents, setEmployeeEvents] = useState<EmployeeEvent[]>([]);
 
     // Plan modal
     const [planModal, setPlanModal] = useState<{ mode: 'create' | 'edit'; plan?: MorningPlan; date: string } | null>(null);
-    const [planForm, setPlanForm] = useState({ project_id: '', start_time: '07:00', vehicle_id: '', vehicle_names: '', service_type: '', notes: '' });
+    const [planForm, setPlanForm] = useState({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '' });
     const [savingPlan, setSavingPlan] = useState(false);
 
     // Templates
@@ -111,6 +113,15 @@ export function PlanningClient() {
         const plansRaw = (planRes.data || []) as MorningPlan[];
         // No manual staff mapping needed anymore as it is fetched nested
         setPlans(plansRaw);
+
+        // Fetch employee events (leave/appointments) for the visible date range
+        const { data: eventsData } = await supabase
+            .from('t_employee_events')
+            .select('*')
+            .lte('start_date', weekEndStr)
+            .gte('end_date', weekStartStr);
+        setEmployeeEvents(eventsData || []);
+
         setLoading(false);
     }, [weekStartStr, weekEndStr]);
 
@@ -165,7 +176,7 @@ export function PlanningClient() {
             const dateStr = over.id.toString().replace('day-', '');
             const project = projects.find(p => p.project_id === projectId);
             if (!project) return;
-            setPlanForm({ project_id: projectId, start_time: '07:00', vehicle_id: '', vehicle_names: '', service_type: project.dienstleistungen || '', notes: '' });
+            setPlanForm({ project_id: projectId, start_time: '', vehicle_id: '', vehicle_names: '', service_type: project.dienstleistungen || '', notes: '' });
             setPlanModal({ mode: 'create', date: dateStr });
             return;
         }
@@ -262,13 +273,13 @@ export function PlanningClient() {
 
     // ---- PLAN CRUD ----
     const openCreatePlan = (dateStr: string) => {
-        setPlanForm({ project_id: '', start_time: '07:00', vehicle_id: '', vehicle_names: '', service_type: '', notes: '' });
+        setPlanForm({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '' });
         setPlanModal({ mode: 'create', date: dateStr });
     };
 
     const openEditPlan = (plan: MorningPlan) => {
         setPlanForm({
-            project_id: plan.project_id || '', start_time: plan.start_time?.substring(0, 5) || '07:00',
+            project_id: plan.project_id || '', start_time: plan.start_time?.substring(0, 5) || '',
             vehicle_id: plan.vehicle_id || '', vehicle_names: plan.vehicle_names || '',
             service_type: plan.service_type || '', notes: plan.notes || '',
         });
@@ -280,7 +291,7 @@ export function PlanningClient() {
         setSavingPlan(true);
         try {
             const payload = {
-                plan_date: planModal.date, project_id: planForm.project_id, start_time: planForm.start_time || '07:00',
+                plan_date: planModal.date, project_id: planForm.project_id, start_time: planForm.start_time || null,
                 vehicle_id: planForm.vehicle_id || null, vehicle_names: planForm.vehicle_names || null,
                 service_type: planForm.service_type || null, notes: planForm.notes || null,
             };
@@ -514,7 +525,7 @@ export function PlanningClient() {
             if ((a as any).sort_order !== (b as any).sort_order) {
                 return ((a as any).sort_order || 0) - ((b as any).sort_order || 0);
             }
-            return (a.start_time || '07:00').localeCompare(b.start_time || '07:00');
+            return (a.start_time || '').localeCompare(b.start_time || '');
         });
 
     // Conflict Detection
@@ -577,7 +588,7 @@ export function PlanningClient() {
                                 else if (viewMode === 'week') setCurrentDate(addDays(currentDate, -7));
                                 else if (viewMode === '3day') setCurrentDate(addDays(currentDate, -3));
                                 else if (viewMode === 'day') {
-                                    const prevD = addDays(new Date(selectedDay), -1);
+                                    const prevD = addDays(currentDate, -1);
                                     setSelectedDay(format(prevD, 'yyyy-MM-dd'));
                                     setCurrentDate(prevD);
                                 }
@@ -592,7 +603,7 @@ export function PlanningClient() {
                                         ? `${format(weekStart, 'd. MMM', { locale: de })} – ${format(weekEnd, 'd. MMM yyyy', { locale: de })}`
                                         : viewMode === '3day'
                                             ? `${format(currentDate, 'd. MMM', { locale: de })} – ${format(addDays(currentDate, 2), 'd. MMM', { locale: de })}`
-                                            : format(new Date(selectedDay), 'd. MMMM yyyy', { locale: de })
+                                            : format(currentDate, 'd. MMMM yyyy', { locale: de })
                                 }
                             </span>
                             <button onClick={() => {
@@ -600,7 +611,7 @@ export function PlanningClient() {
                                 else if (viewMode === 'week') setCurrentDate(addDays(currentDate, 7));
                                 else if (viewMode === '3day') setCurrentDate(addDays(currentDate, 3));
                                 else if (viewMode === 'day') {
-                                    const nextD = addDays(new Date(selectedDay), 1);
+                                    const nextD = addDays(currentDate, 1);
                                     setSelectedDay(format(nextD, 'yyyy-MM-dd'));
                                     setCurrentDate(nextD);
                                 }
@@ -690,23 +701,34 @@ export function PlanningClient() {
 
                     {viewMode === 'month' ? (
                         /* ============ MONTH VIEW ============ */
-                        <MonthView
-                            currentDate={currentDate}
-                            plans={plans}
-                            onDayClick={(dateStr) => { setSelectedDay(dateStr); setCurrentDate(new Date(dateStr)); setViewMode('day'); }}
-                        />
+                        <div className="flex-1 flex flex-col overflow-hidden">
+                            {employeeEvents.length > 0 && <EmployeeEventsBanner events={employeeEvents} employees={employees} />}
+                            <MonthView
+                                currentDate={currentDate}
+                                plans={plans}
+                                employeeEvents={employeeEvents}
+                                employees={employees}
+                                onDayClick={(dateStr) => { setSelectedDay(dateStr); setCurrentDate(new Date(dateStr)); setViewMode('day'); }}
+                            />
+                        </div>
                     ) : viewMode === '3day' ? (
                         /* ============ 3-DAY VIEW ============ */
-                        <ThreeDayView
-                            startDate={currentDate}
-                            plans={plans}
-                            onDayClick={(dateStr) => { setSelectedDay(dateStr); setViewMode('day'); }}
-                            onDelete={handleDeletePlan}
-                            onEditPlan={openEditPlan}
-                        />
+                        <div className="flex-1 flex flex-col overflow-hidden">
+                            {employeeEvents.length > 0 && <EmployeeEventsBanner events={employeeEvents} employees={employees} />}
+                            <ThreeDayView
+                                startDate={currentDate}
+                                plans={plans}
+                                employeeEvents={employeeEvents}
+                                employees={employees}
+                                onDayClick={(dateStr) => { setSelectedDay(dateStr); setViewMode('day'); }}
+                                onDelete={handleDeletePlan}
+                                onEditPlan={openEditPlan}
+                            />
+                        </div>
                     ) : viewMode === 'week' ? (
                         /* ============ WEEK VIEW ============ */
                         <div className="flex-1 flex flex-col overflow-hidden">
+                            {employeeEvents.length > 0 && <EmployeeEventsBanner events={employeeEvents} employees={employees} />}
                             {/* Calendar Grid */}
                             <div className="flex-1 overflow-auto bg-slate-50 p-4">
                                 <div className="grid grid-cols-7 gap-3 h-full min-h-[400px]">
@@ -716,6 +738,7 @@ export function PlanningClient() {
                                             <div key={dateStr} onClick={() => { setSelectedDay(dateStr); setViewMode('day'); }}
                                                 className={cn("cursor-pointer hover:ring-2 hover:ring-blue-200 rounded-xl transition-all", dateStr === selectedDay && "ring-2 ring-blue-400")}>
                                                 <DroppableDay day={day} plans={plans.filter(p => p.plan_date === dateStr)}
+                                                    employeeEvents={employeeEvents} employees={employees}
                                                     onDelete={handleDeletePlan} onEditPlan={openEditPlan} />
                                             </div>
                                         );

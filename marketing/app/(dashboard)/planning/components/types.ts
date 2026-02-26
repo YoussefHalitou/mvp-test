@@ -10,6 +10,7 @@ export type MorningPlan = Database['public']['Tables']['t_morningplan']['Row'] &
 };
 export type VehicleDailyStatus = Database['public']['Tables']['t_vehicle_daily_status']['Row'];
 export type EmployeeDailyNote = Database['public']['Tables']['t_employee_daily_notes']['Row'];
+export type EmployeeEvent = Database['public']['Tables']['t_employee_events']['Row'];
 
 export interface PlanTemplate {
     id: string;

@@ -10,6 +10,7 @@ import {
     Clock,
     Calculator,
     FolderKanban,
+    FolderOpen,
     ChevronLeft,
     ChevronRight,
     Settings,
@@ -32,6 +33,8 @@ const MENU_ITEMS = [
     { href: '/tracking', label: 'Rückerfassung', icon: Clock },
     { href: '/calculation', label: 'Nachkalkulation', icon: Calculator },
     { href: '/projects', label: 'Projekte', icon: FolderKanban },
+    { href: '/leave-planner', label: 'Urlaubs-/Terminplaner', icon: Calendar },
+    { href: '/files', label: 'Dateien', icon: FolderOpen },
     { href: '/resources', label: 'Ressourcen', icon: Users },
     { href: '/kpi', label: 'KPI & Statistik', icon: BarChart3 },
 ];

@@ -74,3 +74,55 @@ body {
   border-radius: 999px;
   background: #e7e5e4;
 }
+
+/* ===== MOBILE RESPONSIVE UTILITIES ===== */
+
+/* Bottom sheets: max-width + centering on tablets/wide phones */
+@media (min-width: 640px) {
+  [data-mobile-sheet] {
+    max-width: 480px;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%);
+    border-radius: 1rem 1rem 0 0;
+  }
+}
+
+/* Prevent iOS zoom on input focus (requires 16px minimum) */
+@media (max-width: 640px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="number"],
+  input[type="date"],
+  input[type="time"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Ensure smooth scrolling and proper overscroll on mobile */
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Touch-optimized buttons — disable text selection, add haptic-feel active state */
+.touch-btn {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+/* Safe area spacer for FABs */
+.fab-position {
+  bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .fab-position {
+    right: calc(50% - 15rem); /* Align with max-w-2xl container */
+  }
+}

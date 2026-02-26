@@ -60,7 +60,7 @@ export function ProjectCard({
                         <div {...listeners} {...attributes} className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 p-1 mr-1">
                             <MoreHorizontal className="h-4 w-4 rotate-90" />
                         </div>
-                        <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{plan.start_time?.substring(0, 5) || '07:00'}</span>
+                        <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{plan.start_time?.substring(0, 5) || '–'}</span>
                         {!compact && <span className="text-xs font-bold text-slate-500 uppercase tracking-wide border border-slate-200 px-2 py-0.5 rounded">{plan.service_type || 'Service'}</span>}
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => onDuplicate(plan)} title="Duplizieren" className="p-1 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded transition-colors"><Copy className="h-3.5 w-3.5" /></button>

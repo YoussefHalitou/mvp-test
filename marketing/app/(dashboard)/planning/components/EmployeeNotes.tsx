@@ -33,7 +33,9 @@ export function EmployeeNotes({
                             <tr key={emp.employee_id} className="hover:bg-slate-50">
                                 <td className="px-4 py-2 font-medium text-slate-700">{emp.name}</td>
                                 <td className="px-4 py-2">
-                                    <input className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-400 focus:outline-none py-1 text-slate-600"
+                                    <input
+                                        key={`${selectedDay}-${emp.employee_id}`}
+                                        className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-400 focus:outline-none py-1 text-slate-600"
                                         placeholder="—"
                                         defaultValue={note?.notizen || ''}
                                         onBlur={async (e) => {

@@ -3,8 +3,8 @@
 -- similar to t_project_material_usage for materials and t_project_vehicle_costs for vehicles.
 
 CREATE TABLE IF NOT EXISTS public.t_project_service_usage (
-  id text NOT NULL DEFAULT gen_random_uuid()::text,
-  project_id text NOT NULL,
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL,
   service_id text NOT NULL,
   quantity numeric DEFAULT 1,
   supplier text,

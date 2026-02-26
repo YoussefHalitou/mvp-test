@@ -19,7 +19,7 @@ type ProjectInsert = Database['public']['Tables']['t_projects']['Insert'];
 
 const SERVICE_TYPES = ['Umzug', 'Entrümpelung', 'Transport', 'Einlagerung', 'Malerarbeiten', 'Kartonlieferung', 'Sonstiges'];
 const STATUS_OPTIONS = ['In Planung', 'Bestätigt', 'Abgeschlossen', 'Storniert'];
-const ANREDE_OPTIONS = ['Herr', 'Frau', 'Firma', 'Herr und Frau'];
+const ANREDE_OPTIONS = ['Herr', 'Frau', 'Firma', 'Herr und Frau', 'Familie'];
 
 const STATUS_COLORS: Record<string, string> = {
     'In Planung': 'bg-yellow-100 text-yellow-800 border-yellow-200',
@@ -650,21 +650,21 @@ export default function ProjectsPage() {
                                 <div className="grid grid-cols-3 gap-3">
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung</label>
-                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                                            value={editingProject.dienstleistungen || ''} onChange={e => setField('dienstleistungen', e.target.value)}>
-                                            <option value="">—</option>
-                                            {SERVICE_TYPES.map(s => <option key={s} value={s}>{s}</option>)}
-                                        </select>
+                                        <input list="dienst-list" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                                            value={editingProject.dienstleistungen || ''} onChange={e => setField('dienstleistungen', e.target.value)} placeholder="Wählen oder eingeben..." />
+                                        <datalist id="dienst-list">
+                                            {SERVICE_TYPES.map(s => <option key={s} value={s} />)}
+                                        </datalist>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Angebotsart</label>
-                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                                            value={editingProject.offer_type || ''} onChange={e => setField('offer_type', e.target.value)}>
-                                            <option value="">—</option>
-                                            <option value="Pauschal">Pauschal</option>
-                                            <option value="Stundenlohn">Stundenlohn</option>
-                                            <option value="Kostenvoranschlag">Kostenvoranschlag</option>
-                                        </select>
+                                        <input list="offer-list" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                                            value={editingProject.offer_type || ''} onChange={e => setField('offer_type', e.target.value)} placeholder="Wählen oder eingeben..." />
+                                        <datalist id="offer-list">
+                                            <option value="Pauschal" />
+                                            <option value="Stundenlohn" />
+                                            <option value="Kostenvoranschlag" />
+                                        </datalist>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Projektdatum</label>

@@ -13,6 +13,7 @@ import {
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/supabase';
+import { exportBesichtigungHTML } from './exportBesichtigung';
 
 type Project = Database['public']['Tables']['t_projects']['Row'];
 type ProjectInsert = Database['public']['Tables']['t_projects']['Insert'];
@@ -481,15 +482,21 @@ export default function ProjectsPage() {
                                 </section>
 
                                 {/* Actions */}
-                                <div className="flex gap-2 pt-2">
-                                    <button onClick={() => openEdit(selectedProject)}
-                                        className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
-                                        <Pencil className="h-4 w-4" /> Bearbeiten
+                                <div className="space-y-2 pt-2">
+                                    <button onClick={() => exportBesichtigungHTML(selectedProject.project_id, selectedProject)}
+                                        className="w-full flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 shadow-sm">
+                                        <FileText className="h-4 w-4" /> Arbeitsauftrag (Besichtigung)
                                     </button>
-                                    <button onClick={(e) => handleDelete(selectedProject.project_id, e)} type="button"
-                                        className="flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">
-                                        <Trash2 className="h-4 w-4" /> Löschen
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => openEdit(selectedProject)}
+                                            className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm">
+                                            <Pencil className="h-4 w-4" /> Bearbeiten
+                                        </button>
+                                        <button onClick={(e) => handleDelete(selectedProject.project_id, e)} type="button"
+                                            className="flex items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">
+                                            <Trash2 className="h-4 w-4" /> Löschen
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         )}

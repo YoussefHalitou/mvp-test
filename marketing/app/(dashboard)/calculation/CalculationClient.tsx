@@ -162,7 +162,7 @@ export default function CalculationPage() {
             supabase.from('t_project_discounts').select('*').eq('project_id', pid),
         ]);
 
-        setPersonnel((tpRes.data || []).map(tp => {
+        setPersonnel((tpRes.data || []).filter(tp => tp.pause !== 'deleted').map(tp => {
             const lisH = calcHours(tp.lis_von, tp.lis_bis, tp.pause_min || 0);
             const kdH = calcHours(tp.kunde_von, tp.kunde_bis);
             const satz = rateMap[tp.mitarbeiter]?.rate || 0;
@@ -442,6 +442,198 @@ export default function CalculationPage() {
         URL.revokeObjectURL(url);
     };
 
+    const exportAuftragsnachkalkulationHTML = async () => {
+        // Prepare personnel grouping
+        const pMap = new Map<string, { std: number, satz: number, kosten: number, erloes: number }>();
+        let gesamtStd = 0;
+        personnel.forEach(p => {
+            gesamtStd += p.lis_stunden;
+            const existing = pMap.get(p.mitarbeiter) || { std: 0, satz: p.satz, kosten: 0, erloes: 0 };
+            existing.std += p.lis_stunden;
+            existing.kosten += p.kosten;
+            pMap.set(p.mitarbeiter, existing);
+        });
+
+        // EVD, HVZ, LKW, Diesel, Sonstige
+        let lkwKosten = 0, lkwErloes = 0;
+        vehicles.forEach(v => {
+            // Usually vehicle costs are both internal cost? We only have total_cost which is Erlös in CalculationClient.
+            lkwErloes += v.total_cost;
+            lkwKosten += (v.usage_value * (v.cost_per_unit || 0)); // approximated if needed, but currently total_cost is the charge
+        });
+
+        const numFormat = (n: number) => n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+
+        const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Auftragsnachkalkulation – ${selectedProject?.name || ''}</title>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: "Inter", -apple-system, sans-serif; font-size: 11px; margin: 20px; color: #1e293b; background: white; }
+    h1 { font-size: 20px; text-align: center; margin-bottom: 25px; color: #0f172a; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+    .header-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 30px; margin-bottom: 25px; }
+    .field-row { display: flex; margin-bottom: 12px; align-items: flex-end; }
+    .field-row .label { font-size: 10px; font-weight: 600; width: 130px; color: #475569; }
+    .field-row .value { flex: 1; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; min-height: 18px; font-size: 12px; font-weight: 500; }
+    .box { border: 1px solid #94a3b8; border-radius: 4px; padding: 10px; height: 90px; font-size: 10px; font-weight: 600; color: #475569; background: #f8fafc; }
+    .box-content { font-weight: 400; font-size: 11px; color: #1e293b; margin-top: 5px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 11px; border-radius: 4px; overflow: hidden; }
+    th, td { border: 1px solid #cbd5e1; padding: 6px 10px; }
+    th { text-align: center; font-weight: 600; color: #334155; background-color: #f1f5f9; text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em; }
+    .bg-green { background-color: #86efac; color: #166534; border-color: #4ade80; }
+    .text-orange { color: #ea580c; font-weight: 600; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    .val-container { display: flex; justify-content: space-between; width: 100%; }
+    .val-container .cur { color: #94a3b8; }
+    .summary-table { width: 320px; margin-left: auto; margin-top: 30px; border-collapse: separate; border-spacing: 0 4px; }
+    .summary-table td { border: none; padding: 6px 10px; background: #f8fafc; }
+    .summary-table tr:last-child td { background: none; }
+    .summary-table td.label { font-weight: 600; width: 60%; color: #475569; border-radius: 4px 0 0 4px; }
+    .summary-table td.val { text-align: right; font-weight: 500; border-radius: 0 4px 4px 0; }
+    .summary-table tr.total td.val { font-weight: 700; border-bottom: 2px solid #334155; border-radius: 0; background: transparent; }
+    .flex-tables { display: flex; gap: 30px; margin-top: 25px; }
+    .half-table { flex: 1; }
+    .half-table-title { font-weight: 600; font-size: 11px; margin-bottom: 6px; color: #334155; text-transform: uppercase; letter-spacing: 0.03em; }
+    .half-table table { width: 100%; }
+    .half-table td { padding: 4px 8px; border-color: #e2e8f0; }
+    .half-table td.label { color: #475569; font-weight: 500; }
+</style>
+</head><body>
+    <h1>Auftragsnachkalkulation</h1>
+    <div class="header-grid">
+        <div>
+            <div class="field-row"><div class="label">Rechnungsadresse</div><div class="value" style="border:none;"></div></div>
+            <div class="field-row"><div class="value">${selectedProject?.anrede || ''} ${selectedProject?.name || ''}</div></div>
+            <div class="field-row"><div class="value">${selectedProject?.strasse || ''} ${selectedProject?.nr || ''}</div></div>
+            <div class="field-row"><div class="value">${selectedProject?.plz || ''} ${selectedProject?.ort || ''}</div></div>
+        </div>
+        <div class="box">Sonstige Bemerkungen<div class="box-content">${selectedProject?.notes || ''}</div></div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <div class="field-row" style="width: 50%;"><div class="label">Telefonnummer Kunde:</div><div class="value">${selectedProject?.telefon || ''}</div></div>
+        <div style="width: 40%; display:flex; align-items: flex-end;">
+            <div style="font-size:10px; font-weight:600; margin-right:12px; color: #475569;">KV oder FP</div>
+            <div style="flex:1; background-color:#86efac; height:18px; border-radius:2px;"></div>
+            <div style="font-size:10px; font-weight:600; margin-left:15px; margin-right:12px; color: #475569;">Kunden Nr.</div>
+            <div class="value" style="flex:1;"></div>
+        </div>
+    </div>
+    <div class="field-row"><div class="label">Auftragsdatum</div><div class="value">${selectedProject?.project_date ? new Date(selectedProject.project_date).toLocaleDateString('de-DE') : ''}</div></div>
+    <div class="field-row"><div class="label">Aufgaben</div><div class="value">${selectedProject?.dienstleistungen || ''}</div></div>
+    <div class="field-row"><div class="label">Sonstige Infos</div><div class="value"></div></div>
+
+    <table>
+        <tr>
+            <th style="text-align:left;">Kosten:</th>
+            <th style="width:28%;">Land in Sicht</th>
+            <th style="width:28%;">Kunde</th>
+            <th class="bg-green" style="width:18%;">KV</th>
+        </tr>
+        <tr>
+            <td class="text-orange" style="background:#fff7ed;">Gesamt Std</td>
+            <td class="center text-orange" style="background:#fff7ed;">${gesamtStd.toFixed(2)}</td>
+            <td style="background:#fff7ed;"></td>
+            <td style="background:#fff7ed;"></td>
+        </tr>
+        ${Array.from(pMap.entries()).map(([name, data]) => `<tr>
+            <td style="font-weight:600; color:#475569;">Stunden ${name}</td>
+            <td class="center"><div class="val-container"><span>x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td>
+            <td></td>
+            <td></td>
+        </tr>`).join('')}
+        ${pMap.size === 0 ? `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td><td></td><td></td></tr>` : ''}
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">EVD</td>
+            <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
+            <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">HVZ</td>
+            <td></td><td></td><td></td>
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
+            <td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td><td></td><td></td>
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Diesel / BNK</td>
+            <td></td><td></td><td></td>
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
+            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td><td></td>
+        </tr>
+        <tr>
+            <td style="border:none; background:transparent;"></td>
+            <td style="border:none; background:transparent;"></td>
+            <td class="center" style="font-weight:600; color:#475569; border-top:2px solid #cbd5e1;">Rabatt</td>
+            <td class="right" style="border-top:2px solid #cbd5e1; font-weight:600;">${numFormat(discountTotal)}</td>
+        </tr>
+    </table>
+
+    <div class="flex-tables">
+        <div class="half-table">
+            <div class="half-table-title">EVD LiS</div>
+            <table>
+                <tr><td class="label" style="width:50%;">AZV:</td><td class="right cur">- €</td></tr>
+                <tr><td class="label" style="width:50%;">Holz:</td><td class="right cur">- €</td></tr>
+            </table>
+        </div>
+        <div class="half-table">
+            <div class="half-table-title">EVD Kunde</div>
+            <table>
+                <tr><td class="label" style="width:50%;">&nbsp;</td><td class="right cur">- €</td></tr>
+                <tr><td class="label" style="width:50%;">&nbsp;</td><td class="right cur">- €</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="flex-tables">
+        <div class="half-table">
+            <div class="half-table-title">Material LiS</div>
+            <table>
+                ${materials.length > 0 ? materials.map(m => `<tr><td class="label" style="width:50%;">${m.material_name}:</td><td class="right font-medium">${numFormat(m.total_price)}</td></tr>`).join('') : `
+                <tr><td class="label" style="width:50%;">Kartons:</td><td class="right cur">- €</td></tr>
+                <tr><td class="label">Klebeband:</td><td class="right cur">- €</td></tr>
+                <tr><td class="label">Lupo:</td><td class="right cur">- €</td></tr>
+                <tr><td class="label">Stretchfolie:</td><td class="right cur">- €</td></tr>`}
+            </table>
+        </div>
+        <div class="half-table">
+            <div class="half-table-title">Material Kunde</div>
+            <table>
+                <tr><td class="label" style="width:50%;">&nbsp;</td><td class="right cur">- €</td></tr>
+                <tr><td class="label" style="width:50%;">&nbsp;</td><td class="right cur">- €</td></tr>
+                ${materials.length <= 2 ? '<tr><td class="label" style="width:50%;">&nbsp;</td><td class="right cur">- €</td></tr><tr><td class="label" style="width:50%;">&nbsp;</td><td class="right cur">- €</td></tr>' : ''}
+            </table>
+        </div>
+    </div>
+
+    <table class="summary-table">
+        <tr><td class="label">KV vorher</td><td class="val cur">- €</td></tr>
+        <tr><td class="label">Nettoumsatz</td><td class="val">${numFormat(totalRevenue)}</td></tr>
+        <tr class="total"><td class="label">Bruttoumsatz</td><td class="val">${numFormat(totalRevenue * 1.19)}</td></tr>
+        <tr><td class="label">Gesamtkosten netto</td><td class="val">${numFormat(totalCosts)}</td></tr>
+        <tr class="total"><td class="label">Nettoeinnahme</td><td class="val">${numFormat(margin)}</td></tr>
+        <tr><td class="label">Prozent</td><td class="val" style="padding-top: 12px;"><span style="background-color:#86efac; color:#166534; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #4ade80;">${marginPct >= 0 || marginPct < 0 ? marginPct.toFixed(1) + '%' : '#DIV/0!'}</span></td></tr>
+    </table>
+</body></html>`;
+
+        const html2pdf = (await import('html2pdf.js')).default;
+        const container = document.createElement('div');
+        container.innerHTML = html;
+        document.body.appendChild(container);
+        await html2pdf().set({
+            margin: 10,
+            filename: `Auftragsnachkalkulation_${selectedProject?.project_code || 'Projekt'}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        }).from(container).save();
+        document.body.removeChild(container);
+        toast(`Auftragsnachkalkulation.pdf exportiert`, 'success');
+    };
+
     return (
         <div className="flex h-full w-full bg-slate-50 overflow-hidden">
             <aside className={cn(
@@ -568,11 +760,16 @@ export default function CalculationPage() {
                             )}
                         </div>
                     </div>
-                    <div>
+                    <div className="flex items-center gap-2">
                         {selectedProject && (
-                            <button onClick={exportHTML} className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900 shadow-sm transition-colors">
-                                <FileText className="h-4 w-4" /> Export
-                            </button>
+                            <>
+                                <button onClick={exportHTML} className="flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 border border-slate-300 shadow-sm transition-colors">
+                                    <FileText className="h-4 w-4" /> Standard Export
+                                </button>
+                                <button onClick={exportAuftragsnachkalkulationHTML} className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900 shadow-sm transition-colors">
+                                    <FileText className="h-4 w-4" /> Auftragsnachkalkulation
+                                </button>
+                            </>
                         )}
                     </div>
                 </header>

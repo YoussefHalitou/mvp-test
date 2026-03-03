@@ -881,6 +881,73 @@ export interface Database {
                     mime_type?: string | null
                 }
             }
+            t_project_hvz_costs: {
+                Row: {
+                    id: string
+                    project_id: string | null
+                    datum_von: string | null
+                    datum_bis: string | null
+                    tage: number | null
+                    ek_preis: number
+                    vk_preis: number
+                    is_kv: boolean | null
+                    created_at: string | null
+                }
+                Insert: {
+                    id?: string
+                    project_id?: string | null
+                    datum_von?: string | null
+                    datum_bis?: string | null
+                    tage?: number | null
+                    ek_preis?: number
+                    vk_preis?: number
+                    is_kv?: boolean | null
+                    created_at?: string | null
+                }
+                Update: {
+                    id?: string
+                    project_id?: string | null
+                    datum_von?: string | null
+                    datum_bis?: string | null
+                    tage?: number | null
+                    ek_preis?: number
+                    vk_preis?: number
+                    is_kv?: boolean | null
+                    created_at?: string | null
+                }
+            }
+            t_project_bnk_costs: {
+                Row: {
+                    id: string
+                    project_id: string | null
+                    beschreibung: string | null
+                    menge: number | null
+                    ek_preis: number
+                    vk_preis: number
+                    is_kv: boolean | null
+                    created_at: string | null
+                }
+                Insert: {
+                    id?: string
+                    project_id?: string | null
+                    beschreibung?: string | null
+                    menge?: number | null
+                    ek_preis?: number
+                    vk_preis?: number
+                    is_kv?: boolean | null
+                    created_at?: string | null
+                }
+                Update: {
+                    id?: string
+                    project_id?: string | null
+                    beschreibung?: string | null
+                    menge?: number | null
+                    ek_preis?: number
+                    vk_preis?: number
+                    is_kv?: boolean | null
+                    created_at?: string | null
+                }
+            }
         }
     }
 }

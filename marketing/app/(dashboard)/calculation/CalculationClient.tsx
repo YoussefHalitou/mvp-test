@@ -82,6 +82,22 @@ export default function CalculationPage() {
     const [addSvcModal, setAddSvcModal] = useState(false);
     const [addSvcForm, setAddSvcForm] = useState({ service_id: '', quantity: 1, unit: 'Std', cost_per_unit: 0, supplier: '' });
 
+    // Cost basis toggle: 'lis' or 'kd' (global default)
+    const [costBasis, setCostBasis] = useState<'lis' | 'kd'>('lis');
+    // Per-row overrides: pair_id -> 'lis' | 'kd'
+    const [perRowBasis, setPerRowBasis] = useState<Record<string, 'lis' | 'kd'>>({});
+    const getRowBasis = (pairId: string): 'lis' | 'kd' => perRowBasis[pairId] || costBasis;
+    const toggleRowBasis = (pairId: string) => {
+        setPerRowBasis(prev => {
+            const current = prev[pairId] || costBasis;
+            return { ...prev, [pairId]: current === 'lis' ? 'kd' : 'lis' };
+        });
+    };
+    const setGlobalBasis = (basis: 'lis' | 'kd') => {
+        setCostBasis(basis);
+        setPerRowBasis({}); // reset all individual overrides
+    };
+
     // Sidebar State
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [projectSearch, setProjectSearch] = useState('');
@@ -169,7 +185,7 @@ export default function CalculationPage() {
             return {
                 pair_id: tp.pair_id, datum: tp.datum, mitarbeiter: tp.mitarbeiter, role: rateMap[tp.mitarbeiter]?.role || null,
                 lis_von: tp.lis_von, lis_bis: tp.lis_bis, kunde_von: tp.kunde_von, kunde_bis: tp.kunde_bis,
-                pause_min: tp.pause_min || 0, lis_stunden: lisH, kunden_stunden: kdH, satz, kosten: +(lisH * satz).toFixed(2)
+                pause_min: tp.pause_min || 0, lis_stunden: lisH, kunden_stunden: kdH, satz, kosten: 0
             };
         }));
 
@@ -207,8 +223,17 @@ export default function CalculationPage() {
         setLoading(false);
     };
 
+    // Recalculate personnel costs based on per-row or global costBasis
+    const adjustedPersonnel = useMemo(() => personnel.map(p => {
+        const basis = perRowBasis[p.pair_id] || costBasis;
+        return {
+            ...p,
+            _basis: basis,
+            kosten: +((basis === 'lis' ? p.lis_stunden : p.kunden_stunden) * p.satz).toFixed(2)
+        };
+    }), [personnel, costBasis, perRowBasis]);
     // Calculations
-    const personalKosten = useMemo(() => personnel.reduce((s, p) => s + p.kosten, 0), [personnel]);
+    const personalKosten = useMemo(() => adjustedPersonnel.reduce((s, p) => s + p.kosten, 0), [adjustedPersonnel]);
     const materialKosten = useMemo(() => materials.reduce((s, m) => s + m.total_cost, 0), [materials]);
     const materialErloes = useMemo(() => materials.reduce((s, m) => s + m.total_price, 0), [materials]);
     const vehicleErloes = useMemo(() => vehicles.reduce((s, v) => s + v.total_cost, 0), [vehicles]);
@@ -414,9 +439,9 @@ export default function CalculationPage() {
         <div class="kpi-card"><div class="kpi-label">Gesamterlöse</div><div class="kpi-value">${eur(totalRevenue)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Marge</div><div class="kpi-value ${margin >= 0 ? 'positive' : 'negative'}">${eur(margin)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Marge %</div><div class="kpi-value ${marginPct >= 0 ? 'positive' : 'negative'}">${marginPct.toFixed(1)}%</div></div></div>
-        <h2>1. Personalkosten (${eur(personalKosten)})</h2><table><tr><th>Datum</th><th>Mitarbeiter</th><th>LiS Std.</th><th class="right">Satz</th><th class="right">Kosten</th></tr>
-        ${personnel.map(p => `<tr><td>${p.datum}</td><td>${p.mitarbeiter}</td><td>${p.lis_stunden.toFixed(2)}</td><td class="right">${eur(p.satz)}</td><td class="right">${eur(p.kosten)}</td></tr>`).join('')}
-        <tr><th colspan="4">Summe</th><th class="right">${eur(personalKosten)}</th></tr></table>
+        <h2>1. Personalkosten (${eur(personalKosten)})</h2><table><tr><th>Datum</th><th>Mitarbeiter</th><th>LiS Std.</th><th>Kd Std.</th><th>Basis</th><th class="right">Satz</th><th class="right">Kosten</th></tr>
+        ${adjustedPersonnel.map((p: any) => { const b = p._basis || costBasis; return `<tr><td>${p.datum}</td><td>${p.mitarbeiter}</td><td style="${b === 'lis' ? 'font-weight:700;color:#1d4ed8' : 'color:#94a3b8'}">${p.lis_stunden.toFixed(2)}</td><td style="${b === 'kd' ? 'font-weight:700;color:#15803d' : 'color:#94a3b8'}">${p.kunden_stunden.toFixed(2)}</td><td style="text-align:center"><span style="background:${b === 'lis' ? '#dbeafe;color:#1d4ed8' : '#dcfce7;color:#15803d'};padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:600">${b === 'lis' ? 'LiS' : 'Kd'}</span></td><td class="right">${eur(p.satz)}</td><td class="right">${eur(p.kosten)}</td></tr>`; }).join('')}
+        <tr><th colspan="6">Summe</th><th class="right">${eur(personalKosten)}</th></tr></table>
         <h2>2. Material (${eur(materialKosten)})</h2><table><tr><th>Material</th><th>Menge</th><th>Einheit</th><th class="right">EK</th><th class="right">VK</th><th class="right">Kosten</th><th class="right">Erlöse</th></tr>
         ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.price_per_unit)}</td><td class="right">${eur(m.total_cost)}</td><td class="right">${eur(m.total_price)}</td></tr>`).join('')}
         <tr><th colspan="5">Summe</th><th class="right">${eur(materialKosten)}</th><th class="right">${eur(materialErloes)}</th></tr></table>
@@ -446,10 +471,12 @@ export default function CalculationPage() {
         // Prepare personnel grouping
         const pMap = new Map<string, { std: number, satz: number, kosten: number, erloes: number }>();
         let gesamtStd = 0;
-        personnel.forEach(p => {
-            gesamtStd += p.lis_stunden;
+        adjustedPersonnel.forEach((p: any) => {
+            const basis = p._basis || costBasis;
+            const hours = basis === 'lis' ? p.lis_stunden : p.kunden_stunden;
+            gesamtStd += hours;
             const existing = pMap.get(p.mitarbeiter) || { std: 0, satz: p.satz, kosten: 0, erloes: 0 };
-            existing.std += p.lis_stunden;
+            existing.std += hours;
             existing.kosten += p.kosten;
             pMap.set(p.mitarbeiter, existing);
         });
@@ -791,6 +818,32 @@ export default function CalculationPage() {
                         </div>
                     ) : (
                         <div className="p-6 space-y-6 pb-20">
+                            {/* Cost Basis Toggle */}
+                            <div className="flex items-center gap-3 mb-2">
+                                <span className="text-sm font-medium text-slate-600">Standard-Basis Personalkosten:</span>
+                                <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
+                                    <button
+                                        onClick={() => setGlobalBasis('lis')}
+                                        className={cn(
+                                            "px-3 py-1.5 text-sm font-medium rounded-md transition-all",
+                                            costBasis === 'lis' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                                        )}
+                                    >
+                                        LiS Std.
+                                    </button>
+                                    <button
+                                        onClick={() => setGlobalBasis('kd')}
+                                        className={cn(
+                                            "px-3 py-1.5 text-sm font-medium rounded-md transition-all",
+                                            costBasis === 'kd' ? "bg-white text-green-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                                        )}
+                                    >
+                                        Kd Std.
+                                    </button>
+                                </div>
+                                {Object.keys(perRowBasis).length > 0 && <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">⚠ {Object.keys(perRowBasis).length} individuelle Überschreibung(en)</span>}
+                            </div>
+
                             {/* KPI Cards */}
                             <div className="grid grid-cols-4 gap-4">
                                 <KpiCard label="Gesamtkosten" value={eur(totalCosts)} icon={<DollarSign className="h-5 w-5" />} color="text-slate-800" bgColor="bg-slate-100" />
@@ -806,16 +859,28 @@ export default function CalculationPage() {
                                 <table className="w-full text-sm">
                                     <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
                                         <tr><th className="px-4 py-2 text-left">Datum</th><th className="px-4 py-2 text-left">Mitarbeiter</th><th className="px-4 py-2 text-left">Rolle</th>
-                                            <th className="px-4 py-2 text-right">LiS Std.</th><th className="px-4 py-2 text-right">Kd Std.</th><th className="px-4 py-2 text-right">Satz</th><th className="px-4 py-2 text-right">Kosten</th></tr>
+                                            <th className="px-4 py-2 text-right">LiS Std.</th><th className="px-4 py-2 text-right">Kd Std.</th><th className="px-4 py-2 text-center w-[80px]">Basis</th><th className="px-4 py-2 text-right">Satz</th><th className="px-4 py-2 text-right">Kosten</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {personnel.length === 0 ? <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">Keine Zeitpaare</td></tr> : personnel.map(p => (
-                                            <tr key={p.pair_id} className="hover:bg-slate-50">
-                                                <td className="px-4 py-2 text-slate-600">{p.datum}</td><td className="px-4 py-2 font-medium">{p.mitarbeiter}</td><td className="px-4 py-2 text-slate-500">{p.role || '—'}</td>
-                                                <td className="px-4 py-2 text-right font-mono">{p.lis_stunden.toFixed(2)}</td><td className="px-4 py-2 text-right font-mono text-slate-500">{p.kunden_stunden.toFixed(2)}</td>
-                                                <td className="px-4 py-2 text-right">{eur(p.satz)}</td><td className="px-4 py-2 text-right font-semibold">{eur(p.kosten)}</td>
-                                            </tr>
-                                        ))}
+                                        {adjustedPersonnel.length === 0 ? <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">Keine Zeitpaare</td></tr> : adjustedPersonnel.map((p: any) => {
+                                            const rowBasis = getRowBasis(p.pair_id);
+                                            return (
+                                                <tr key={p.pair_id} className="hover:bg-slate-50">
+                                                    <td className="px-4 py-2 text-slate-600">{p.datum}</td><td className="px-4 py-2 font-medium">{p.mitarbeiter}</td><td className="px-4 py-2 text-slate-500">{p.role || '—'}</td>
+                                                    <td className={cn("px-4 py-2 text-right font-mono", rowBasis === 'lis' ? 'font-semibold text-blue-700' : 'text-slate-400')}>{p.lis_stunden.toFixed(2)}</td>
+                                                    <td className={cn("px-4 py-2 text-right font-mono", rowBasis === 'kd' ? 'font-semibold text-green-700' : 'text-slate-400')}>{p.kunden_stunden.toFixed(2)}</td>
+                                                    <td className="px-2 py-2 text-center">
+                                                        <button onClick={() => toggleRowBasis(p.pair_id)}
+                                                            className={cn("text-xs font-semibold px-2 py-0.5 rounded-full transition-colors",
+                                                                rowBasis === 'lis' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                                            )}>
+                                                            {rowBasis === 'lis' ? 'LiS' : 'Kd'}
+                                                        </button>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right">{eur(p.satz)}</td><td className="px-4 py-2 text-right font-semibold">{eur(p.kosten)}</td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </CostSection>

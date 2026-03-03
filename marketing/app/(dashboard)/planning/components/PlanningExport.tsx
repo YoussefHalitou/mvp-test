@@ -33,6 +33,8 @@ export function PlanningExport() {
                 const html2pdf = (await import('html2pdf.js')).default;
                 const container = document.createElement('div');
                 container.innerHTML = html;
+                // Add pdf-mode class to the page element so CSS grid gets replaced with block layout
+                container.querySelectorAll('.page').forEach(el => el.classList.add('pdf-mode'));
                 document.body.appendChild(container);
                 await html2pdf().set({
                     margin: 8,
@@ -245,6 +247,12 @@ export function PlanningExport() {
             .employees-container { display: block; page-break-inside: avoid; break-inside: avoid; }
             .employees-section { page-break-inside: avoid; break-inside: avoid; margin-bottom: 20px; display: inline-block; width: 100%; }
             .footer { margin-top: 20px; font-size: 10px; color: var(--color-muted); text-align: right; border-top: 1px solid var(--color-border); padding-top: 6px; }
+            /* PDF-safe mode: html2canvas doesn't support CSS Grid well */
+            .pdf-mode .card-body { display: block !important; }
+            .pdf-mode .card-meta-right { margin-top: 8px !important; }
+            .pdf-mode .info-pills { display: block !important; }
+            .pdf-mode .pill-row { display: flex !important; gap: 6px !important; margin-bottom: 4px !important; }
+            .pdf-mode .card-contact-block { margin-bottom: 6px !important; }
             @media print { 
                 body { background-color: #ffffff; } 
                 .page { margin: 0; border-radius: 0; box-shadow: none; page-break-after: always; } 

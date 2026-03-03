@@ -18,7 +18,15 @@ import { exportBesichtigungHTML } from './exportBesichtigung';
 type Project = Database['public']['Tables']['t_projects']['Row'];
 type ProjectInsert = Database['public']['Tables']['t_projects']['Insert'];
 
-const SERVICE_TYPES = ['Umzug', 'Entrümpelung', 'Transport', 'Einlagerung', 'Malerarbeiten', 'Kartonlieferung', 'Sonstiges'];
+const MAKRO_MIKRO_MAP: Record<string, string[]> = {
+    'Umzug': ['Privat', 'Gewerbe', 'Umzug', 'Transport'],
+    'Entrümpelung': ['Wohnung', 'Haus', 'Privat', 'Gewerbe', 'Haushaltsauflösung', 'Entrümpelung'],
+    'Anschlussarbeiten': ['Tapeten', 'Rückbau', 'Abriss', 'Decken', 'Boden'],
+    'Verschönerungsarbeiten': ['Malerarbeiten', 'Grundreinigung'],
+};
+
+const SERVICE_TYPES = Array.from(new Set(Object.values(MAKRO_MIKRO_MAP).flat())).sort();
+const MAKRO_OPTIONS = Object.keys(MAKRO_MIKRO_MAP);
 const STATUS_OPTIONS = ['In Planung', 'Bestätigt', 'Abgeschlossen', 'Storniert'];
 const ANREDE_OPTIONS = ['Herr', 'Frau', 'Firma', 'Herr und Frau', 'Familie'];
 
@@ -36,13 +44,19 @@ const SERVICE_COLORS: Record<string, string> = {
     'Einlagerung': 'bg-violet-100 text-violet-800',
     'Malerarbeiten': 'bg-pink-100 text-pink-800',
     'Kartonlieferung': 'bg-orange-100 text-orange-800',
+    'Privat': 'bg-indigo-100 text-indigo-800',
+    'Gewerbe': 'bg-slate-100 text-slate-800',
+    'Abriss': 'bg-red-100 text-red-800',
+    'Boden': 'bg-lime-100 text-lime-800',
+    'Decken': 'bg-teal-100 text-teal-800',
+    'Tapeten': 'bg-fuchsia-100 text-fuchsia-800',
     'Sonstiges': 'bg-slate-100 text-slate-700',
 };
 
 const empty: ProjectInsert = {
     anrede: '', name: '', strasse: '', nr: '', plz: '', ort: '',
     telefon: '', email: '', notes: '',
-    dienstleistungen: '', offer_type: '', project_date: null, project_time: '',
+    dienstleistungen: '', dienstleistung_makro: '', offer_type: '', project_date: null, project_time: '',
     project_start_date: null, project_end_date: null,
 };
 
@@ -658,20 +672,30 @@ export default function ProjectsPage() {
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung (Makro)</label>
                                         <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
-                                            value={editingProject.dienstleistung_makro || ''} onChange={e => setField('dienstleistung_makro', e.target.value)}>
+                                            value={editingProject.dienstleistung_makro || ''}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                setEditingProject(prev => ({
+                                                    ...prev,
+                                                    dienstleistung_makro: val,
+                                                    dienstleistungen: '' // Clear mikro when makro changes
+                                                }));
+                                            }}>
                                             <option value="">Bitte wählen...</option>
-                                            <option value="Entrümpelung">Entrümpelung</option>
-                                            <option value="Umzug">Umzug</option>
-                                            <option value="Sonstiges">Sonstiges</option>
+                                            {MAKRO_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                         </select>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung (Mikro)</label>
-                                        <input list="dienst-list" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                                            value={editingProject.dienstleistungen || ''} onChange={e => setField('dienstleistungen', e.target.value)} placeholder="Wählen oder eingeben..." />
-                                        <datalist id="dienst-list">
-                                            {SERVICE_TYPES.map(s => <option key={s} value={s} />)}
-                                        </datalist>
+                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white disabled:bg-slate-50 opacity-100"
+                                            value={editingProject.dienstleistungen || ''}
+                                            onChange={e => setField('dienstleistungen', e.target.value)}
+                                            disabled={!editingProject.dienstleistung_makro}>
+                                            <option value="">{editingProject.dienstleistung_makro ? 'Bitte wählen...' : 'Makro wählen...'}</option>
+                                            {(editingProject.dienstleistung_makro ? MAKRO_MIKRO_MAP[editingProject.dienstleistung_makro as string] || [] : []).map(m => (
+                                                <option key={m} value={m}>{m}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Angebotsart</label>

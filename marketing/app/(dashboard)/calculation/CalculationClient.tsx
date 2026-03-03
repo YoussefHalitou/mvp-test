@@ -58,6 +58,10 @@ export default function CalculationPage() {
     const [selectedProjectId, setSelectedProjectId] = useState<string>('');
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(false);
+    // Multi-select mode
+    const [multiSelectMode, setMultiSelectMode] = useState(false);
+    const [checkedProjectIds, setCheckedProjectIds] = useState<Set<string>>(new Set());
+    const [mergedProjectNames, setMergedProjectNames] = useState<string[]>([]);
 
     const [personnel, setPersonnel] = useState<TimePairWithRate[]>([]);
     const [materials, setMaterials] = useState<MaterialRow[]>([]);
@@ -150,16 +154,38 @@ export default function CalculationPage() {
     }, []);
 
     useEffect(() => {
+        if (multiSelectMode) return; // don't auto-load in multi-select mode
         if (!selectedProjectId) {
             setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]);
             return;
         }
-        loadProjectData(selectedProjectId);
+        setMergedProjectNames([]);
+        loadProjectData([selectedProjectId]);
     }, [selectedProjectId]);
 
-    const loadProjectData = async (pid: string) => {
+    const toggleChecked = (pid: string) => {
+        setCheckedProjectIds(prev => {
+            const next = new Set(prev);
+            if (next.has(pid)) next.delete(pid); else next.add(pid);
+            return next;
+        });
+    };
+
+    const loadMergedProjects = () => {
+        const ids = Array.from(checkedProjectIds);
+        if (ids.length === 0) return;
+        const names = ids.map(id => projects.find(p => p.project_id === id)?.name || 'Unbenannt');
+        setMergedProjectNames(names);
+        // Use first project as the "selected" for header display
+        const first = projects.find(p => p.project_id === ids[0]) || null;
+        setSelectedProject(first);
+        setSelectedProjectId(ids[0]);
+        loadProjectData(ids);
+    };
+
+    const loadProjectData = async (pids: string[]) => {
         setLoading(true);
-        const proj = projects.find(p => p.project_id === pid) || null;
+        const proj = projects.find(p => p.project_id === pids[0]) || null;
         if (proj) setSelectedProject(proj);
 
 
@@ -168,7 +194,7 @@ export default function CalculationPage() {
         const rateMap: Record<string, { rate: number; role: string | null }> = {};
         (employees || []).forEach(e => { rateMap[e.name] = { rate: e.hourly_rate || 0, role: e.role }; });
 
-        const [tpRes, matRes, vehRes, svcRes, revRes, extRes, discRes] = await Promise.all([
+        const allResults = await Promise.all(pids.map(pid => Promise.all([
             supabase.from('t_time_pairs').select('*').eq('project_id', pid).order('datum'),
             supabase.from('t_project_material_usage').select('*, material:t_materials(name, unit, prices:t_material_prices(cost_per_unit, price_per_unit))').eq('project_id', pid),
             supabase.from('t_project_vehicle_costs').select('*, vehicle:t_vehicles(nickname)').eq('project_id', pid),
@@ -176,9 +202,18 @@ export default function CalculationPage() {
             supabase.from('t_project_revenue_items').select('*').eq('project_id', pid).order('sort_order'),
             supabase.from('t_project_costs_extra').select('*').eq('project_id', pid),
             supabase.from('t_project_discounts').select('*').eq('project_id', pid),
-        ]);
+        ])));
 
-        setPersonnel((tpRes.data || []).filter(tp => tp.pause !== 'deleted').map(tp => {
+        // Merge all results
+        const tpData = allResults.flatMap(r => r[0].data || []);
+        const matData = allResults.flatMap(r => r[1].data || []);
+        const vehData = allResults.flatMap(r => r[2].data || []);
+        const svcData = allResults.flatMap(r => r[3].data || []);
+        const revData = allResults.flatMap(r => r[4].data || []);
+        const extData = allResults.flatMap(r => r[5].data || []);
+        const discData = allResults.flatMap(r => r[6].data || []);
+
+        setPersonnel(tpData.filter(tp => tp.pause !== 'deleted').map(tp => {
             const lisH = calcHours(tp.lis_von, tp.lis_bis, tp.pause_min || 0);
             const kdH = calcHours(tp.kunde_von, tp.kunde_bis);
             const satz = rateMap[tp.mitarbeiter]?.rate || 0;
@@ -189,7 +224,7 @@ export default function CalculationPage() {
             };
         }));
 
-        setMaterials((matRes.data as any || []).map((m: any) => {
+        setMaterials((matData as any || []).map((m: any) => {
             const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;
             return {
                 id: m.id, material_id: m.material_id, material_name: m.material?.name || m.material_id, unit: m.material?.unit || '',
@@ -198,13 +233,13 @@ export default function CalculationPage() {
             };
         }));
 
-        setVehicles((vehRes.data as any || []).map((v: any) => ({
+        setVehicles((vehData as any || []).map((v: any) => ({
             id: v.id, vehicle_id: v.vehicle_id, fahrzeug: v.vehicle?.nickname || v.vehicle_id, usage_type: v.usage_type || 'km',
             usage_value: v.usage_value || 0, cost_per_unit: v.cost_per_unit || 0,
             total_cost: v.total_cost || +(v.usage_value * (v.cost_per_unit || 0)).toFixed(2), notes: v.notes || '',
         })));
 
-        setServices((svcRes.data as any || []).map((s: any) => {
+        setServices((svcData as any || []).map((s: any) => {
             const p = Array.isArray(s.service?.prices) ? s.service.prices[0] : s.service?.prices;
             return {
                 id: s.id, service_id: s.service_id, service_name: s.service?.name || s.service_id, supplier: s.supplier || p?.supplier || '',
@@ -213,13 +248,13 @@ export default function CalculationPage() {
             };
         }));
 
-        setRevenue((revRes.data || []).map(r => ({
+        setRevenue(revData.map((r: any) => ({
             id: r.id, position_label: r.position_label, qty: r.qty, unit: r.unit || '',
             unit_price: r.unit_price, line_total: r.line_total || +(r.qty * r.unit_price).toFixed(2), kind: r.kind
         })));
 
-        setExtraCosts((extRes.data || []).map(e => ({ cost_id: e.cost_id, cost_type: e.cost_type, description: e.description || '', cost: e.cost })));
-        setDiscounts((discRes.data || []).map((d: any) => ({ discount_id: d.discount_id, discount_type: d.discount_type || 'flat', label: d.label || '', value: d.value || 0 })));
+        setExtraCosts(extData.map((e: any) => ({ cost_id: e.cost_id, cost_type: e.cost_type, description: e.description || '', cost: e.cost })));
+        setDiscounts(discData.map((d: any) => ({ discount_id: d.discount_id, discount_type: d.discount_type || 'flat', label: d.label || '', value: d.value || 0 })));
         setLoading(false);
     };
 
@@ -259,7 +294,7 @@ export default function CalculationPage() {
             if (error) throw error;
             setAddMatModal(false);
             toast('Material hinzugefügt');
-            loadProjectData(selectedProjectId);
+            loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const updateMaterialQty = (id: string, qty: number) => {
@@ -271,13 +306,13 @@ export default function CalculationPage() {
                 supabase.from('t_project_material_usage').update({ quantity: m.quantity }).eq('id', m.id)
             ));
             toast('Materialmengen gespeichert');
-            loadProjectData(selectedProjectId);
+            loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteMaterial = async (id: string) => {
         setMaterials(prev => prev.filter(m => m.id !== id));
         const { error } = await supabase.from('t_project_material_usage').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData(selectedProjectId); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
     };
 
     // ---- VEHICLE COST CRUD ----
@@ -292,7 +327,7 @@ export default function CalculationPage() {
             if (error) throw error;
             setAddVehModal(false);
             toast('Fahrzeugkosten hinzugefügt');
-            loadProjectData(selectedProjectId);
+            loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const updateVehicleCost = (id: string, field: string, value: any) => {
@@ -309,13 +344,13 @@ export default function CalculationPage() {
                 supabase.from('t_project_vehicle_costs').update({ usage_type: v.usage_type, usage_value: v.usage_value, cost_per_unit: v.cost_per_unit, total_cost: v.total_cost, notes: v.notes }).eq('id', v.id)
             ));
             toast('Fahrzeugkosten gespeichert');
-            loadProjectData(selectedProjectId);
+            loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteVehicleCost = async (id: string) => {
         setVehicles(prev => prev.filter(v => v.id !== id));
         const { error } = await supabase.from('t_project_vehicle_costs').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData(selectedProjectId); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
     };
 
     // ---- SERVICE COST CRUD ----
@@ -329,13 +364,13 @@ export default function CalculationPage() {
             if (error) throw error;
             setAddSvcModal(false);
             toast('Leistung hinzugefügt');
-            loadProjectData(selectedProjectId);
+            loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const deleteServiceCost = async (id: string) => {
         setServices(prev => prev.filter(s => s.id !== id));
         const { error } = await supabase.from('t_project_service_usage').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData(selectedProjectId); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
     };
 
     // ---- EXTRA COSTS CRUD ----
@@ -349,7 +384,7 @@ export default function CalculationPage() {
             if (error) throw error;
             setAddExtraModal(false);
             toast('Sonderkosten hinzugefügt');
-            loadProjectData(selectedProjectId);
+            loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const updateExtraCost = (costId: string, field: string, value: any) => {
@@ -361,13 +396,13 @@ export default function CalculationPage() {
                 supabase.from('t_project_costs_extra').update({ cost_type: e.cost_type, description: e.description, cost: e.cost }).eq('cost_id', e.cost_id)
             ));
             toast('Sonderkosten gespeichert');
-            loadProjectData(selectedProjectId);
+            loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteExtraCost = async (costId: string) => {
         setExtraCosts(prev => prev.filter(e => e.cost_id !== costId));
         const { error } = await supabase.from('t_project_costs_extra').delete().eq('cost_id', costId);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData(selectedProjectId); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
     };
 
     // ---- DISCOUNT CRUD ----
@@ -388,14 +423,14 @@ export default function CalculationPage() {
                     : supabase.from('t_project_discounts').update(record).eq('id', currentId);
             }));
             toast('Rabatte gespeichert');
-            loadProjectData(selectedProjectId);
+            loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteDiscount = async (id: string) => {
         if (id.startsWith('temp-')) { setDiscounts(prev => prev.filter(d => (d as any).id !== id && (d as any).discount_id !== id)); return; }
         setDiscounts(prev => prev.filter(d => (d as any).id !== id && (d as any).discount_id !== id));
         const { error } = await supabase.from('t_project_discounts').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData(selectedProjectId); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
     };
 
     // ---- REVENUE CRUD ----
@@ -418,14 +453,14 @@ export default function CalculationPage() {
                     : supabase.from('t_project_revenue_items').update(record).eq('id', r.id);
             }));
             toast('Erlöse gespeichert');
-            loadProjectData(selectedProjectId);
+            loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteRevenue = async (id: string) => {
         if (id.startsWith('temp-')) { setRevenue(prev => prev.filter(r => r.id !== id)); return; }
         setRevenue(prev => prev.filter(r => r.id !== id));
         const { error } = await supabase.from('t_project_revenue_items').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData(selectedProjectId); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
     };
 
     // ---- EXPORT ----
@@ -670,9 +705,23 @@ export default function CalculationPage() {
                 <div className="p-4 border-b space-y-4">
                     <div className="flex items-center justify-between">
                         <h2 className="font-semibold text-slate-800">Projekte</h2>
-                        <button onClick={() => setSidebarOpen(false)} className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500">
-                            <ChevronLeft className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={() => { setMultiSelectMode(m => !m); setCheckedProjectIds(new Set()); setMergedProjectNames([]); }}
+                                className={cn(
+                                    "px-2 py-1 text-[10px] font-semibold rounded-md transition-colors border",
+                                    multiSelectMode
+                                        ? "bg-blue-100 text-blue-700 border-blue-200"
+                                        : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100"
+                                )}
+                                title="Mehrere Projekte zusammenführen"
+                            >
+                                Multi
+                            </button>
+                            <button onClick={() => setSidebarOpen(false)} className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500">
+                                <ChevronLeft className="h-4 w-4" />
+                            </button>
+                        </div>
                     </div>
 
                     <div className="relative">
@@ -705,6 +754,15 @@ export default function CalculationPage() {
                             />
                         </div>
                     </div>
+
+                    {multiSelectMode && checkedProjectIds.size > 0 && (
+                        <button
+                            onClick={loadMergedProjects}
+                            className="w-full py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm"
+                        >
+                            {checkedProjectIds.size} Projekt{checkedProjectIds.size > 1 ? 'e' : ''} zusammenführen
+                        </button>
+                    )}
                 </div>
 
                 <div className="flex-1 overflow-y-auto">
@@ -720,38 +778,57 @@ export default function CalculationPage() {
                             {filteredProjects.map(p => (
                                 <button
                                     key={p.project_id}
-                                    onClick={() => setSelectedProjectId(p.project_id)}
+                                    onClick={() => multiSelectMode ? toggleChecked(p.project_id) : setSelectedProjectId(p.project_id)}
                                     className={cn(
                                         "w-full text-left p-3 hover:bg-slate-50 transition-all border-l-[3px] group focus:outline-none",
-                                        selectedProjectId === p.project_id
+                                        !multiSelectMode && selectedProjectId === p.project_id
                                             ? "bg-blue-50/60 border-l-blue-600"
-                                            : "border-l-transparent"
+                                            : multiSelectMode && checkedProjectIds.has(p.project_id)
+                                                ? "bg-blue-50/60 border-l-blue-600"
+                                                : "border-l-transparent"
                                     )}
                                 >
-                                    <div className={cn(
-                                        "text-sm font-medium truncate mb-1",
-                                        selectedProjectId === p.project_id ? "text-blue-700" : "text-slate-700"
-                                    )}>
-                                        {p.name || 'Unbenanntes Projekt'}
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            {p.project_code && (
-                                                <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                                                    {p.project_code}
-                                                </span>
-                                            )}
-                                            {p.ort && (
-                                                <span className="text-xs text-slate-400 truncate flex-1 block" title={p.ort}>
-                                                    {p.ort}
-                                                </span>
-                                            )}
-                                        </div>
-                                        {p.project_date && (
-                                            <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono">
-                                                {format(new Date(p.project_date), 'dd.MM.yy')}
-                                            </span>
+                                    <div className="flex items-center gap-2">
+                                        {multiSelectMode && (
+                                            <div className={cn(
+                                                "w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors",
+                                                checkedProjectIds.has(p.project_id)
+                                                    ? "bg-blue-600 border-blue-600"
+                                                    : "border-slate-300 bg-white"
+                                            )}>
+                                                {checkedProjectIds.has(p.project_id) && (
+                                                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                                )}
+                                            </div>
                                         )}
+                                        <div className="flex-1 min-w-0">
+                                            <div className={cn(
+                                                "text-sm font-medium truncate mb-1",
+                                                (!multiSelectMode && selectedProjectId === p.project_id) || (multiSelectMode && checkedProjectIds.has(p.project_id))
+                                                    ? "text-blue-700" : "text-slate-700"
+                                            )}>
+                                                {p.name || 'Unbenanntes Projekt'}
+                                            </div>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                    {p.project_code && (
+                                                        <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                                            {p.project_code}
+                                                        </span>
+                                                    )}
+                                                    {p.ort && (
+                                                        <span className="text-xs text-slate-400 truncate flex-1 block" title={p.ort}>
+                                                            {p.ort}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {p.project_date && (
+                                                    <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono">
+                                                        {format(new Date(p.project_date), 'dd.MM.yy')}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 </button>
                             ))}
@@ -776,9 +853,19 @@ export default function CalculationPage() {
                         <Calculator className="h-6 w-6 text-slate-700" />
                         <div>
                             <h1 className="text-xl font-bold text-slate-800 line-clamp-1">
-                                {selectedProject ? (selectedProject.name || 'Unbenannt') : 'Nachkalkulation'}
+                                {mergedProjectNames.length > 1
+                                    ? `${mergedProjectNames.length} Projekte zusammengeführt`
+                                    : selectedProject ? (selectedProject.name || 'Unbenannt') : 'Nachkalkulation'}
                             </h1>
-                            {selectedProject && (
+                            {mergedProjectNames.length > 1 ? (
+                                <p className="text-xs text-blue-600 flex items-center gap-1 flex-wrap">
+                                    {mergedProjectNames.map((n, i) => (
+                                        <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-medium border border-blue-100">
+                                            {n}
+                                        </span>
+                                    ))}
+                                </p>
+                            ) : selectedProject && (
                                 <p className="text-xs text-slate-500 flex items-center gap-2">
                                     {selectedProject.project_code && <span>{selectedProject.project_code}</span>}
                                     {selectedProject.ort && <span>• {selectedProject.ort}</span>}

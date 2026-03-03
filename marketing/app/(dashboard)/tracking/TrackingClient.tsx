@@ -88,24 +88,26 @@ export default function TrackingPage() {
             // For now, let's just use the selected project name for all rows or look it up.
             const currentProject = projects.find(p => p.project_id === selectedProjectId);
 
-            const trackingRows: TrackingRow[] = (timePairs || []).map(tp => ({
-                _tempId: tp.pair_id,
-                pair_id: tp.pair_id,
-                project_id: tp.project_id,
-                project_name: currentProject?.name || '',
-                project_code: currentProject?.project_code || '',
-                plan_id: tp.plan_id,
-                mitarbeiter: tp.mitarbeiter,
-                employee_id: null,
-                lis_von: tp.lis_von?.substring(0, 5) || '',
-                lis_bis: tp.lis_bis?.substring(0, 5) || '',
-                kunde_von: tp.kunde_von?.substring(0, 5) || '',
-                kunde_bis: tp.kunde_bis?.substring(0, 5) || '',
-                pause_min: tp.pause_min || 0,
-                notes: tp.notes || '', // added notes mapping
-                datum: tp.datum, // Important for project view
-                isNew: false,
-            }));
+            const trackingRows: TrackingRow[] = (timePairs || [])
+                .filter(tp => tp.pause !== 'deleted')
+                .map(tp => ({
+                    _tempId: tp.pair_id,
+                    pair_id: tp.pair_id,
+                    project_id: tp.project_id,
+                    project_name: currentProject?.name || '',
+                    project_code: currentProject?.project_code || '',
+                    plan_id: tp.plan_id,
+                    mitarbeiter: tp.mitarbeiter,
+                    employee_id: null,
+                    lis_von: tp.lis_von?.substring(0, 5) || '',
+                    lis_bis: tp.lis_bis?.substring(0, 5) || '',
+                    kunde_von: tp.kunde_von?.substring(0, 5) || '',
+                    kunde_bis: tp.kunde_bis?.substring(0, 5) || '',
+                    pause_min: tp.pause_min || 0,
+                    notes: tp.notes || '', // added notes mapping
+                    datum: tp.datum, // Important for project view
+                    isNew: false,
+                }));
 
             setRows(trackingRows);
             setLoading(false);
@@ -124,26 +126,28 @@ export default function TrackingPage() {
         const plans = (planRes.data || []) as (MorningPlan & { project: Project })[];
         const timePairs = tpRes.data || [];
 
-        const trackingRows: TrackingRow[] = timePairs.map(tp => {
-            const plan = plans.find(p => p.plan_id === tp.plan_id) || plans.find(p => p.project_id === tp.project_id);
-            return {
-                _tempId: tp.pair_id || `tp-${Math.random()}`,
-                pair_id: tp.pair_id,
-                project_id: tp.project_id,
-                project_name: plan?.project?.name || tp.project_id || '',
-                project_code: plan?.project?.project_code || '',
-                plan_id: tp.plan_id,
-                mitarbeiter: tp.mitarbeiter,
-                employee_id: null,
-                lis_von: tp.lis_von?.substring(0, 5) || '',
-                lis_bis: tp.lis_bis?.substring(0, 5) || '',
-                kunde_von: tp.kunde_von?.substring(0, 5) || '',
-                kunde_bis: tp.kunde_bis?.substring(0, 5) || '',
-                pause_min: tp.pause_min || 0,
-                notes: '',
-                isNew: false,
-            };
-        });
+        const trackingRows: TrackingRow[] = timePairs
+            .filter(tp => tp.pause !== 'deleted')
+            .map(tp => {
+                const plan = plans.find(p => p.plan_id === tp.plan_id) || plans.find(p => p.project_id === tp.project_id);
+                return {
+                    _tempId: tp.pair_id || `tp-${Math.random()}`,
+                    pair_id: tp.pair_id,
+                    project_id: tp.project_id,
+                    project_name: plan?.project?.name || tp.project_id || '',
+                    project_code: plan?.project?.project_code || '',
+                    plan_id: tp.plan_id,
+                    mitarbeiter: tp.mitarbeiter,
+                    employee_id: null,
+                    lis_von: tp.lis_von?.substring(0, 5) || '',
+                    lis_bis: tp.lis_bis?.substring(0, 5) || '',
+                    kunde_von: tp.kunde_von?.substring(0, 5) || '',
+                    kunde_bis: tp.kunde_bis?.substring(0, 5) || '',
+                    pause_min: tp.pause_min || 0,
+                    notes: tp.notes || '',
+                    isNew: false,
+                };
+            });
 
         // -- AUTO MERGE PLAN --
         const { data: planStaff } = await supabase
@@ -151,7 +155,8 @@ export default function TrackingPage() {
             .select('*, plan:t_morningplan!inner(*, project:t_projects(project_id, name, project_code)), employee:t_employees(employee_id, name)')
             .eq('plan.plan_date', dateStr);
 
-        const existingKeys = new Set(trackingRows.map(r => `${r.project_id}-${r.mitarbeiter}`));
+        // Include all timePairs (even deleted ones) in existingKeys so we don't recreate them
+        const existingKeys = new Set(timePairs.map(r => `${r.project_id}-${r.mitarbeiter}`));
         const newPlanRows: TrackingRow[] = [];
         const staff = (planStaff as any[] || []).filter((s: any) => s.plan?.plan_date === dateStr);
 
@@ -228,7 +233,7 @@ export default function TrackingPage() {
         if (row.isNew) { setRows(prev => prev.filter(r => r._tempId !== row._tempId)); return; }
         if (confirm('Zeiteintrag löschen?') && row.pair_id) {
             setRows(prev => prev.filter(r => r._tempId !== row._tempId));
-            const { error } = await supabase.from('t_time_pairs').delete().eq('pair_id', row.pair_id);
+            const { error } = await supabase.from('t_time_pairs').update({ pause: 'deleted' }).eq('pair_id', row.pair_id);
             if (error) { toast('Fehler beim Löschen', 'error'); fetchData(); }
         }
     };

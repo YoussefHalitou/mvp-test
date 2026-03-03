@@ -40,6 +40,7 @@ export function PlanningExport() {
                     image: { type: 'jpeg', quality: 0.98 },
                     html2canvas: { scale: 2, useCORS: true },
                     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
                 }).from(container).save();
                 document.body.removeChild(container);
                 toast(`${baseName}.pdf exportiert`, 'success');
@@ -217,8 +218,8 @@ export function PlanningExport() {
             .text-muted { color: var(--color-muted); font-size: 10px; }
             .text-right { text-align: right; }
             .vehicles-note { font-size: 10px; color: var(--color-muted); margin-bottom: 4px; }
-            .cards-grid { display: flex; flex-direction: column; gap: 10px; }
-            .card { border-radius: var(--radius-card); border: 1px solid var(--color-border); background-color: #fcfcff; padding: 10px 12px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); page-break-inside: avoid; }
+            .cards-grid { display: block; }
+            .card { display: inline-block; width: 100%; border-radius: var(--radius-card); border: 1px solid var(--color-border); background-color: #fcfcff; padding: 10px 12px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); page-break-inside: avoid; break-inside: avoid; margin-bottom: 12px; }
             .card-header-row { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
             .card-title-block { max-width: 70%; }
             .card-title { font-size: 13px; font-weight: 600; }
@@ -241,11 +242,23 @@ export function PlanningExport() {
             .team-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
             .team-table th, .team-table td { border: 1px solid var(--color-border); padding: 3px 4px; font-size: 10px; }
             .team-table th { background-color: #eef2ff; font-weight: 600; }
-            .employees-container { display: flex; gap: 12px; margin-top: 10px; }
-            .employees-section { flex: 1; }
-            .employees-title { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+            .employees-container { display: block; page-break-inside: avoid; break-inside: avoid; }
+            .employees-section { page-break-inside: avoid; break-inside: avoid; margin-bottom: 20px; display: inline-block; width: 100%; }
             .footer { margin-top: 20px; font-size: 10px; color: var(--color-muted); text-align: right; border-top: 1px solid var(--color-border); padding-top: 6px; }
-            @media print { body { background-color: #ffffff; } .page { margin: 0; border-radius: 0; box-shadow: none; page-break-after: always; } .card { page-break-inside: avoid; } .header { margin-top: 4px; } }
+            @media print { 
+                body { background-color: #ffffff; } 
+                .page { margin: 0; border-radius: 0; box-shadow: none; page-break-after: always; } 
+                .section { page-break-inside: avoid; break-inside: avoid; }
+                .cards-grid { display: block; }
+                .card { display: block; page-break-inside: avoid; break-inside: avoid; margin-bottom: 12px; } 
+                .card-body { display: block; margin-top: 6px; }
+                .card-meta-right { margin-top: 8px; }
+                .header { margin-top: 4px; } 
+                .employees-container { display: block; page-break-inside: avoid; break-inside: avoid; }
+                .employees-section { page-break-inside: avoid; break-inside: avoid; margin-bottom: 20px; }
+                .table, .team-table { page-break-inside: avoid; break-inside: avoid; }
+                .table tr, .team-table tr { page-break-inside: avoid; break-inside: avoid; }
+            }
             `;
 
             // HTML Construction
@@ -356,9 +369,11 @@ export function PlanningExport() {
             cardsHtml += `</div></div>`;
 
             // Employees
-            const buildEmployeesBlock = (rows: any[], emptyLabel: string) => {
+            const buildEmployeesBlock = (rows: any[], emptyLabel: string, title: string) => {
                 const filtered = rows.filter(r => r.notizen && r.notizen.trim() !== '');
-                let h = `<div class="employees-section"><table class="table table--compact"><thead><tr><th style="width: 35%;">Name</th><th>Notizen / Verfügbarkeit</th></tr></thead><tbody>`;
+                let h = `<div class="employees-section">
+                    <div class="employees-title">${escapeHtml(title)}</div>
+                    <table class="table table--compact"><thead><tr><th style="width: 35%;">Name</th><th>Notizen / Verfügbarkeit</th></tr></thead><tbody>`;
                 if (filtered.length > 0) {
                     filtered.forEach(emp => {
                         h += `<tr><td>${escapeHtml(emp.name)}</td><td>${escapeHtml(emp.notizen)}</td></tr>`;
@@ -370,8 +385,8 @@ export function PlanningExport() {
                 return h;
             };
 
-            const employeesInternalHtml = buildEmployeesBlock(employeesInternal, '(keine internen Mitarbeiter)');
-            const employeesExternalHtml = buildEmployeesBlock(employeesExternal, '(keine externen Mitarbeiter)');
+            const employeesInternalHtml = buildEmployeesBlock(employeesInternal, '(keine internen Mitarbeiter)', 'Interne Mitarbeiter');
+            const employeesExternalHtml = buildEmployeesBlock(employeesExternal, '(keine externen Mitarbeiter)', 'Externe Mitarbeiter');
 
             // Full HTML
             const html = `

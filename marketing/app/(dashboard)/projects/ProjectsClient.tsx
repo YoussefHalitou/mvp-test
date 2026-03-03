@@ -656,7 +656,17 @@ export default function ProjectsPage() {
                                 <h3 className="text-sm font-semibold text-slate-700 mb-3">Projektdetails</h3>
                                 <div className="grid grid-cols-3 gap-3">
                                     <div>
-                                        <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung</label>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung (Makro)</label>
+                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                                            value={editingProject.dienstleistung_makro || ''} onChange={e => setField('dienstleistung_makro', e.target.value)}>
+                                            <option value="">Bitte wählen...</option>
+                                            <option value="Entrümpelung">Entrümpelung</option>
+                                            <option value="Umzug">Umzug</option>
+                                            <option value="Sonstiges">Sonstiges</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung (Mikro)</label>
                                         <input list="dienst-list" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                                             value={editingProject.dienstleistungen || ''} onChange={e => setField('dienstleistungen', e.target.value)} placeholder="Wählen oder eingeben..." />
                                         <datalist id="dienst-list">
@@ -665,13 +675,13 @@ export default function ProjectsPage() {
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Angebotsart</label>
-                                        <input list="offer-list" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                                            value={editingProject.offer_type || ''} onChange={e => setField('offer_type', e.target.value)} placeholder="Wählen oder eingeben..." />
-                                        <datalist id="offer-list">
-                                            <option value="Pauschal" />
-                                            <option value="Stundenlohn" />
-                                            <option value="Kostenvoranschlag" />
-                                        </datalist>
+                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                                            value={editingProject.offer_type || ''} onChange={e => setField('offer_type', e.target.value)}>
+                                            <option value="">Bitte wählen...</option>
+                                            <option value="freibleibendes Angebot">freibleibendes Angebot</option>
+                                            <option value="Kostenvoranschlag">Kostenvoranschlag</option>
+                                            <option value="Festpreis">Festpreis</option>
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Projektdatum</label>

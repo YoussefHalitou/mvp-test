@@ -24,6 +24,7 @@ export interface Database {
                     notes: string | null
                     status: string | null
                     dienstleistungen: string | null
+                    dienstleistung_makro: string | null
                     project_date: string | null
                     project_time: string | null
                     project_start_date: string | null
@@ -46,6 +47,7 @@ export interface Database {
                     notes?: string | null
                     status?: string | null
                     dienstleistungen?: string | null
+                    dienstleistung_makro?: string | null
                     project_date?: string | null
                     project_time?: string | null
                     project_start_date?: string | null

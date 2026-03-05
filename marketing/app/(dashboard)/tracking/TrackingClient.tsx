@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { format, addDays } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Save, Copy, Loader2, Trash2, Plus, X, Pencil, Briefcase, Clock, Calendar, Package, Wrench } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Copy, Loader2, Trash2, Plus, X, Pencil, Briefcase, Clock, Calendar, Package, Wrench, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/supabase';
@@ -68,6 +68,16 @@ interface ProjectSvcRow {
     isNew: boolean;
 }
 
+interface ProjectExtraRow {
+    _localId: string;
+    id?: string;
+    project_id: string;
+    cost_type: string;
+    description: string;
+    cost: number;
+    isNew: boolean;
+}
+
 const WORK_TYPES = ['Büroarbeit', 'Lager', 'Werkstatt', 'Reinigung', 'Fahrt', 'Schulung', 'Sonstiges'];
 
 export default function TrackingPage() {
@@ -94,7 +104,9 @@ export default function TrackingPage() {
     const [serviceCatalog, setServiceCatalog] = useState<any[]>([]);
     const [projectMaterials, setProjectMaterials] = useState<Record<string, ProjectMatRow[]>>({});
     const [projectServices, setProjectServices] = useState<Record<string, ProjectSvcRow[]>>({});
+    const [projectExtraCosts, setProjectExtraCosts] = useState<Record<string, ProjectExtraRow[]>>({});
     const [savingCosts, setSavingCosts] = useState<Record<string, boolean>>({});
+    const [savingExtra, setSavingExtra] = useState<Record<string, boolean>>({});
 
     // Active tab
     const [activeTab, setActiveTab] = useState<'timepairs' | 'workassignments'>('timepairs');
@@ -232,12 +244,15 @@ export default function TrackingPage() {
 
     const fetchProjectCosts = useCallback(async (projectIds: string[]) => {
         if (projectIds.length === 0) return;
-        const [matRes, svcRes] = await Promise.all([
+        const [matRes, svcRes, extraRes] = await Promise.all([
             supabase.from('t_project_material_usage')
                 .select('*, material:t_materials(name, unit, prices:t_material_prices(cost_per_unit, price_per_unit))')
                 .in('project_id', projectIds),
             supabase.from('t_project_service_usage')
                 .select('*, service:t_services(name, default_unit, prices:t_service_prices(cost_per_unit, customer_price_per_unit, supplier))')
+                .in('project_id', projectIds),
+            supabase.from('t_project_costs_extra')
+                .select('*')
                 .in('project_id', projectIds),
         ]);
 
@@ -283,6 +298,21 @@ export default function TrackingPage() {
             });
         });
         setProjectServices(svcs);
+
+        const extras: Record<string, ProjectExtraRow[]> = {};
+        (extraRes.data || []).forEach((e: any) => {
+            if (!extras[e.project_id]) extras[e.project_id] = [];
+            extras[e.project_id].push({
+                _localId: e.id,
+                id: e.id,
+                project_id: e.project_id,
+                cost_type: e.cost_type || '',
+                description: e.description || '',
+                cost: e.cost || 0,
+                isNew: false,
+            });
+        });
+        setProjectExtraCosts(extras);
     }, []);
 
     useEffect(() => { fetchEmployees(); fetchProjects(); fetchCatalogs(); }, [fetchEmployees, fetchProjects, fetchCatalogs]);
@@ -467,7 +497,66 @@ export default function TrackingPage() {
         } catch { toast('Fehler beim Speichern', 'error'); }
         setSavingCosts(prev => ({ ...prev, [projectId]: false }));
     };
+    // ---- EXTRA COSTS CRUD ----
+    const addExtraRow = (projectId: string) => {
+        setProjectExtraCosts(prev => ({
+            ...prev,
+            [projectId]: [...(prev[projectId] || []), {
+                _localId: `new-${Math.random()}`,
+                project_id: projectId,
+                cost_type: 'Sonstiges',
+                description: '',
+                cost: 0,
+                isNew: true,
+            }],
+        }));
+    };
 
+    const updateExtraRow = (projectId: string, localId: string, field: string, value: any) => {
+        setProjectExtraCosts(prev => ({
+            ...prev,
+            [projectId]: (prev[projectId] || []).map(r => {
+                if (r._localId !== localId) return r;
+                return { ...r, [field]: value };
+            }),
+        }));
+    };
+
+    const deleteExtraRow = async (projectId: string, row: ProjectExtraRow) => {
+        if (!row.isNew && row.id) {
+            await supabase.from('t_project_costs_extra').delete().eq('id', row.id);
+        }
+        setProjectExtraCosts(prev => ({
+            ...prev,
+            [projectId]: (prev[projectId] || []).filter(r => r._localId !== row._localId),
+        }));
+    };
+
+    const saveExtraCosts = async (projectId: string) => {
+        const items = (projectExtraCosts[projectId] || []).filter(r => r.cost_type && r.description);
+        setSavingExtra(prev => ({ ...prev, [projectId]: true }));
+        try {
+            await Promise.all(items.map(async r => {
+                if (r.isNew) {
+                    const { data, error } = await supabase.from('t_project_costs_extra').insert({
+                        project_id: projectId, cost_type: r.cost_type, description: r.description, cost: r.cost,
+                    }).select().single();
+                    if (!error && data) {
+                        setProjectExtraCosts(prev => ({
+                            ...prev,
+                            [projectId]: (prev[projectId] || []).map(x =>
+                                x._localId === r._localId ? { ...x, id: data.id, isNew: false } : x
+                            ),
+                        }));
+                    }
+                } else if (r.id) {
+                    await supabase.from('t_project_costs_extra').update({ cost_type: r.cost_type, description: r.description, cost: r.cost }).eq('id', r.id);
+                }
+            }));
+            toast('Sonderkosten gespeichert');
+        } catch { toast('Fehler beim Speichern', 'error'); }
+        setSavingExtra(prev => ({ ...prev, [projectId]: false }));
+    };
 
 
     const calculateHours = (von: string, bis: string, pauseMin: number = 0): string => {
@@ -1007,8 +1096,90 @@ export default function TrackingPage() {
                                                     </table>
                                                 </div>
 
+                                                {/* --- Sonderkosten --- */}
+                                                <div className="bg-white border border-amber-200 rounded-xl overflow-hidden shadow-sm border-l-4 border-l-amber-500">
+                                                    <div className="flex items-center justify-between px-4 py-3 border-b border-amber-100">
+                                                        <div className="flex items-center gap-2 text-slate-700">
+                                                            <AlertCircle className="h-4 w-4 text-amber-500" />
+                                                            <span className="text-sm font-semibold">Sonderkosten</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-sm font-bold text-slate-700">
+                                                                {(projectExtraCosts[projectId] || []).reduce((a, r) => a + r.cost, 0).toFixed(2)} €
+                                                            </span>
+                                                            <button onClick={() => addExtraRow(projectId)}
+                                                                className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-1 rounded transition-colors">
+                                                                <Plus className="h-3 w-3" /> Zusatzkosten
+                                                            </button>
+                                                            <button onClick={() => saveExtraCosts(projectId)} disabled={savingExtra[projectId]}
+                                                                className="flex items-center gap-1 text-xs bg-amber-500 text-white hover:bg-amber-600 px-2 py-1 rounded transition-colors disabled:opacity-50">
+                                                                {savingExtra[projectId] ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Speichern
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <table className="w-full text-xs">
+                                                        <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
+                                                            <tr>
+                                                                <th className="px-3 py-2 text-left w-36">Art</th>
+                                                                <th className="px-3 py-2 text-left">Beschreibung</th>
+                                                                <th className="px-3 py-2 text-right w-24">Kosten</th>
+                                                                <th className="w-8"></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100">
+                                                            {(projectExtraCosts[projectId] || []).length === 0 ? (
+                                                                <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">Keine Sonderkosten</td></tr>
+                                                            ) : (projectExtraCosts[projectId] || []).map(row => (
+                                                                <tr key={row._localId} className="hover:bg-slate-50 group">
+                                                                    <td className="px-2 py-1.5">
+                                                                        <select
+                                                                            value={row.cost_type}
+                                                                            onChange={e => updateExtraRow(projectId, row._localId, 'cost_type', e.target.value)}
+                                                                            className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                                                        >
+                                                                            <option value="Material">Material (Alt)</option>
+                                                                            <option value="Dienstleistung">Dienstleistung (Alt)</option>
+                                                                            <option value="Maut">Maut</option>
+                                                                            <option value="Parkgebühr">Parkgebühr</option>
+                                                                            <option value="Entsorgung">Entsorgung</option>
+                                                                            <option value="Verpackung">Verpackung</option>
+                                                                            <option value="Sonstiges">Sonstiges</option>
+                                                                        </select>
+                                                                    </td>
+                                                                    <td className="px-2 py-1.5">
+                                                                        <input
+                                                                            type="text"
+                                                                            value={row.description}
+                                                                            onChange={e => updateExtraRow(projectId, row._localId, 'description', e.target.value)}
+                                                                            placeholder="Beschreibung (z.B. Ticket #123)..."
+                                                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-slate-300"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="px-2 py-1.5">
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            step="0.01"
+                                                                            value={row.cost}
+                                                                            onChange={e => updateExtraRow(projectId, row._localId, 'cost', parseFloat(e.target.value) || 0)}
+                                                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="px-1 text-center">
+                                                                        <button onClick={() => deleteExtraRow(projectId, row)}
+                                                                            className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
                                             </div>
-                                        )}
+                                        )
+                                        }
                                     </div>
                                 );
                             })
@@ -1063,83 +1234,85 @@ export default function TrackingPage() {
             </div>
 
             {/* ======= WORK ASSIGNMENT MODAL ======= */}
-            {waModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setWaModal(null)}>
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg m-4" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between border-b px-6 py-4">
-                            <h2 className="text-lg font-bold text-slate-800">{waModal.mode === 'create' ? 'Neuer Arbeitseinsatz' : 'Arbeitseinsatz bearbeiten'}</h2>
-                            <button onClick={() => setWaModal(null)} className="p-1 rounded-lg hover:bg-slate-100"><X className="h-5 w-5 text-slate-400" /></button>
-                        </div>
-                        <div className="p-6 space-y-3">
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Arbeitstyp *</label>
-                                    <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.work_type}
-                                        onChange={e => setWaForm({ ...waForm, work_type: e.target.value })}>
-                                        {WORK_TYPES.map(wt => <option key={wt} value={wt}>{wt}</option>)}
-                                    </select>
+            {
+                waModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setWaModal(null)}>
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg m-4" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-between border-b px-6 py-4">
+                                <h2 className="text-lg font-bold text-slate-800">{waModal.mode === 'create' ? 'Neuer Arbeitseinsatz' : 'Arbeitseinsatz bearbeiten'}</h2>
+                                <button onClick={() => setWaModal(null)} className="p-1 rounded-lg hover:bg-slate-100"><X className="h-5 w-5 text-slate-400" /></button>
+                            </div>
+                            <div className="p-6 space-y-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Arbeitstyp *</label>
+                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.work_type}
+                                            onChange={e => setWaForm({ ...waForm, work_type: e.target.value })}>
+                                            {WORK_TYPES.map(wt => <option key={wt} value={wt}>{wt}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Mitarbeiter *</label>
+                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.employee_name}
+                                            onChange={e => {
+                                                const emp = employees.find(em => em.name === e.target.value);
+                                                setWaForm({ ...waForm, employee_name: e.target.value, employee_code: emp?.employee_code || '' });
+                                            }}>
+                                            <option value="">Wählen...</option>
+                                            {employees.map(emp => <option key={emp.employee_id} value={emp.name}>{emp.name}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Start</label>
+                                        <input type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.start_time}
+                                            onChange={e => setWaForm({ ...waForm, start_time: e.target.value })} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Ende</label>
+                                        <input type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.end_time}
+                                            onChange={e => setWaForm({ ...waForm, end_time: e.target.value })} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Pause (min)</label>
+                                        <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.break_minutes}
+                                            onChange={e => setWaForm({ ...waForm, break_minutes: parseInt(e.target.value) || 0 })} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Geschätzte Stunden</label>
+                                        <input type="number" step="0.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.hours_estimated}
+                                            onChange={e => setWaForm({ ...waForm, hours_estimated: parseFloat(e.target.value) || 0 })} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
+                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.status}
+                                            onChange={e => setWaForm({ ...waForm, status: e.target.value })}>
+                                            <option value="Offen">Offen</option>
+                                            <option value="In Bearbeitung">In Bearbeitung</option>
+                                            <option value="Erledigt">Erledigt</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Mitarbeiter *</label>
-                                    <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.employee_name}
-                                        onChange={e => {
-                                            const emp = employees.find(em => em.name === e.target.value);
-                                            setWaForm({ ...waForm, employee_name: e.target.value, employee_code: emp?.employee_code || '' });
-                                        }}>
-                                        <option value="">Wählen...</option>
-                                        {employees.map(emp => <option key={emp.employee_id} value={emp.name}>{emp.name}</option>)}
-                                    </select>
+                                    <label className="block text-xs font-medium text-slate-500 mb-1">Notizen</label>
+                                    <textarea className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm resize-none" rows={2}
+                                        value={waForm.notes} onChange={e => setWaForm({ ...waForm, notes: e.target.value })} />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-3 gap-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Start</label>
-                                    <input type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.start_time}
-                                        onChange={e => setWaForm({ ...waForm, start_time: e.target.value })} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Ende</label>
-                                    <input type="time" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.end_time}
-                                        onChange={e => setWaForm({ ...waForm, end_time: e.target.value })} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Pause (min)</label>
-                                    <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.break_minutes}
-                                        onChange={e => setWaForm({ ...waForm, break_minutes: parseInt(e.target.value) || 0 })} />
-                                </div>
+                            <div className="flex justify-end gap-3 border-t px-6 py-4">
+                                <button onClick={() => setWaModal(null)} className="px-4 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-300 hover:bg-slate-50">Abbrechen</button>
+                                <button onClick={saveWa} disabled={savingWa || !waForm.employee_name}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50 shadow-sm">
+                                    {savingWa ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Speichern
+                                </button>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Geschätzte Stunden</label>
-                                    <input type="number" step="0.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.hours_estimated}
-                                        onChange={e => setWaForm({ ...waForm, hours_estimated: parseFloat(e.target.value) || 0 })} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
-                                    <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.status}
-                                        onChange={e => setWaForm({ ...waForm, status: e.target.value })}>
-                                        <option value="Offen">Offen</option>
-                                        <option value="In Bearbeitung">In Bearbeitung</option>
-                                        <option value="Erledigt">Erledigt</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-slate-500 mb-1">Notizen</label>
-                                <textarea className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm resize-none" rows={2}
-                                    value={waForm.notes} onChange={e => setWaForm({ ...waForm, notes: e.target.value })} />
-                            </div>
-                        </div>
-                        <div className="flex justify-end gap-3 border-t px-6 py-4">
-                            <button onClick={() => setWaModal(null)} className="px-4 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-300 hover:bg-slate-50">Abbrechen</button>
-                            <button onClick={saveWa} disabled={savingWa || !waForm.employee_name}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50 shadow-sm">
-                                {savingWa ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Speichern
-                            </button>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 }

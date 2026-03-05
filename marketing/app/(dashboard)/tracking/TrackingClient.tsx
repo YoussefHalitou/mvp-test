@@ -108,6 +108,14 @@ export default function TrackingPage() {
     const [savingCosts, setSavingCosts] = useState<Record<string, boolean>>({});
     const [savingExtra, setSavingExtra] = useState<Record<string, boolean>>({});
 
+    // Collapsible panels state
+    const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
+
+    const togglePanel = (projectId: string, panel: 'material' | 'service' | 'extra') => {
+        const key = `${projectId}-${panel}`;
+        setExpandedPanels(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
     // Active tab
     const [activeTab, setActiveTab] = useState<'timepairs' | 'workassignments'>('timepairs');
 
@@ -433,14 +441,15 @@ export default function TrackingPage() {
                 if (field === 'service_id') {
                     const svc = serviceCatalog.find((s: any) => s.service_id === value);
                     const prices: any[] = svc?.prices || [];
-                    const p = prices[0];
+                    const existingSupplierValid = prices.some((x: any) => x.supplier === r.supplier);
+                    const chosenSupplier = existingSupplierValid ? r.supplier : (prices[0]?.supplier || '');
+                    const p = prices.find((x: any) => x.supplier === chosenSupplier) || prices[0];
                     updated.service_name = svc?.name || '';
                     updated.cost_per_unit = p?.cost_per_unit || 0;
                     updated.price_per_unit = p?.customer_price_per_unit || 0;
                     updated.total_cost = +(updated.quantity * (p?.cost_per_unit || 0)).toFixed(2);
                     updated.total_revenue = +(updated.quantity * (p?.customer_price_per_unit || 0)).toFixed(2);
-                    const suppliers = Array.from(new Set(prices.map((x: any) => x.supplier).filter(Boolean))) as string[];
-                    updated.supplier = suppliers[0] || '';
+                    updated.supplier = chosenSupplier;
                 }
                 if (field === 'supplier') {
                     // find the price entry for this supplier and update EK
@@ -940,241 +949,280 @@ export default function TrackingPage() {
 
                                                 {/* --- Material (mirrors Nachkalkulation) --- */}
                                                 <div className="bg-white border border-amber-200 rounded-xl overflow-hidden shadow-sm border-l-4 border-l-amber-400">
-                                                    <div className="flex items-center justify-between px-4 py-3 border-b border-amber-100">
+                                                    <div
+                                                        className="flex items-center justify-between px-4 py-3 border-b border-amber-100 cursor-pointer hover:bg-amber-50/50 transition-colors"
+                                                        onClick={(e) => {
+                                                            // don't toggle if clicking buttons
+                                                            if ((e.target as HTMLElement).closest('button')) return;
+                                                            togglePanel(projectId, 'material');
+                                                        }}
+                                                    >
                                                         <div className="flex items-center gap-2 text-slate-700">
                                                             <Package className="h-4 w-4 text-amber-500" />
                                                             <span className="text-sm font-semibold">Material</span>
+                                                            <span className="text-xs text-slate-400 ml-2">({(projectMaterials[projectId] || []).length})</span>
                                                         </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs text-red-600 font-medium">EK: {(projectMaterials[projectId] || []).reduce((a, r) => a + r.total_cost, 0).toFixed(2)} €</span>
-                                                            <span className="text-xs text-green-600 font-medium">VK: {(projectMaterials[projectId] || []).reduce((a, r) => a + r.total_revenue, 0).toFixed(2)} €</span>
-                                                            <button onClick={() => addMaterialRow(projectId)}
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs text-red-600 font-medium whitespace-nowrap">EK: {(projectMaterials[projectId] || []).reduce((a, r) => a + r.total_cost, 0).toFixed(2)} €</span>
+                                                                <span className="text-xs text-green-600 font-medium whitespace-nowrap">VK: {(projectMaterials[projectId] || []).reduce((a, r) => a + r.total_revenue, 0).toFixed(2)} €</span>
+                                                            </div>
+                                                            <button onClick={(e) => { e.stopPropagation(); addMaterialRow(projectId); if (!expandedPanels[`${projectId}-material`]) togglePanel(projectId, 'material'); }}
                                                                 className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-1 rounded transition-colors">
                                                                 <Plus className="h-3 w-3" /> Material
                                                             </button>
-                                                            <button onClick={() => saveMaterials(projectId)} disabled={savingCosts[projectId]}
+                                                            <button onClick={(e) => { e.stopPropagation(); saveMaterials(projectId); }} disabled={savingCosts[projectId]}
                                                                 className="flex items-center gap-1 text-xs bg-amber-500 text-white hover:bg-amber-600 px-2 py-1 rounded transition-colors disabled:opacity-50">
                                                                 {savingCosts[projectId] ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Speichern
                                                             </button>
+                                                            {expandedPanels[`${projectId}-material`] ? <ChevronLeft className="h-4 w-4 text-slate-400 -ml-1 -rotate-90" /> : <ChevronLeft className="h-4 w-4 text-slate-400 -ml-1" />}
                                                         </div>
                                                     </div>
-                                                    <table className="w-full text-xs">
-                                                        <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
-                                                            <tr>
-                                                                <th className="px-3 py-2 text-left">Material</th>
-                                                                <th className="px-3 py-2 text-right w-14">Menge</th>
-                                                                <th className="px-3 py-2 text-left w-12">Einh.</th>
-                                                                <th className="px-3 py-2 text-right w-20 bg-red-50/60 text-red-600">Kosten</th>
-                                                                <th className="px-3 py-2 text-right w-20 bg-green-50/60 text-green-600">Erlöse</th>
-                                                                <th className="w-8"></th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-slate-100">
-                                                            {(projectMaterials[projectId] || []).length === 0 ? (
-                                                                <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">Noch kein Material</td></tr>
-                                                            ) : (projectMaterials[projectId] || []).map(row => (
-                                                                <tr key={row._localId} className="hover:bg-slate-50 group">
-                                                                    <td className="px-2 py-1.5">
-                                                                        {row.isNew ? (
-                                                                            <select className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
-                                                                                value={row.material_id}
-                                                                                onChange={e => updateMaterialRow(projectId, row._localId, 'material_id', e.target.value)}>
-                                                                                <option value="">Wählen...</option>
-                                                                                {materialCatalog.map((m: any) => <option key={m.material_id} value={m.material_id}>{m.name} ({m.unit})</option>)}
-                                                                            </select>
-                                                                        ) : (
-                                                                            <span className="font-medium text-slate-800">{row.material_name}</span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="px-2 py-1.5">
-                                                                        <input type="number" min="0" step="0.1"
-                                                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                            value={row.quantity}
-                                                                            onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
-                                                                    </td>
-                                                                    <td className="px-2 py-1.5 text-slate-500">{row.unit}</td>
-                                                                    <td className="px-2 py-1.5 text-right font-semibold text-red-600 bg-red-50/30">{row.total_cost > 0 ? `${row.total_cost.toFixed(2)} €` : '—'}</td>
-                                                                    <td className="px-2 py-1.5 text-right font-semibold text-green-600 bg-green-50/30">{row.total_revenue > 0 ? `${row.total_revenue.toFixed(2)} €` : '—'}</td>
-                                                                    <td className="px-1 text-center">
-                                                                        <button onClick={() => deleteMaterialRow(projectId, row)}
-                                                                            className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                            <Trash2 className="h-3.5 w-3.5" />
-                                                                        </button>
-                                                                    </td>
+                                                    {expandedPanels[`${projectId}-material`] && (
+                                                        <table className="w-full text-xs">
+                                                            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
+                                                                <tr>
+                                                                    <th className="px-3 py-2 text-left">Material</th>
+                                                                    <th className="px-3 py-2 text-right w-14">Menge</th>
+                                                                    <th className="px-3 py-2 text-left w-12">Einh.</th>
+                                                                    <th className="px-3 py-2 text-right w-20 bg-red-50/60 text-red-600">Kosten</th>
+                                                                    <th className="px-3 py-2 text-right w-20 bg-green-50/60 text-green-600">Erlöse</th>
+                                                                    <th className="w-8"></th>
                                                                 </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-slate-100">
+                                                                {(projectMaterials[projectId] || []).length === 0 ? (
+                                                                    <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">Noch kein Material</td></tr>
+                                                                ) : (projectMaterials[projectId] || []).map(row => (
+                                                                    <tr key={row._localId} className="hover:bg-slate-50 group">
+                                                                        <td className="px-2 py-1.5">
+                                                                            {row.isNew ? (
+                                                                                <select className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                                                                    value={row.material_id}
+                                                                                    onChange={e => updateMaterialRow(projectId, row._localId, 'material_id', e.target.value)}>
+                                                                                    <option value="">Wählen...</option>
+                                                                                    {materialCatalog.map((m: any) => <option key={m.material_id} value={m.material_id}>{m.name} ({m.unit})</option>)}
+                                                                                </select>
+                                                                            ) : (
+                                                                                <span className="font-medium text-slate-800">{row.material_name}</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-2 py-1.5">
+                                                                            <input type="number" min="0" step="0.1"
+                                                                                className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
+                                                                                value={row.quantity}
+                                                                                onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
+                                                                        </td>
+                                                                        <td className="px-2 py-1.5 text-slate-500">{row.unit}</td>
+                                                                        <td className="px-2 py-1.5 text-right font-semibold text-red-600 bg-red-50/30">{row.total_cost > 0 ? `${row.total_cost.toFixed(2)} €` : '—'}</td>
+                                                                        <td className="px-2 py-1.5 text-right font-semibold text-green-600 bg-green-50/30">{row.total_revenue > 0 ? `${row.total_revenue.toFixed(2)} €` : '—'}</td>
+                                                                        <td className="px-1 text-center">
+                                                                            <button onClick={() => deleteMaterialRow(projectId, row)}
+                                                                                className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                                            </button>
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    )}
                                                 </div>
 
                                                 {/* --- Dienstleistungskosten (mirrors Nachkalkulation) --- */}
                                                 <div className="bg-white border border-purple-200 rounded-xl overflow-hidden shadow-sm border-l-4 border-l-purple-400">
-                                                    <div className="flex items-center justify-between px-4 py-3 border-b border-purple-100">
+                                                    <div
+                                                        className="flex items-center justify-between px-4 py-3 border-b border-purple-100 cursor-pointer hover:bg-purple-50/50 transition-colors"
+                                                        onClick={(e) => {
+                                                            if ((e.target as HTMLElement).closest('button')) return;
+                                                            togglePanel(projectId, 'service');
+                                                        }}
+                                                    >
                                                         <div className="flex items-center gap-2 text-slate-700">
                                                             <Wrench className="h-4 w-4 text-purple-500" />
                                                             <span className="text-sm font-semibold">Dienstleistungskosten</span>
+                                                            <span className="text-xs text-slate-400 ml-2">({(projectServices[projectId] || []).length})</span>
                                                         </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs text-red-600 font-medium">EK: {(projectServices[projectId] || []).reduce((a, r) => a + r.total_cost, 0).toFixed(2)} €</span>
-                                                            <span className="text-xs text-green-600 font-medium">VK: {(projectServices[projectId] || []).reduce((a, r) => a + r.total_revenue, 0).toFixed(2)} €</span>
-                                                            <button onClick={() => addServiceRow(projectId)}
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs text-red-600 font-medium whitespace-nowrap">EK: {(projectServices[projectId] || []).reduce((a, r) => a + r.total_cost, 0).toFixed(2)} €</span>
+                                                                <span className="text-xs text-green-600 font-medium whitespace-nowrap">VK: {(projectServices[projectId] || []).reduce((a, r) => a + r.total_revenue, 0).toFixed(2)} €</span>
+                                                            </div>
+                                                            <button onClick={(e) => { e.stopPropagation(); addServiceRow(projectId); if (!expandedPanels[`${projectId}-service`]) togglePanel(projectId, 'service'); }}
                                                                 className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded transition-colors">
                                                                 <Plus className="h-3 w-3" /> Leistung
                                                             </button>
-                                                            <button onClick={() => saveServices(projectId)} disabled={savingCosts[projectId]}
+                                                            <button onClick={(e) => { e.stopPropagation(); saveServices(projectId); }} disabled={savingCosts[projectId]}
                                                                 className="flex items-center gap-1 text-xs bg-purple-500 text-white hover:bg-purple-600 px-2 py-1 rounded transition-colors disabled:opacity-50">
                                                                 {savingCosts[projectId] ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Speichern
                                                             </button>
+                                                            {expandedPanels[`${projectId}-service`] ? <ChevronLeft className="h-4 w-4 text-slate-400 -ml-1 -rotate-90" /> : <ChevronLeft className="h-4 w-4 text-slate-400 -ml-1" />}
                                                         </div>
                                                     </div>
-                                                    <table className="w-full text-xs">
-                                                        <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
-                                                            <tr>
-                                                                <th className="px-3 py-2 text-left">Leistung</th>
-                                                                <th className="px-3 py-2 text-left w-28">Lieferant</th>
-                                                                <th className="px-3 py-2 text-right w-14">Menge</th>
-                                                                <th className="px-3 py-2 text-right w-20 bg-red-50/60 text-red-600">Kosten</th>
-                                                                <th className="px-3 py-2 text-right w-20 bg-green-50/60 text-green-600">Erlöse</th>
-                                                                <th className="w-8"></th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-slate-100">
-                                                            {(projectServices[projectId] || []).length === 0 ? (
-                                                                <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">Noch keine Dienstleistungen</td></tr>
-                                                            ) : (projectServices[projectId] || []).map(row => (
-                                                                <tr key={row._localId} className="hover:bg-slate-50 group">
-                                                                    <td className="px-2 py-1.5">
-                                                                        {row.isNew ? (
-                                                                            <select className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
-                                                                                value={row.service_id}
-                                                                                onChange={e => updateServiceRow(projectId, row._localId, 'service_id', e.target.value)}>
-                                                                                <option value="">Wählen...</option>
-                                                                                {serviceCatalog.map((s: any) => <option key={s.service_id} value={s.service_id}>{s.name}</option>)}
-                                                                            </select>
-                                                                        ) : (
-                                                                            <span className="font-medium text-slate-800">{row.service_name}</span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="px-2 py-1.5">
-                                                                        {(() => {
-                                                                            const svc = serviceCatalog.find((s: any) => s.service_id === row.service_id);
-                                                                            const suppliers = Array.from(new Set(((svc?.prices || []) as any[]).map((x: any) => x.supplier).filter(Boolean))) as string[];
-                                                                            return suppliers.length > 0 ? (
+                                                    {expandedPanels[`${projectId}-service`] && (
+                                                        <table className="w-full text-xs">
+                                                            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
+                                                                <tr>
+                                                                    <th className="px-3 py-2 text-left w-36">Lieferant</th>
+                                                                    <th className="px-3 py-2 text-left">Leistung</th>
+                                                                    <th className="px-3 py-2 text-right w-14">Menge</th>
+                                                                    <th className="px-3 py-2 text-right w-20 bg-red-50/60 text-red-600">Kosten</th>
+                                                                    <th className="px-3 py-2 text-right w-20 bg-green-50/60 text-green-600">Erlöse</th>
+                                                                    <th className="w-8"></th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-slate-100">
+                                                                {(projectServices[projectId] || []).length === 0 ? (
+                                                                    <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">Noch keine Dienstleistungen</td></tr>
+                                                                ) : (projectServices[projectId] || []).map(row => (
+                                                                    <tr key={row._localId} className="hover:bg-slate-50 group">
+                                                                        <td className="px-2 py-1.5">
+                                                                            {row.isNew ? (
                                                                                 <select
-                                                                                    className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-slate-300"
-                                                                                    value={row.supplier}
-                                                                                    onChange={e => updateServiceRow(projectId, row._localId, 'supplier', e.target.value)}
+                                                                                    className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                                                    value={row.supplier || ''}
+                                                                                    onChange={e => {
+                                                                                        updateServiceRow(projectId, row._localId, 'supplier', e.target.value);
+                                                                                        // reset service if they change supplier manually to avoid stale references
+                                                                                        updateServiceRow(projectId, row._localId, 'service_id', '');
+                                                                                    }}
                                                                                 >
-                                                                                    {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                                                                                    <option value="">Alle Lieferanten...</option>
+                                                                                    {Array.from(new Set(
+                                                                                        serviceCatalog.flatMap((svc: any) =>
+                                                                                            (svc.prices || []).map((p: any) => p.supplier).filter(Boolean)
+                                                                                        )
+                                                                                    )).sort().map((s: any) => <option key={s} value={s}>{s}</option>)}
                                                                                 </select>
                                                                             ) : (
-                                                                                <input type="text" placeholder="Lieferant..."
-                                                                                    className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-slate-300"
-                                                                                    value={row.supplier}
-                                                                                    onChange={e => updateServiceRow(projectId, row._localId, 'supplier', e.target.value)}
-                                                                                />
-                                                                            );
-                                                                        })()}
-                                                                    </td>
-                                                                    <td className="px-2 py-1.5">
-                                                                        <input type="number" min="0" step="0.1"
-                                                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                            value={row.quantity}
-                                                                            onChange={e => updateServiceRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
-                                                                    </td>
-                                                                    <td className="px-2 py-1.5 text-right font-semibold text-red-600 bg-red-50/30">{row.total_cost > 0 ? `${row.total_cost.toFixed(2)} €` : '—'}</td>
-                                                                    <td className="px-2 py-1.5 text-right font-semibold text-green-600 bg-green-50/30">{row.total_revenue > 0 ? `${row.total_revenue.toFixed(2)} €` : '—'}</td>
-                                                                    <td className="px-1 text-center">
-                                                                        <button onClick={() => deleteServiceRow(projectId, row)}
-                                                                            className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                            <Trash2 className="h-3.5 w-3.5" />
-                                                                        </button>
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                                                <span className="font-medium text-slate-800">{row.supplier || '—'}</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-2 py-1.5">
+                                                                            {row.isNew ? (
+                                                                                <select className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                                                    value={row.service_id}
+                                                                                    onChange={e => updateServiceRow(projectId, row._localId, 'service_id', e.target.value)}>
+                                                                                    <option value="">Wählen...</option>
+                                                                                    {serviceCatalog
+                                                                                        .filter((svc: any) => !row.supplier || (svc.prices || []).some((p: any) => p.supplier === row.supplier))
+                                                                                        .map((s: any) => <option key={s.service_id} value={s.service_id}>{s.name}</option>)
+                                                                                    }
+                                                                                </select>
+                                                                            ) : (
+                                                                                <span className="font-medium text-slate-800">{row.service_name}</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-2 py-1.5">
+                                                                            <input type="number" min="0" step="0.1"
+                                                                                className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
+                                                                                value={row.quantity}
+                                                                                onChange={e => updateServiceRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
+                                                                        </td>
+                                                                        <td className="px-2 py-1.5 text-right font-semibold text-red-600 bg-red-50/30">{row.total_cost > 0 ? `${row.total_cost.toFixed(2)} €` : '—'}</td>
+                                                                        <td className="px-2 py-1.5 text-right font-semibold text-green-600 bg-green-50/30">{row.total_revenue > 0 ? `${row.total_revenue.toFixed(2)} €` : '—'}</td>
+                                                                        <td className="px-1 text-center">
+                                                                            <button onClick={() => deleteServiceRow(projectId, row)}
+                                                                                className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                                            </button>
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    )}
                                                 </div>
 
                                                 {/* --- Sonderkosten --- */}
                                                 <div className="bg-white border border-amber-200 rounded-xl overflow-hidden shadow-sm border-l-4 border-l-amber-500">
-                                                    <div className="flex items-center justify-between px-4 py-3 border-b border-amber-100">
+                                                    <div
+                                                        className="flex items-center justify-between px-4 py-3 border-b border-amber-100 cursor-pointer hover:bg-amber-50/50 transition-colors"
+                                                        onClick={(e) => {
+                                                            if ((e.target as HTMLElement).closest('button')) return;
+                                                            togglePanel(projectId, 'extra');
+                                                        }}
+                                                    >
                                                         <div className="flex items-center gap-2 text-slate-700">
                                                             <AlertCircle className="h-4 w-4 text-amber-500" />
                                                             <span className="text-sm font-semibold">Sonderkosten</span>
+                                                            <span className="text-xs text-slate-400 ml-2">({(projectExtraCosts[projectId] || []).length})</span>
                                                         </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-sm font-bold text-slate-700">
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="text-sm font-bold text-slate-700 whitespace-nowrap">
                                                                 {(projectExtraCosts[projectId] || []).reduce((a, r) => a + r.cost, 0).toFixed(2)} €
                                                             </span>
-                                                            <button onClick={() => addExtraRow(projectId)}
+                                                            <button onClick={(e) => { e.stopPropagation(); addExtraRow(projectId); if (!expandedPanels[`${projectId}-extra`]) togglePanel(projectId, 'extra'); }}
                                                                 className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-1 rounded transition-colors">
                                                                 <Plus className="h-3 w-3" /> Zusatzkosten
                                                             </button>
-                                                            <button onClick={() => saveExtraCosts(projectId)} disabled={savingExtra[projectId]}
+                                                            <button onClick={(e) => { e.stopPropagation(); saveExtraCosts(projectId); }} disabled={savingExtra[projectId]}
                                                                 className="flex items-center gap-1 text-xs bg-amber-500 text-white hover:bg-amber-600 px-2 py-1 rounded transition-colors disabled:opacity-50">
                                                                 {savingExtra[projectId] ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Speichern
                                                             </button>
+                                                            {expandedPanels[`${projectId}-extra`] ? <ChevronLeft className="h-4 w-4 text-slate-400 -ml-1 -rotate-90" /> : <ChevronLeft className="h-4 w-4 text-slate-400 -ml-1" />}
                                                         </div>
                                                     </div>
-                                                    <table className="w-full text-xs">
-                                                        <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
-                                                            <tr>
-                                                                <th className="px-3 py-2 text-left w-36">Art</th>
-                                                                <th className="px-3 py-2 text-left">Beschreibung</th>
-                                                                <th className="px-3 py-2 text-right w-24">Kosten</th>
-                                                                <th className="w-8"></th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-slate-100">
-                                                            {(projectExtraCosts[projectId] || []).length === 0 ? (
-                                                                <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">Keine Sonderkosten</td></tr>
-                                                            ) : (projectExtraCosts[projectId] || []).map(row => (
-                                                                <tr key={row._localId} className="hover:bg-slate-50 group">
-                                                                    <td className="px-2 py-1.5">
-                                                                        <select
-                                                                            value={row.cost_type}
-                                                                            onChange={e => updateExtraRow(projectId, row._localId, 'cost_type', e.target.value)}
-                                                                            className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
-                                                                        >
-                                                                            <option value="Material">Material (Alt)</option>
-                                                                            <option value="Dienstleistung">Dienstleistung (Alt)</option>
-                                                                            <option value="Maut">Maut</option>
-                                                                            <option value="Parkgebühr">Parkgebühr</option>
-                                                                            <option value="Entsorgung">Entsorgung</option>
-                                                                            <option value="Verpackung">Verpackung</option>
-                                                                            <option value="Sonstiges">Sonstiges</option>
-                                                                        </select>
-                                                                    </td>
-                                                                    <td className="px-2 py-1.5">
-                                                                        <input
-                                                                            type="text"
-                                                                            value={row.description}
-                                                                            onChange={e => updateExtraRow(projectId, row._localId, 'description', e.target.value)}
-                                                                            placeholder="Beschreibung (z.B. Ticket #123)..."
-                                                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-slate-300"
-                                                                        />
-                                                                    </td>
-                                                                    <td className="px-2 py-1.5">
-                                                                        <input
-                                                                            type="number"
-                                                                            min="0"
-                                                                            step="0.01"
-                                                                            value={row.cost}
-                                                                            onChange={e => updateExtraRow(projectId, row._localId, 'cost', parseFloat(e.target.value) || 0)}
-                                                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                        />
-                                                                    </td>
-                                                                    <td className="px-1 text-center">
-                                                                        <button onClick={() => deleteExtraRow(projectId, row)}
-                                                                            className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                            <Trash2 className="h-3.5 w-3.5" />
-                                                                        </button>
-                                                                    </td>
+                                                    {expandedPanels[`${projectId}-extra`] && (
+                                                        <table className="w-full text-xs">
+                                                            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
+                                                                <tr>
+                                                                    <th className="px-3 py-2 text-left w-36">Art</th>
+                                                                    <th className="px-3 py-2 text-left">Beschreibung</th>
+                                                                    <th className="px-3 py-2 text-right w-24">Kosten</th>
+                                                                    <th className="w-8"></th>
                                                                 </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-slate-100">
+                                                                {(projectExtraCosts[projectId] || []).length === 0 ? (
+                                                                    <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">Keine Sonderkosten</td></tr>
+                                                                ) : (projectExtraCosts[projectId] || []).map(row => (
+                                                                    <tr key={row._localId} className="hover:bg-slate-50 group">
+                                                                        <td className="px-2 py-1.5">
+                                                                            <select
+                                                                                value={row.cost_type}
+                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'cost_type', e.target.value)}
+                                                                                className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                                                            >
+                                                                                <option value="Material">Material (Alt)</option>
+                                                                                <option value="Dienstleistung">Dienstleistung (Alt)</option>
+                                                                                <option value="Maut">Maut</option>
+                                                                                <option value="Parkgebühr">Parkgebühr</option>
+                                                                                <option value="Entsorgung">Entsorgung</option>
+                                                                                <option value="Verpackung">Verpackung</option>
+                                                                                <option value="Sonstiges">Sonstiges</option>
+                                                                            </select>
+                                                                        </td>
+                                                                        <td className="px-2 py-1.5">
+                                                                            <input
+                                                                                type="text"
+                                                                                value={row.description}
+                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'description', e.target.value)}
+                                                                                placeholder="Beschreibung (z.B. Ticket #123)..."
+                                                                                className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-slate-300"
+                                                                            />
+                                                                        </td>
+                                                                        <td className="px-2 py-1.5">
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                step="0.01"
+                                                                                value={row.cost}
+                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'cost', parseFloat(e.target.value) || 0)}
+                                                                                className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
+                                                                            />
+                                                                        </td>
+                                                                        <td className="px-1 text-center">
+                                                                            <button onClick={() => deleteExtraRow(projectId, row)}
+                                                                                className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                                            </button>
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    )}
                                                 </div>
 
                                             </div>

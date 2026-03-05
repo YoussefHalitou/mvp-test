@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { format, addDays } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Save, Copy, Loader2, Trash2, Plus, X, Pencil, Briefcase, Clock, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Copy, Loader2, Trash2, Plus, X, Pencil, Briefcase, Clock, Calendar, Package, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/supabase';
@@ -38,6 +38,36 @@ interface TrackingRow {
     isNew: boolean;
 }
 
+interface ProjectMatRow {
+    _localId: string;
+    id?: string;
+    project_id: string;
+    material_id: string;
+    material_name: string;
+    unit: string;
+    quantity: number;
+    cost_per_unit: number;
+    price_per_unit: number;
+    total_cost: number;
+    total_revenue: number;
+    isNew: boolean;
+}
+
+interface ProjectSvcRow {
+    _localId: string;
+    id?: string;
+    project_id: string;
+    service_id: string;
+    service_name: string;
+    supplier: string;
+    quantity: number;
+    cost_per_unit: number;
+    price_per_unit: number;
+    total_cost: number;
+    total_revenue: number;
+    isNew: boolean;
+}
+
 const WORK_TYPES = ['Büroarbeit', 'Lager', 'Werkstatt', 'Reinigung', 'Fahrt', 'Schulung', 'Sonstiges'];
 
 export default function TrackingPage() {
@@ -58,6 +88,13 @@ export default function TrackingPage() {
     const [waModal, setWaModal] = useState<{ mode: 'create' | 'edit'; item?: WorkAssignment } | null>(null);
     const [waForm, setWaForm] = useState({ work_type: '', employee_name: '', employee_code: '', assignment_date: '', start_time: '', end_time: '', break_minutes: 0, hours_estimated: 0, status: 'Offen', notes: '' });
     const [savingWa, setSavingWa] = useState(false);
+
+    // Catalog-backed costs per project (mirrors Nachkalkulation)
+    const [materialCatalog, setMaterialCatalog] = useState<any[]>([]);
+    const [serviceCatalog, setServiceCatalog] = useState<any[]>([]);
+    const [projectMaterials, setProjectMaterials] = useState<Record<string, ProjectMatRow[]>>({});
+    const [projectServices, setProjectServices] = useState<Record<string, ProjectSvcRow[]>>({});
+    const [savingCosts, setSavingCosts] = useState<Record<string, boolean>>({});
 
     // Active tab
     const [activeTab, setActiveTab] = useState<'timepairs' | 'workassignments'>('timepairs');
@@ -184,9 +221,252 @@ export default function TrackingPage() {
         setLoading(false);
     }, [currentDate, viewMode, selectedProjectId, projects]); // Added dependencies
 
-    useEffect(() => { fetchEmployees(); fetchProjects(); }, [fetchEmployees, fetchProjects]);
+    const fetchCatalogs = useCallback(async () => {
+        const [matRes, svcRes] = await Promise.all([
+            supabase.from('t_materials').select('*, prices:t_material_prices(cost_per_unit, price_per_unit)').eq('is_active', true).order('name'),
+            supabase.from('t_services').select('*, prices:t_service_prices(cost_per_unit, customer_price_per_unit, supplier)').eq('is_active', true).order('name'),
+        ]);
+        setMaterialCatalog(matRes.data || []);
+        setServiceCatalog(svcRes.data || []);
+    }, []);
+
+    const fetchProjectCosts = useCallback(async (projectIds: string[]) => {
+        if (projectIds.length === 0) return;
+        const [matRes, svcRes] = await Promise.all([
+            supabase.from('t_project_material_usage')
+                .select('*, material:t_materials(name, unit, prices:t_material_prices(cost_per_unit, price_per_unit))')
+                .in('project_id', projectIds),
+            supabase.from('t_project_service_usage')
+                .select('*, service:t_services(name, default_unit, prices:t_service_prices(cost_per_unit, customer_price_per_unit, supplier))')
+                .in('project_id', projectIds),
+        ]);
+
+        const mats: Record<string, ProjectMatRow[]> = {};
+        (matRes.data || []).forEach((m: any) => {
+            if (!mats[m.project_id]) mats[m.project_id] = [];
+            const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;
+            mats[m.project_id].push({
+                _localId: m.id,
+                id: m.id,
+                project_id: m.project_id,
+                material_id: m.material_id,
+                material_name: m.material?.name || m.material_id,
+                unit: m.material?.unit || '',
+                quantity: m.quantity,
+                cost_per_unit: p?.cost_per_unit || 0,
+                price_per_unit: p?.price_per_unit || 0,
+                total_cost: +(m.quantity * (p?.cost_per_unit || 0)).toFixed(2),
+                total_revenue: +(m.quantity * (p?.price_per_unit || 0)).toFixed(2),
+                isNew: false,
+            });
+        });
+        setProjectMaterials(mats);
+
+        const svcs: Record<string, ProjectSvcRow[]> = {};
+        (svcRes.data || []).forEach((s: any) => {
+            if (!svcs[s.project_id]) svcs[s.project_id] = [];
+            const prices: any[] = s.service?.prices || [];
+            const p = s.supplier ? prices.find((x: any) => x.supplier === s.supplier) || prices[0] : prices[0];
+            svcs[s.project_id].push({
+                _localId: s.id,
+                id: s.id,
+                project_id: s.project_id,
+                service_id: s.service_id,
+                service_name: s.service?.name || s.service_id,
+                supplier: s.supplier || p?.supplier || '',
+                quantity: s.quantity || 1,
+                cost_per_unit: p?.cost_per_unit || 0,
+                price_per_unit: p?.customer_price_per_unit || 0,
+                total_cost: +((s.quantity || 1) * (p?.cost_per_unit || 0)).toFixed(2),
+                total_revenue: +((s.quantity || 1) * (p?.customer_price_per_unit || 0)).toFixed(2),
+                isNew: false,
+            });
+        });
+        setProjectServices(svcs);
+    }, []);
+
+    useEffect(() => { fetchEmployees(); fetchProjects(); fetchCatalogs(); }, [fetchEmployees, fetchProjects, fetchCatalogs]);
     useEffect(() => { fetchData(); }, [fetchData]);
-    useEffect(() => { fetchData(); }, [fetchData]);
+
+    useEffect(() => {
+        const pids = Array.from(new Set(rows.map(r => r.project_id))).filter((id): id is string => id !== null);
+        if (pids.length > 0) fetchProjectCosts(pids);
+    }, [rows, fetchProjectCosts]);
+
+    // ---- MATERIAL CRUD ----
+    const addMaterialRow = (projectId: string) => {
+        setProjectMaterials(prev => ({
+            ...prev,
+            [projectId]: [...(prev[projectId] || []), {
+                _localId: `new-${Math.random()}`,
+                project_id: projectId,
+                material_id: '',
+                material_name: '',
+                unit: '',
+                quantity: 1,
+                cost_per_unit: 0,
+                price_per_unit: 0,
+                total_cost: 0,
+                total_revenue: 0,
+                isNew: true,
+            }],
+        }));
+    };
+
+    const updateMaterialRow = (projectId: string, localId: string, field: string, value: any) => {
+        setProjectMaterials(prev => ({
+            ...prev,
+            [projectId]: (prev[projectId] || []).map(r => {
+                if (r._localId !== localId) return r;
+                const updated = { ...r, [field]: value };
+                if (field === 'material_id') {
+                    const mat = materialCatalog.find((m: any) => m.material_id === value);
+                    const p = Array.isArray(mat?.prices) ? mat.prices[0] : mat?.prices;
+                    updated.material_name = mat?.name || '';
+                    updated.unit = mat?.unit || '';
+                    updated.cost_per_unit = p?.cost_per_unit || 0;
+                    updated.price_per_unit = p?.price_per_unit || 0;
+                    updated.total_cost = +(updated.quantity * (p?.cost_per_unit || 0)).toFixed(2);
+                    updated.total_revenue = +(updated.quantity * (p?.price_per_unit || 0)).toFixed(2);
+                }
+                if (field === 'quantity') {
+                    updated.total_cost = +(Number(value) * r.cost_per_unit).toFixed(2);
+                    updated.total_revenue = +(Number(value) * r.price_per_unit).toFixed(2);
+                }
+                return updated;
+            }),
+        }));
+    };
+
+    const deleteMaterialRow = async (projectId: string, row: ProjectMatRow) => {
+        if (!row.isNew && row.id) {
+            await supabase.from('t_project_material_usage').delete().eq('id', row.id);
+        }
+        setProjectMaterials(prev => ({
+            ...prev,
+            [projectId]: (prev[projectId] || []).filter(r => r._localId !== row._localId),
+        }));
+    };
+
+    const saveMaterials = async (projectId: string) => {
+        const items = (projectMaterials[projectId] || []).filter(r => r.material_id);
+        setSavingCosts(prev => ({ ...prev, [projectId]: true }));
+        try {
+            await Promise.all(items.map(async r => {
+                if (r.isNew) {
+                    const { data, error } = await supabase.from('t_project_material_usage').insert({
+                        project_id: projectId, material_id: r.material_id, quantity: r.quantity,
+                    }).select().single();
+                    if (!error && data) {
+                        setProjectMaterials(prev => ({
+                            ...prev,
+                            [projectId]: (prev[projectId] || []).map(x =>
+                                x._localId === r._localId ? { ...x, id: data.id, isNew: false } : x
+                            ),
+                        }));
+                    }
+                } else if (r.id) {
+                    await supabase.from('t_project_material_usage').update({ quantity: r.quantity }).eq('id', r.id);
+                }
+            }));
+            toast('Material gespeichert');
+        } catch { toast('Fehler beim Speichern', 'error'); }
+        setSavingCosts(prev => ({ ...prev, [projectId]: false }));
+    };
+
+    // ---- SERVICE CRUD ----
+    const addServiceRow = (projectId: string) => {
+        setProjectServices(prev => ({
+            ...prev,
+            [projectId]: [...(prev[projectId] || []), {
+                _localId: `new-${Math.random()}`,
+                project_id: projectId,
+                service_id: '',
+                service_name: '',
+                supplier: '',
+                quantity: 1,
+                cost_per_unit: 0,
+                price_per_unit: 0,
+                total_cost: 0,
+                total_revenue: 0,
+                isNew: true,
+            }],
+        }));
+    };
+
+    const updateServiceRow = (projectId: string, localId: string, field: string, value: any) => {
+        setProjectServices(prev => ({
+            ...prev,
+            [projectId]: (prev[projectId] || []).map(r => {
+                if (r._localId !== localId) return r;
+                const updated = { ...r, [field]: value };
+                if (field === 'service_id') {
+                    const svc = serviceCatalog.find((s: any) => s.service_id === value);
+                    const prices: any[] = svc?.prices || [];
+                    const p = prices[0];
+                    updated.service_name = svc?.name || '';
+                    updated.cost_per_unit = p?.cost_per_unit || 0;
+                    updated.price_per_unit = p?.customer_price_per_unit || 0;
+                    updated.total_cost = +(updated.quantity * (p?.cost_per_unit || 0)).toFixed(2);
+                    updated.total_revenue = +(updated.quantity * (p?.customer_price_per_unit || 0)).toFixed(2);
+                    const suppliers = Array.from(new Set(prices.map((x: any) => x.supplier).filter(Boolean))) as string[];
+                    updated.supplier = suppliers[0] || '';
+                }
+                if (field === 'supplier') {
+                    // find the price entry for this supplier and update EK
+                    const svc = serviceCatalog.find((s: any) => s.service_id === r.service_id);
+                    const prices: any[] = svc?.prices || [];
+                    const p = prices.find((x: any) => x.supplier === value) || prices[0];
+                    updated.cost_per_unit = p?.cost_per_unit || 0;
+                    updated.price_per_unit = p?.customer_price_per_unit || 0;
+                    updated.total_cost = +(r.quantity * (p?.cost_per_unit || 0)).toFixed(2);
+                    updated.total_revenue = +(r.quantity * (p?.customer_price_per_unit || 0)).toFixed(2);
+                }
+                if (field === 'quantity') {
+                    updated.total_cost = +(Number(value) * r.cost_per_unit).toFixed(2);
+                    updated.total_revenue = +(Number(value) * r.price_per_unit).toFixed(2);
+                }
+                return updated;
+            }),
+        }));
+    };
+
+    const deleteServiceRow = async (projectId: string, row: ProjectSvcRow) => {
+        if (!row.isNew && row.id) {
+            await supabase.from('t_project_service_usage').delete().eq('id', row.id);
+        }
+        setProjectServices(prev => ({
+            ...prev,
+            [projectId]: (prev[projectId] || []).filter(r => r._localId !== row._localId),
+        }));
+    };
+
+    const saveServices = async (projectId: string) => {
+        const items = (projectServices[projectId] || []).filter(r => r.service_id);
+        setSavingCosts(prev => ({ ...prev, [projectId]: true }));
+        try {
+            await Promise.all(items.map(async r => {
+                if (r.isNew) {
+                    const { data, error } = await supabase.from('t_project_service_usage').insert({
+                        project_id: projectId, service_id: r.service_id, quantity: r.quantity,
+                        supplier: r.supplier || null,
+                    }).select().single();
+                    if (!error && data) {
+                        setProjectServices(prev => ({
+                            ...prev,
+                            [projectId]: (prev[projectId] || []).map(x =>
+                                x._localId === r._localId ? { ...x, id: data.id, isNew: false } : x
+                            ),
+                        }));
+                    }
+                } else if (r.id) {
+                    await supabase.from('t_project_service_usage').update({ quantity: r.quantity, supplier: r.supplier || null }).eq('id', r.id);
+                }
+            }));
+            toast('Dienstleistungen gespeichert');
+        } catch { toast('Fehler beim Speichern', 'error'); }
+        setSavingCosts(prev => ({ ...prev, [projectId]: false }));
+    };
 
 
 
@@ -564,6 +844,171 @@ export default function TrackingPage() {
                                                 </tbody>
                                             </table>
                                         </div>
+
+                                        {/* ===== MATERIAL & DIENSTLEISTUNGSKOSTEN PANELS ===== */}
+                                        {projectId !== 'unassigned' && (
+                                            <div className="grid grid-cols-2 gap-3 mt-3">
+
+                                                {/* --- Material (mirrors Nachkalkulation) --- */}
+                                                <div className="bg-white border border-amber-200 rounded-xl overflow-hidden shadow-sm border-l-4 border-l-amber-400">
+                                                    <div className="flex items-center justify-between px-4 py-3 border-b border-amber-100">
+                                                        <div className="flex items-center gap-2 text-slate-700">
+                                                            <Package className="h-4 w-4 text-amber-500" />
+                                                            <span className="text-sm font-semibold">Material</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs text-red-600 font-medium">EK: {(projectMaterials[projectId] || []).reduce((a, r) => a + r.total_cost, 0).toFixed(2)} €</span>
+                                                            <span className="text-xs text-green-600 font-medium">VK: {(projectMaterials[projectId] || []).reduce((a, r) => a + r.total_revenue, 0).toFixed(2)} €</span>
+                                                            <button onClick={() => addMaterialRow(projectId)}
+                                                                className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-1 rounded transition-colors">
+                                                                <Plus className="h-3 w-3" /> Material
+                                                            </button>
+                                                            <button onClick={() => saveMaterials(projectId)} disabled={savingCosts[projectId]}
+                                                                className="flex items-center gap-1 text-xs bg-amber-500 text-white hover:bg-amber-600 px-2 py-1 rounded transition-colors disabled:opacity-50">
+                                                                {savingCosts[projectId] ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Speichern
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <table className="w-full text-xs">
+                                                        <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
+                                                            <tr>
+                                                                <th className="px-3 py-2 text-left">Material</th>
+                                                                <th className="px-3 py-2 text-right w-14">Menge</th>
+                                                                <th className="px-3 py-2 text-left w-12">Einh.</th>
+                                                                <th className="px-3 py-2 text-right w-20 bg-red-50/60 text-red-600">Kosten</th>
+                                                                <th className="px-3 py-2 text-right w-20 bg-green-50/60 text-green-600">Erlöse</th>
+                                                                <th className="w-8"></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100">
+                                                            {(projectMaterials[projectId] || []).length === 0 ? (
+                                                                <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">Noch kein Material</td></tr>
+                                                            ) : (projectMaterials[projectId] || []).map(row => (
+                                                                <tr key={row._localId} className="hover:bg-slate-50 group">
+                                                                    <td className="px-2 py-1.5">
+                                                                        {row.isNew ? (
+                                                                            <select className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                                                                value={row.material_id}
+                                                                                onChange={e => updateMaterialRow(projectId, row._localId, 'material_id', e.target.value)}>
+                                                                                <option value="">Wählen...</option>
+                                                                                {materialCatalog.map((m: any) => <option key={m.material_id} value={m.material_id}>{m.name} ({m.unit})</option>)}
+                                                                            </select>
+                                                                        ) : (
+                                                                            <span className="font-medium text-slate-800">{row.material_name}</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-2 py-1.5">
+                                                                        <input type="number" min="0" step="0.1"
+                                                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
+                                                                            value={row.quantity}
+                                                                            onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
+                                                                    </td>
+                                                                    <td className="px-2 py-1.5 text-slate-500">{row.unit}</td>
+                                                                    <td className="px-2 py-1.5 text-right font-semibold text-red-600 bg-red-50/30">{row.total_cost > 0 ? `${row.total_cost.toFixed(2)} €` : '—'}</td>
+                                                                    <td className="px-2 py-1.5 text-right font-semibold text-green-600 bg-green-50/30">{row.total_revenue > 0 ? `${row.total_revenue.toFixed(2)} €` : '—'}</td>
+                                                                    <td className="px-1 text-center">
+                                                                        <button onClick={() => deleteMaterialRow(projectId, row)}
+                                                                            className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                {/* --- Dienstleistungskosten (mirrors Nachkalkulation) --- */}
+                                                <div className="bg-white border border-purple-200 rounded-xl overflow-hidden shadow-sm border-l-4 border-l-purple-400">
+                                                    <div className="flex items-center justify-between px-4 py-3 border-b border-purple-100">
+                                                        <div className="flex items-center gap-2 text-slate-700">
+                                                            <Wrench className="h-4 w-4 text-purple-500" />
+                                                            <span className="text-sm font-semibold">Dienstleistungskosten</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs text-red-600 font-medium">EK: {(projectServices[projectId] || []).reduce((a, r) => a + r.total_cost, 0).toFixed(2)} €</span>
+                                                            <span className="text-xs text-green-600 font-medium">VK: {(projectServices[projectId] || []).reduce((a, r) => a + r.total_revenue, 0).toFixed(2)} €</span>
+                                                            <button onClick={() => addServiceRow(projectId)}
+                                                                className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded transition-colors">
+                                                                <Plus className="h-3 w-3" /> Leistung
+                                                            </button>
+                                                            <button onClick={() => saveServices(projectId)} disabled={savingCosts[projectId]}
+                                                                className="flex items-center gap-1 text-xs bg-purple-500 text-white hover:bg-purple-600 px-2 py-1 rounded transition-colors disabled:opacity-50">
+                                                                {savingCosts[projectId] ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Speichern
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <table className="w-full text-xs">
+                                                        <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
+                                                            <tr>
+                                                                <th className="px-3 py-2 text-left">Leistung</th>
+                                                                <th className="px-3 py-2 text-left w-28">Lieferant</th>
+                                                                <th className="px-3 py-2 text-right w-14">Menge</th>
+                                                                <th className="px-3 py-2 text-right w-20 bg-red-50/60 text-red-600">Kosten</th>
+                                                                <th className="px-3 py-2 text-right w-20 bg-green-50/60 text-green-600">Erlöse</th>
+                                                                <th className="w-8"></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100">
+                                                            {(projectServices[projectId] || []).length === 0 ? (
+                                                                <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">Noch keine Dienstleistungen</td></tr>
+                                                            ) : (projectServices[projectId] || []).map(row => (
+                                                                <tr key={row._localId} className="hover:bg-slate-50 group">
+                                                                    <td className="px-2 py-1.5">
+                                                                        {row.isNew ? (
+                                                                            <select className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                                                value={row.service_id}
+                                                                                onChange={e => updateServiceRow(projectId, row._localId, 'service_id', e.target.value)}>
+                                                                                <option value="">Wählen...</option>
+                                                                                {serviceCatalog.map((s: any) => <option key={s.service_id} value={s.service_id}>{s.name}</option>)}
+                                                                            </select>
+                                                                        ) : (
+                                                                            <span className="font-medium text-slate-800">{row.service_name}</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-2 py-1.5">
+                                                                        {(() => {
+                                                                            const svc = serviceCatalog.find((s: any) => s.service_id === row.service_id);
+                                                                            const suppliers = Array.from(new Set(((svc?.prices || []) as any[]).map((x: any) => x.supplier).filter(Boolean))) as string[];
+                                                                            return suppliers.length > 0 ? (
+                                                                                <select
+                                                                                    className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-slate-300"
+                                                                                    value={row.supplier}
+                                                                                    onChange={e => updateServiceRow(projectId, row._localId, 'supplier', e.target.value)}
+                                                                                >
+                                                                                    {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                                                                                </select>
+                                                                            ) : (
+                                                                                <input type="text" placeholder="Lieferant..."
+                                                                                    className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-slate-300"
+                                                                                    value={row.supplier}
+                                                                                    onChange={e => updateServiceRow(projectId, row._localId, 'supplier', e.target.value)}
+                                                                                />
+                                                                            );
+                                                                        })()}
+                                                                    </td>
+                                                                    <td className="px-2 py-1.5">
+                                                                        <input type="number" min="0" step="0.1"
+                                                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
+                                                                            value={row.quantity}
+                                                                            onChange={e => updateServiceRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
+                                                                    </td>
+                                                                    <td className="px-2 py-1.5 text-right font-semibold text-red-600 bg-red-50/30">{row.total_cost > 0 ? `${row.total_cost.toFixed(2)} €` : '—'}</td>
+                                                                    <td className="px-2 py-1.5 text-right font-semibold text-green-600 bg-green-50/30">{row.total_revenue > 0 ? `${row.total_revenue.toFixed(2)} €` : '—'}</td>
+                                                                    <td className="px-1 text-center">
+                                                                        <button onClick={() => deleteServiceRow(projectId, row)}
+                                                                            className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })

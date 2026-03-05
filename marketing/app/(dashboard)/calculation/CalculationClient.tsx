@@ -354,6 +354,7 @@ export default function CalculationPage() {
     const materialErloes = useMemo(() => materials.reduce((s, m) => s + m.total_price, 0), [materials]);
     const vehicleErloes = useMemo(() => vehicles.reduce((s, v) => s + v.total_cost, 0), [vehicles]);
     const serviceKosten = useMemo(() => services.reduce((s, sv) => s + sv.total_cost, 0), [services]);
+    const serviceErloes = useMemo(() => services.reduce((s, sv) => s + (sv.total_price || 0), 0), [services]);
     const extraKosten = useMemo(() => extraCosts.reduce((s, e) => s + e.cost, 0), [extraCosts]);
     const revenueTotal = useMemo(() => revenue.reduce((s, r) => s + r.line_total, 0), [revenue]);
     const hvzKosten = useMemo(() => hvzCosts.reduce((s, h) => s + h.ek_preis, 0), [hvzCosts]);
@@ -362,7 +363,7 @@ export default function CalculationPage() {
     const bnkErloes = useMemo(() => bnkCosts.reduce((s, b) => s + b.vk_preis, 0), [bnkCosts]);
 
     const totalCosts = personalKosten + materialKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
-    const baseRevenue = revenueTotal + materialErloes + vehicleErloes + hvzErloes + bnkErloes;
+    const baseRevenue = revenueTotal + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
     const discountTotal = useMemo(() => discounts.reduce((s, d) => {
         const mode = (d as any).mode || d.discount_type;
         if (mode === 'percent') return s + (baseRevenue * (d.value / 100)); // Apply % to revenue
@@ -1202,13 +1203,17 @@ export default function CalculationPage() {
                                                             actions={<button onClick={() => { setAddSvcForm({ service_id: '', quantity: 1, unit: 'Std', cost_per_unit: 0, supplier: '' }); setAddSvcModal(true); }} className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"><Plus className="h-3.5 w-3.5" /> Leistung</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Leistung</th><th className="px-4 py-2 text-left">Lieferant</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK/Einheit</th><th className="px-4 py-2 text-right">Kosten</th><th className="w-10"></th></tr>
+                                                                    <tr><th className="px-4 py-2 text-left">Leistung</th><th className="px-4 py-2 text-left">Lieferant</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK/Einheit</th><th className="px-4 py-2 text-right">VK/Einheit</th><th className="px-4 py-2 text-right">Kosten</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
-                                                                    {services.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">Keine Dienstleistungen</td></tr> : services.map(s => (
+                                                                    {services.length === 0 ? <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">Keine Dienstleistungen</td></tr> : services.map(s => (
                                                                         <tr key={s.id} className="hover:bg-slate-50 group">
                                                                             <td className="px-4 py-2 font-medium">{s.service_name}</td><td className="px-4 py-2 text-slate-500">{s.supplier || '—'}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono">{s.quantity}</td><td className="px-4 py-2 text-right">{eur(s.cost_per_unit)}</td><td className="px-4 py-2 text-right font-semibold">{eur(s.total_cost)}</td>
+                                                                            <td className="px-4 py-2 text-right font-mono">{s.quantity}</td>
+                                                                            <td className="px-4 py-2 text-right">{eur(s.cost_per_unit)}</td>
+                                                                            <td className="px-4 py-2 text-right">{eur(s.price_per_unit ?? 0)}</td>
+                                                                            <td className="px-4 py-2 text-right font-semibold">{eur(s.total_cost)}</td>
+                                                                            <td className="px-4 py-2 text-right text-green-700">{eur(s.total_price ?? 0)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteServiceCost(s.id!)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}

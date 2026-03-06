@@ -963,10 +963,7 @@ export default function TrackingPage() {
                                                             <span className="text-xs text-slate-400 ml-2">({(projectMaterials[projectId] || []).length})</span>
                                                         </div>
                                                         <div className="flex items-center gap-3">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs text-red-600 font-medium whitespace-nowrap">EK: {(projectMaterials[projectId] || []).reduce((a, r) => a + r.total_cost, 0).toFixed(2)} €</span>
-                                                                <span className="text-xs text-green-600 font-medium whitespace-nowrap">VK: {(projectMaterials[projectId] || []).reduce((a, r) => a + r.total_revenue, 0).toFixed(2)} €</span>
-                                                            </div>
+
                                                             <button onClick={(e) => { e.stopPropagation(); addMaterialRow(projectId); if (!expandedPanels[`${projectId}-material`]) togglePanel(projectId, 'material'); }}
                                                                 className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-1 rounded transition-colors">
                                                                 <Plus className="h-3 w-3" /> Material
@@ -985,14 +982,13 @@ export default function TrackingPage() {
                                                                     <th className="px-3 py-2 text-left">Material</th>
                                                                     <th className="px-3 py-2 text-right w-14">Menge</th>
                                                                     <th className="px-3 py-2 text-left w-12">Einh.</th>
-                                                                    <th className="px-3 py-2 text-right w-20 bg-red-50/60 text-red-600">Kosten</th>
-                                                                    <th className="px-3 py-2 text-right w-20 bg-green-50/60 text-green-600">Erlöse</th>
+
                                                                     <th className="w-8"></th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody className="divide-y divide-slate-100">
                                                                 {(projectMaterials[projectId] || []).length === 0 ? (
-                                                                    <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">Noch kein Material</td></tr>
+                                                                    <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">Noch kein Material</td></tr>
                                                                 ) : (projectMaterials[projectId] || []).map(row => (
                                                                     <tr key={row._localId} className="hover:bg-slate-50 group">
                                                                         <td className="px-2 py-1.5">
@@ -1014,8 +1010,7 @@ export default function TrackingPage() {
                                                                                 onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
                                                                         </td>
                                                                         <td className="px-2 py-1.5 text-slate-500">{row.unit}</td>
-                                                                        <td className="px-2 py-1.5 text-right font-semibold text-red-600 bg-red-50/30">{row.total_cost > 0 ? `${row.total_cost.toFixed(2)} €` : '—'}</td>
-                                                                        <td className="px-2 py-1.5 text-right font-semibold text-green-600 bg-green-50/30">{row.total_revenue > 0 ? `${row.total_revenue.toFixed(2)} €` : '—'}</td>
+
                                                                         <td className="px-1 text-center">
                                                                             <button onClick={() => deleteMaterialRow(projectId, row)}
                                                                                 className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1044,10 +1039,7 @@ export default function TrackingPage() {
                                                             <span className="text-xs text-slate-400 ml-2">({(projectServices[projectId] || []).length})</span>
                                                         </div>
                                                         <div className="flex items-center gap-3">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs text-red-600 font-medium whitespace-nowrap">EK: {(projectServices[projectId] || []).reduce((a, r) => a + r.total_cost, 0).toFixed(2)} €</span>
-                                                                <span className="text-xs text-green-600 font-medium whitespace-nowrap">VK: {(projectServices[projectId] || []).reduce((a, r) => a + r.total_revenue, 0).toFixed(2)} €</span>
-                                                            </div>
+
                                                             <button onClick={(e) => { e.stopPropagation(); addServiceRow(projectId); if (!expandedPanels[`${projectId}-service`]) togglePanel(projectId, 'service'); }}
                                                                 className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded transition-colors">
                                                                 <Plus className="h-3 w-3" /> Leistung
@@ -1066,14 +1058,13 @@ export default function TrackingPage() {
                                                                     <th className="px-3 py-2 text-left w-36">Lieferant</th>
                                                                     <th className="px-3 py-2 text-left">Leistung</th>
                                                                     <th className="px-3 py-2 text-right w-14">Menge</th>
-                                                                    <th className="px-3 py-2 text-right w-20 bg-red-50/60 text-red-600">Kosten</th>
-                                                                    <th className="px-3 py-2 text-right w-20 bg-green-50/60 text-green-600">Erlöse</th>
+
                                                                     <th className="w-8"></th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody className="divide-y divide-slate-100">
                                                                 {(projectServices[projectId] || []).length === 0 ? (
-                                                                    <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">Noch keine Dienstleistungen</td></tr>
+                                                                    <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">Noch keine Dienstleistungen</td></tr>
                                                                 ) : (projectServices[projectId] || []).map(row => (
                                                                     <tr key={row._localId} className="hover:bg-slate-50 group">
                                                                         <td className="px-2 py-1.5">
@@ -1119,8 +1110,7 @@ export default function TrackingPage() {
                                                                                 value={row.quantity}
                                                                                 onChange={e => updateServiceRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
                                                                         </td>
-                                                                        <td className="px-2 py-1.5 text-right font-semibold text-red-600 bg-red-50/30">{row.total_cost > 0 ? `${row.total_cost.toFixed(2)} €` : '—'}</td>
-                                                                        <td className="px-2 py-1.5 text-right font-semibold text-green-600 bg-green-50/30">{row.total_revenue > 0 ? `${row.total_revenue.toFixed(2)} €` : '—'}</td>
+
                                                                         <td className="px-1 text-center">
                                                                             <button onClick={() => deleteServiceRow(projectId, row)}
                                                                                 className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1179,19 +1169,25 @@ export default function TrackingPage() {
                                                                 ) : (projectExtraCosts[projectId] || []).map(row => (
                                                                     <tr key={row._localId} className="hover:bg-slate-50 group">
                                                                         <td className="px-2 py-1.5">
-                                                                            <select
-                                                                                value={row.cost_type}
-                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'cost_type', e.target.value)}
-                                                                                className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
-                                                                            >
-                                                                                <option value="Material">Material (Alt)</option>
-                                                                                <option value="Dienstleistung">Dienstleistung (Alt)</option>
-                                                                                <option value="Maut">Maut</option>
-                                                                                <option value="Parkgebühr">Parkgebühr</option>
-                                                                                <option value="Entsorgung">Entsorgung</option>
-                                                                                <option value="Verpackung">Verpackung</option>
-                                                                                <option value="Sonstiges">Sonstiges</option>
-                                                                            </select>
+                                                                            <div className="relative">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    list="extra-cost-types"
+                                                                                    value={row.cost_type}
+                                                                                    onChange={e => updateExtraRow(projectId, row._localId, 'cost_type', e.target.value)}
+                                                                                    className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                                                                    placeholder="Art eingeben/wählen..."
+                                                                                />
+                                                                                <datalist id="extra-cost-types">
+                                                                                    <option value="Material" />
+                                                                                    <option value="Dienstleistung" />
+                                                                                    <option value="Maut" />
+                                                                                    <option value="Parkgebühr" />
+                                                                                    <option value="Entsorgung" />
+                                                                                    <option value="Verpackung" />
+                                                                                    <option value="Sonstiges" />
+                                                                                </datalist>
+                                                                            </div>
                                                                         </td>
                                                                         <td className="px-2 py-1.5">
                                                                             <input

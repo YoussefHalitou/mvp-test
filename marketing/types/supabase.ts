@@ -24,6 +24,7 @@ export interface Database {
                     notes: string | null
                     status: string | null
                     dienstleistungen: string | null
+                    dienstleistung_makro: string | null
                     project_date: string | null
                     project_time: string | null
                     project_start_date: string | null
@@ -46,6 +47,7 @@ export interface Database {
                     notes?: string | null
                     status?: string | null
                     dienstleistungen?: string | null
+                    dienstleistung_makro?: string | null
                     project_date?: string | null
                     project_time?: string | null
                     project_start_date?: string | null
@@ -66,6 +68,7 @@ export interface Database {
                     notes?: string | null
                     status?: string | null
                     dienstleistungen?: string | null
+                    dienstleistung_makro?: string | null
                     project_date?: string | null
                     project_time?: string | null
                     project_start_date?: string | null
@@ -879,6 +882,73 @@ export interface Database {
                     storage_path?: string
                     size?: number
                     mime_type?: string | null
+                }
+            }
+            t_project_hvz_costs: {
+                Row: {
+                    id: string
+                    project_id: string | null
+                    datum_von: string | null
+                    datum_bis: string | null
+                    tage: number | null
+                    ek_preis: number
+                    vk_preis: number
+                    is_kv: boolean | null
+                    created_at: string | null
+                }
+                Insert: {
+                    id?: string
+                    project_id?: string | null
+                    datum_von?: string | null
+                    datum_bis?: string | null
+                    tage?: number | null
+                    ek_preis?: number
+                    vk_preis?: number
+                    is_kv?: boolean | null
+                    created_at?: string | null
+                }
+                Update: {
+                    id?: string
+                    project_id?: string | null
+                    datum_von?: string | null
+                    datum_bis?: string | null
+                    tage?: number | null
+                    ek_preis?: number
+                    vk_preis?: number
+                    is_kv?: boolean | null
+                    created_at?: string | null
+                }
+            }
+            t_project_bnk_costs: {
+                Row: {
+                    id: string
+                    project_id: string | null
+                    beschreibung: string | null
+                    menge: number | null
+                    ek_preis: number
+                    vk_preis: number
+                    is_kv: boolean | null
+                    created_at: string | null
+                }
+                Insert: {
+                    id?: string
+                    project_id?: string | null
+                    beschreibung?: string | null
+                    menge?: number | null
+                    ek_preis?: number
+                    vk_preis?: number
+                    is_kv?: boolean | null
+                    created_at?: string | null
+                }
+                Update: {
+                    id?: string
+                    project_id?: string | null
+                    beschreibung?: string | null
+                    menge?: number | null
+                    ek_preis?: number
+                    vk_preis?: number
+                    is_kv?: boolean | null
+                    created_at?: string | null
                 }
             }
         }

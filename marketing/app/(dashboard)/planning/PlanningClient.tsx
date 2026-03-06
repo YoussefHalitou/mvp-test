@@ -587,7 +587,7 @@ export function PlanningClient() {
                                 if (viewMode === 'month') setCurrentDate(addMonths(currentDate, -1));
                                 else if (viewMode === 'week') setCurrentDate(addDays(currentDate, -7));
                                 else if (viewMode === '3day') setCurrentDate(addDays(currentDate, -3));
-                                else if (viewMode === 'day') {
+                                else if (viewMode === 'day' || viewMode === 'timeline') {
                                     const prevD = addDays(currentDate, -1);
                                     setSelectedDay(format(prevD, 'yyyy-MM-dd'));
                                     setCurrentDate(prevD);
@@ -610,7 +610,7 @@ export function PlanningClient() {
                                 if (viewMode === 'month') setCurrentDate(addMonths(currentDate, 1));
                                 else if (viewMode === 'week') setCurrentDate(addDays(currentDate, 7));
                                 else if (viewMode === '3day') setCurrentDate(addDays(currentDate, 3));
-                                else if (viewMode === 'day') {
+                                else if (viewMode === 'day' || viewMode === 'timeline') {
                                     const nextD = addDays(currentDate, 1);
                                     setSelectedDay(format(nextD, 'yyyy-MM-dd'));
                                     setCurrentDate(nextD);

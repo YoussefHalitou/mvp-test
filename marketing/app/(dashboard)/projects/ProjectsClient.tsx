@@ -18,7 +18,15 @@ import { exportBesichtigungHTML } from './exportBesichtigung';
 type Project = Database['public']['Tables']['t_projects']['Row'];
 type ProjectInsert = Database['public']['Tables']['t_projects']['Insert'];
 
-const SERVICE_TYPES = ['Umzug', 'Entrümpelung', 'Transport', 'Einlagerung', 'Malerarbeiten', 'Kartonlieferung', 'Sonstiges'];
+const MAKRO_MIKRO_MAP: Record<string, string[]> = {
+    'Umzug': ['Privat', 'Gewerbe', 'Umzug', 'Transport'],
+    'Entrümpelung': ['Wohnung', 'Haus', 'Privat', 'Gewerbe', 'Haushaltsauflösung', 'Entrümpelung'],
+    'Anschlussarbeiten': ['Tapeten', 'Rückbau', 'Abriss', 'Decken', 'Boden'],
+    'Verschönerungsarbeiten': ['Malerarbeiten', 'Grundreinigung'],
+};
+
+const SERVICE_TYPES = Array.from(new Set(Object.values(MAKRO_MIKRO_MAP).flat())).sort();
+const MAKRO_OPTIONS = Object.keys(MAKRO_MIKRO_MAP);
 const STATUS_OPTIONS = ['In Planung', 'Bestätigt', 'Abgeschlossen', 'Storniert'];
 const ANREDE_OPTIONS = ['Herr', 'Frau', 'Firma', 'Herr und Frau', 'Familie'];
 
@@ -36,13 +44,19 @@ const SERVICE_COLORS: Record<string, string> = {
     'Einlagerung': 'bg-violet-100 text-violet-800',
     'Malerarbeiten': 'bg-pink-100 text-pink-800',
     'Kartonlieferung': 'bg-orange-100 text-orange-800',
+    'Privat': 'bg-indigo-100 text-indigo-800',
+    'Gewerbe': 'bg-slate-100 text-slate-800',
+    'Abriss': 'bg-red-100 text-red-800',
+    'Boden': 'bg-lime-100 text-lime-800',
+    'Decken': 'bg-teal-100 text-teal-800',
+    'Tapeten': 'bg-fuchsia-100 text-fuchsia-800',
     'Sonstiges': 'bg-slate-100 text-slate-700',
 };
 
 const empty: ProjectInsert = {
     anrede: '', name: '', strasse: '', nr: '', plz: '', ort: '',
     telefon: '', email: '', notes: '',
-    dienstleistungen: '', offer_type: '', project_date: null, project_time: '',
+    dienstleistungen: '', dienstleistung_makro: '', offer_type: '', project_date: null, project_time: '',
     project_start_date: null, project_end_date: null,
 };
 
@@ -148,6 +162,7 @@ export default function ProjectsPage() {
             email: p.email || '',
             notes: p.notes || '',
             dienstleistungen: p.dienstleistungen || '',
+            dienstleistung_makro: p.dienstleistung_makro || '',
             offer_type: p.offer_type || '',
             project_date: p.project_date || null,
             project_time: p.project_time || '',
@@ -244,9 +259,9 @@ export default function ProjectsPage() {
     };
 
     return (
-        <div className="flex h-full bg-slate-50">
+        <div className="flex h-full bg-slate-50 overflow-hidden">
             {/* Main Table Area */}
-            <div className={cn("flex flex-col flex-1 transition-all duration-300", selectedProject ? "mr-0" : "")}>
+            <div className={cn("flex flex-col flex-1 min-w-0 transition-all duration-300", selectedProject ? "mr-0" : "")}>
                 {/* Header */}
                 <header className="flex items-center justify-between border-b bg-white px-6 py-4 shadow-sm">
                     <div className="flex items-center gap-3">
@@ -323,14 +338,16 @@ export default function ProjectsPage() {
                                     </div>
                                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                                         <table className="w-full text-left text-sm">
-                                            <thead className="bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                            <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
                                                 <tr>
-                                                    <th className="px-4 py-3 w-[250px]">Kunde</th>
-                                                    <th className="px-4 py-3">Adresse</th>
-                                                    <th className="px-4 py-3">Kontakt</th>
-                                                    <th className="px-4 py-3">Dienstleistung</th>
-                                                    <th className="px-4 py-3 w-[100px]">Uhrzeit</th>
-                                                    <th className="w-20"></th>
+                                                    <th className="px-3 py-3 w-[180px]">Kunde</th>
+                                                    <th className="px-3 py-3 w-[220px]">Adresse</th>
+                                                    <th className="px-3 py-3 w-[160px]">Kontakt</th>
+                                                    <th className="px-3 py-3 w-[140px]">Makro</th>
+                                                    <th className="px-3 py-3 w-[140px]">Mikro</th>
+                                                    <th className="px-3 py-3 w-[140px]">Angebotsart</th>
+                                                    <th className="px-3 py-3 w-[80px]">Uhrzeit</th>
+                                                    <th className="w-12"></th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
@@ -341,37 +358,51 @@ export default function ProjectsPage() {
                                                             selectedProject?.project_id === p.project_id && "bg-blue-50 hover:bg-blue-50"
                                                         )}
                                                         onClick={() => loadProjectDetail(p)}>
-                                                        <td className="px-4 py-3">
-                                                            <div className="font-medium text-slate-900 truncate">
+                                                        <td className="px-3 py-3">
+                                                            <div className="font-semibold text-slate-900 truncate max-w-[170px]" title={p.anrede && p.name ? `${p.anrede} ${p.name}` : p.name || ''}>
                                                                 {p.anrede ? `${p.anrede} ` : ''}{p.name || 'Unbenannt'}
                                                             </div>
                                                         </td>
-                                                        <td className="px-4 py-3 text-slate-600">
-                                                            <div className="flex items-center gap-1.5">
-                                                                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                                                                <span className="truncate max-w-[200px]">
+                                                        <td className="px-3 py-3 text-slate-600 text-xs">
+                                                            <div className="flex items-start gap-1.5">
+                                                                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                                                                <span className="truncate max-w-[200px]" title={[p.strasse, p.nr, p.plz, p.ort].filter(Boolean).join(' ')}>
                                                                     {[p.strasse, p.nr].filter(Boolean).join(' ')}{p.strasse ? ', ' : ''}{p.plz} {p.ort}
                                                                 </span>
                                                             </div>
                                                         </td>
-                                                        <td className="px-4 py-3 text-slate-600">
-                                                            {p.telefon && <div className="flex items-center gap-1 text-xs mb-1"><Phone className="h-3 w-3" />{p.telefon}</div>}
-                                                            {p.email && <div className="flex items-center gap-1 text-xs"><Mail className="h-3 w-3" />{p.email}</div>}
+                                                        <td className="px-3 py-3 text-slate-600">
+                                                            {p.telefon && <div className="flex items-center gap-1 text-[11px] mb-0.5 whitespace-nowrap"><Phone className="h-3 w-3" />{p.telefon}</div>}
+                                                            {p.email && <div className="flex items-center gap-1 text-[11px] truncate max-w-[150px]" title={p.email as string}><Mail className="h-3 w-3" />{p.email}</div>}
                                                         </td>
-                                                        <td className="px-4 py-3">
+                                                        <td className="px-3 py-3">
+                                                            {p.dienstleistung_makro && (
+                                                                <span className={cn('inline-block text-[10px] font-bold px-2 py-0.5 rounded-md truncate max-w-[130px]', SERVICE_COLORS[p.dienstleistung_makro] || SERVICE_COLORS['Sonstiges'])} title={p.dienstleistung_makro}>
+                                                                    {p.dienstleistung_makro}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-3 py-3">
                                                             {p.dienstleistungen && (
-                                                                <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', SERVICE_COLORS[p.dienstleistungen] || SERVICE_COLORS['Sonstiges'])}>
+                                                                <span className={cn('inline-block text-[10px] font-bold px-2 py-0.5 rounded-md truncate max-w-[130px]', SERVICE_COLORS[p.dienstleistungen] || SERVICE_COLORS['Sonstiges'])} title={p.dienstleistungen}>
                                                                     {p.dienstleistungen}
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="px-4 py-3 text-slate-600 text-xs font-mono">
+                                                        <td className="px-3 py-3">
+                                                            {p.offer_type && (
+                                                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[130px]" title={p.offer_type}>
+                                                                    {p.offer_type}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-slate-600 text-[11px] font-mono whitespace-nowrap">
                                                             {p.project_time || '—'}
                                                         </td>
-                                                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600"><Pencil className="h-4 w-4" /></button>
-                                                                <button onClick={(e) => handleDelete(p.project_id, e)} type="button" className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+                                                        <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+                                                                <button onClick={() => openEdit(p)} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
+                                                                <button onClick={(e) => handleDelete(p.project_id, e)} type="button" className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -388,7 +419,7 @@ export default function ProjectsPage() {
 
             {/* Detail Panel (slide-out) */}
             {selectedProject && (
-                <div className="w-[420px] border-l border-slate-200 bg-white flex flex-col shadow-lg animate-in slide-in-from-right">
+                <div className="w-[420px] shrink-0 border-l border-slate-200 bg-white flex flex-col shadow-lg animate-in slide-in-from-right relative z-10">
                     {/* Detail Header */}
                     <div className="flex items-center justify-between px-5 py-4 border-b bg-slate-50">
                         <div className="flex items-center gap-2 min-w-0">
@@ -596,11 +627,11 @@ export default function ProjectsPage() {
                                 <div className="grid grid-cols-6 gap-3">
                                     <div className="col-span-2">
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Anrede</label>
-                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                                            value={editingProject.anrede || ''} onChange={e => setField('anrede', e.target.value)}>
-                                            <option value="">—</option>
-                                            {ANREDE_OPTIONS.map(a => <option key={a} value={a}>{a}</option>)}
-                                        </select>
+                                        <input list="anrede-options" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                                            value={editingProject.anrede || ''} onChange={e => setField('anrede', e.target.value)} placeholder="—" />
+                                        <datalist id="anrede-options">
+                                            {ANREDE_OPTIONS.map(a => <option key={a} value={a} />)}
+                                        </datalist>
                                     </div>
                                     <div className="col-span-4">
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Name *</label>
@@ -656,22 +687,43 @@ export default function ProjectsPage() {
                                 <h3 className="text-sm font-semibold text-slate-700 mb-3">Projektdetails</h3>
                                 <div className="grid grid-cols-3 gap-3">
                                     <div>
-                                        <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung</label>
-                                        <input list="dienst-list" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                                            value={editingProject.dienstleistungen || ''} onChange={e => setField('dienstleistungen', e.target.value)} placeholder="Wählen oder eingeben..." />
-                                        <datalist id="dienst-list">
-                                            {SERVICE_TYPES.map(s => <option key={s} value={s} />)}
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung (Makro)</label>
+                                        <input list="makro-options" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                                            value={editingProject.dienstleistung_makro || ''}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                setEditingProject(prev => ({
+                                                    ...prev,
+                                                    dienstleistung_makro: val,
+                                                    dienstleistungen: '' // Clear mikro when makro changes
+                                                }));
+                                            }} placeholder="Bitte wählen..." />
+                                        <datalist id="makro-options">
+                                            {MAKRO_OPTIONS.map(opt => <option key={opt} value={opt} />)}
+                                        </datalist>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung (Mikro)</label>
+                                        <input list="mikro-options" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white disabled:bg-slate-50 opacity-100"
+                                            value={editingProject.dienstleistungen || ''}
+                                            onChange={e => setField('dienstleistungen', e.target.value)}
+                                            disabled={!editingProject.dienstleistung_makro}
+                                            placeholder={editingProject.dienstleistung_makro ? 'Bitte wählen...' : 'Makro wählen...'} />
+                                        <datalist id="mikro-options">
+                                            {(editingProject.dienstleistung_makro ? MAKRO_MIKRO_MAP[editingProject.dienstleistung_makro as string] || [] : []).map(m => (
+                                                <option key={m} value={m} />
+                                            ))}
                                         </datalist>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Angebotsart</label>
-                                        <input list="offer-list" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                                            value={editingProject.offer_type || ''} onChange={e => setField('offer_type', e.target.value)} placeholder="Wählen oder eingeben..." />
-                                        <datalist id="offer-list">
-                                            <option value="Pauschal" />
-                                            <option value="Stundenlohn" />
-                                            <option value="Kostenvoranschlag" />
-                                        </datalist>
+                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                                            value={editingProject.offer_type || ''} onChange={e => setField('offer_type', e.target.value)}>
+                                            <option value="">Bitte wählen...</option>
+                                            <option value="freibleibendes Angebot">freibleibendes Angebot</option>
+                                            <option value="Kostenvoranschlag">Kostenvoranschlag</option>
+                                            <option value="Festpreis">Festpreis</option>
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Projektdatum</label>

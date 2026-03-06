@@ -1,10 +1,10 @@
 export function formatTimeInput(val: string): string {
     val = val.trim();
     if (!val) return "";
-    
+
     // Remove all non-digits first to clean up input like "8:00" or "08.00"
     let digits = val.replace(/[^0-9]/g, "");
-    
+
     // Case 1: "8" -> "08:00"
     if (digits.length === 1) {
         return "0" + digits + ":00";
@@ -25,4 +25,12 @@ export function formatTimeInput(val: string): string {
     }
 
     return val;
+}
+
+export function autoFormatTimeInput(val: string): string {
+    let digits = val.replace(/[^0-9]/g, "");
+    if (digits.length > 2) {
+        return digits.slice(0, 2) + ':' + digits.slice(2, 4);
+    }
+    return digits;
 }

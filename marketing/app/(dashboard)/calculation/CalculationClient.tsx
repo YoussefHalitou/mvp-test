@@ -422,6 +422,13 @@ export default function CalculationPage() {
     const addVehicleCost = async () => {
         if (!addVehForm.vehicle_id || !selectedProjectId) return;
         try {
+            const vehicleExists = vehicleCatalog.some(v => v.vehicle_id === addVehForm.vehicle_id);
+            if (!vehicleExists) {
+                const { error: vehError } = await supabase.from('t_vehicles').insert({ vehicle_id: addVehForm.vehicle_id, nickname: addVehForm.vehicle_id, status: 'bereit' });
+                if (vehError && vehError.code !== '23505') throw vehError;
+                setVehicleCatalog(prev => [...prev, { vehicle_id: addVehForm.vehicle_id, nickname: addVehForm.vehicle_id }]);
+            }
+
             const total = +(addVehForm.usage_value * addVehForm.cost_per_unit).toFixed(2);
             const { error } = await supabase.from('t_project_vehicle_costs').insert({
                 project_id: selectedProjectId, vehicle_id: addVehForm.vehicle_id, usage_type: addVehForm.usage_type,

@@ -373,10 +373,10 @@ export default function CalculationPage() {
     const serviceErloes = useMemo(() => services.reduce((s, sv) => s + (sv.total_price || 0), 0), [services]);
     const extraKosten = useMemo(() => extraCosts.reduce((s, e) => s + e.cost, 0), [extraCosts]);
     const revenueTotal = useMemo(() => revenue.reduce((s, r) => s + r.line_total, 0), [revenue]);
-    const hvzKosten = useMemo(() => hvzCosts.reduce((s, h) => s + h.ek_preis, 0), [hvzCosts]);
-    const hvzErloes = useMemo(() => hvzCosts.reduce((s, h) => s + h.vk_preis, 0), [hvzCosts]);
-    const bnkKosten = useMemo(() => bnkCosts.reduce((s, b) => s + b.ek_preis, 0), [bnkCosts]);
-    const bnkErloes = useMemo(() => bnkCosts.reduce((s, b) => s + b.vk_preis, 0), [bnkCosts]);
+    const hvzKosten = useMemo(() => hvzCosts.reduce((s, h) => s + (h.tage || 0) * (h.ek_preis || 0), 0), [hvzCosts]);
+    const hvzErloes = useMemo(() => hvzCosts.reduce((s, h) => s + (h.tage || 0) * (h.vk_preis || 0), 0), [hvzCosts]);
+    const bnkKosten = useMemo(() => bnkCosts.reduce((s, b) => s + (b.menge || 0) * (b.ek_preis || 0), 0), [bnkCosts]);
+    const bnkErloes = useMemo(() => bnkCosts.reduce((s, b) => s + (b.menge || 0) * (b.vk_preis || 0), 0), [bnkCosts]);
 
     const totalCosts = personalKosten + materialKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
     const baseRevenue = revenueTotal + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
@@ -1190,7 +1190,7 @@ export default function CalculationPage() {
                                                     <SortableCostSection key="material" id="material">
                                                         <CostSection title="Material" icon={<Package className="h-5 w-5" />} total={materialKosten} color="amber"
                                                             actions={<div className="flex gap-2">
-                                                                <button onClick={() => { setAddMatForm({ material_id: '', quantity: 1 }); setAddMatModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Material</button>
+                                                                <button onClick={() => { setAddMatForm({ material_id: '', quantity: 0 }); setAddMatModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Material</button>
                                                                 <button onClick={saveMaterials} className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
                                                             </div>}>
                                                             <table className="w-full text-sm">
@@ -1246,7 +1246,7 @@ export default function CalculationPage() {
                                                 return (
                                                     <SortableCostSection key="service" id="service">
                                                         <CostSection title="Dienstleistungskosten" icon={<Wrench className="h-5 w-5" />} total={serviceKosten} color="purple"
-                                                            actions={<button onClick={() => { setAddSvcForm({ service_id: '', quantity: 1, unit: 'Std', cost_per_unit: 0, supplier: '' }); setAddSvcModal(true); }} className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"><Plus className="h-3.5 w-3.5" /> Leistung</button>}>
+                                                            actions={<button onClick={() => { setAddSvcForm({ service_id: '', quantity: 0, unit: 'Std', cost_per_unit: 0, supplier: '' }); setAddSvcModal(true); }} className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"><Plus className="h-3.5 w-3.5" /> Leistung</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
                                                                     <tr><th className="px-4 py-2 text-left">Leistung</th><th className="px-4 py-2 text-left">Lieferant</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK/Einheit</th><th className="px-4 py-2 text-right">VK/Einheit</th><th className="px-4 py-2 text-right">Kosten</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
@@ -1275,7 +1275,7 @@ export default function CalculationPage() {
                                                             actions={<button onClick={() => { setAddHvzForm({ datum_von: '', datum_bis: '', tage: 0, ek_preis: 0, vk_preis: 0 }); setAddHvzModal(true); }} className="flex items-center gap-1 text-xs text-orange-700 hover:text-orange-900"><Plus className="h-3.5 w-3.5" /> HVZ</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Von</th><th className="px-4 py-2 text-left">Bis</th><th className="px-4 py-2 text-right">Tage</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="w-10"></th></tr>
+                                                                    <tr><th className="px-4 py-2 text-left">Von</th><th className="px-4 py-2 text-left">Bis</th><th className="px-4 py-2 text-right">Tage</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="px-4 py-2 text-right">Kosten</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
                                                                     {hvzCosts.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">Keine HVZ Einträge</td></tr> : hvzCosts.map(h => (
@@ -1284,7 +1284,9 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-slate-500">{h.datum_bis ? format(new Date(h.datum_bis), 'dd.MM.yy') : '—'}</td>
                                                                             <td className="px-4 py-2 text-right">{h.tage || '—'}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(h.ek_preis)}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700">{eur(h.vk_preis)}</td>
+                                                                            <td className="px-4 py-2 text-right">{eur(h.vk_preis)}</td>
+                                                                            <td className="px-4 py-2 text-right font-semibold">{eur((h.tage || 0) * (h.ek_preis || 0))}</td>
+                                                                            <td className="px-4 py-2 text-right text-green-700">{eur((h.tage || 0) * (h.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteHvzCost(h.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1300,7 +1302,7 @@ export default function CalculationPage() {
                                                             actions={<button onClick={() => { setAddBnkForm({ beschreibung: 'Diesel', menge: 0, ek_preis: 0, vk_preis: 0 }); setAddBnkModal(true); }} className="flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900"><Plus className="h-3.5 w-3.5" /> Diesel / BNK</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Beschreibung</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="w-10"></th></tr>
+                                                                    <tr><th className="px-4 py-2 text-left">Beschreibung</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="px-4 py-2 text-right">Kosten</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
                                                                     {bnkCosts.length === 0 ? <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-400">Keine Diesel/BNK Einträge</td></tr> : bnkCosts.map(b => (
@@ -1308,7 +1310,9 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 font-medium">{b.beschreibung || '—'}</td>
                                                                             <td className="px-4 py-2 text-right">{b.menge || '—'}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(b.ek_preis)}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700">{eur(b.vk_preis)}</td>
+                                                                            <td className="px-4 py-2 text-right">{eur(b.vk_preis)}</td>
+                                                                            <td className="px-4 py-2 text-right font-semibold">{eur((b.menge || 0) * (b.ek_preis || 0))}</td>
+                                                                            <td className="px-4 py-2 text-right text-green-700">{eur((b.menge || 0) * (b.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteBnkCost(b.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1424,10 +1428,15 @@ export default function CalculationPage() {
                     {addVehModal && <Modal title="Fahrzeugkosten hinzufügen" onClose={() => setAddVehModal(false)} onSave={addVehicleCost} disabled={!addVehForm.vehicle_id}>
                         <div className="space-y-3">
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Fahrzeug</label>
-                                <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.vehicle_id} onChange={e => setAddVehForm({ ...addVehForm, vehicle_id: e.target.value })}>
-                                    <option value="">Wählen...</option>
-                                    {vehicleCatalog.map((v: any) => <option key={v.vehicle_id} value={v.vehicle_id}>{v.nickname || v.vehicle_id}</option>)}
-                                </select></div>
+                                <input list="fahrzeugList" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.vehicle_id} onChange={e => setAddVehForm({ ...addVehForm, vehicle_id: e.target.value })} placeholder="Wählen oder eingeben..." />
+                                <datalist id="fahrzeugList">
+                                    <option value="L4U" />
+                                    <option value="L4N" />
+                                    <option value="L Olaf" />
+                                    <option value="L Khalid" />
+                                    <option value="L Caddy" />
+                                    <option value="L Star" />
+                                </datalist></div>
                             <div className="grid grid-cols-3 gap-3">
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Typ</label>
                                     <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.usage_type} onChange={e => setAddVehForm({ ...addVehForm, usage_type: e.target.value })}>

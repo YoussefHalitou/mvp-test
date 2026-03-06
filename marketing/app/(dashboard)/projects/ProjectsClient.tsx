@@ -338,16 +338,16 @@ export default function ProjectsPage() {
                                     </div>
                                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                                         <table className="w-full text-left text-sm">
-                                            <thead className="bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-500 uppercase tracking-wider">
+                                            <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
                                                 <tr>
-                                                    <th className="px-4 py-3 w-[250px]">Kunde</th>
-                                                    <th className="px-4 py-3">Adresse</th>
-                                                    <th className="px-4 py-3">Kontakt</th>
-                                                    <th className="px-4 py-3">Dienstleistung (Makro)</th>
-                                                    <th className="px-4 py-3">Dienstleistung (Mikro)</th>
-                                                    <th className="px-4 py-3">Angebotsart</th>
-                                                    <th className="px-4 py-3 w-[100px]">Uhrzeit</th>
-                                                    <th className="w-20"></th>
+                                                    <th className="px-3 py-3 w-[180px]">Kunde</th>
+                                                    <th className="px-3 py-3 w-[220px]">Adresse</th>
+                                                    <th className="px-3 py-3 w-[160px]">Kontakt</th>
+                                                    <th className="px-3 py-3 w-[140px]">Makro</th>
+                                                    <th className="px-3 py-3 w-[140px]">Mikro</th>
+                                                    <th className="px-3 py-3 w-[140px]">Angebotsart</th>
+                                                    <th className="px-3 py-3 w-[80px]">Uhrzeit</th>
+                                                    <th className="w-12"></th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
@@ -358,51 +358,51 @@ export default function ProjectsPage() {
                                                             selectedProject?.project_id === p.project_id && "bg-blue-50 hover:bg-blue-50"
                                                         )}
                                                         onClick={() => loadProjectDetail(p)}>
-                                                        <td className="px-4 py-3">
-                                                            <div className="font-medium text-slate-900 truncate">
+                                                        <td className="px-3 py-3">
+                                                            <div className="font-semibold text-slate-900 truncate max-w-[170px]" title={p.anrede && p.name ? `${p.anrede} ${p.name}` : p.name || ''}>
                                                                 {p.anrede ? `${p.anrede} ` : ''}{p.name || 'Unbenannt'}
                                                             </div>
                                                         </td>
-                                                        <td className="px-4 py-3 text-slate-600">
-                                                            <div className="flex items-center gap-1.5">
-                                                                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                                                                <span className="truncate max-w-[200px]">
+                                                        <td className="px-3 py-3 text-slate-600 text-xs">
+                                                            <div className="flex items-start gap-1.5">
+                                                                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                                                                <span className="truncate max-w-[200px]" title={[p.strasse, p.nr, p.plz, p.ort].filter(Boolean).join(' ')}>
                                                                     {[p.strasse, p.nr].filter(Boolean).join(' ')}{p.strasse ? ', ' : ''}{p.plz} {p.ort}
                                                                 </span>
                                                             </div>
                                                         </td>
-                                                        <td className="px-4 py-3 text-slate-600">
-                                                            {p.telefon && <div className="flex items-center gap-1 text-xs mb-1"><Phone className="h-3 w-3" />{p.telefon}</div>}
-                                                            {p.email && <div className="flex items-center gap-1 text-xs"><Mail className="h-3 w-3" />{p.email}</div>}
+                                                        <td className="px-3 py-3 text-slate-600">
+                                                            {p.telefon && <div className="flex items-center gap-1 text-[11px] mb-0.5 whitespace-nowrap"><Phone className="h-3 w-3" />{p.telefon}</div>}
+                                                            {p.email && <div className="flex items-center gap-1 text-[11px] truncate max-w-[150px]" title={p.email as string}><Mail className="h-3 w-3" />{p.email}</div>}
                                                         </td>
-                                                        <td className="px-4 py-3">
+                                                        <td className="px-3 py-3">
                                                             {p.dienstleistung_makro && (
-                                                                <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', SERVICE_COLORS[p.dienstleistung_makro] || SERVICE_COLORS['Sonstiges'])}>
+                                                                <span className={cn('inline-block text-[10px] font-bold px-2 py-0.5 rounded-md truncate max-w-[130px]', SERVICE_COLORS[p.dienstleistung_makro] || SERVICE_COLORS['Sonstiges'])} title={p.dienstleistung_makro}>
                                                                     {p.dienstleistung_makro}
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="px-4 py-3">
+                                                        <td className="px-3 py-3">
                                                             {p.dienstleistungen && (
-                                                                <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', SERVICE_COLORS[p.dienstleistungen] || SERVICE_COLORS['Sonstiges'])}>
+                                                                <span className={cn('inline-block text-[10px] font-bold px-2 py-0.5 rounded-md truncate max-w-[130px]', SERVICE_COLORS[p.dienstleistungen] || SERVICE_COLORS['Sonstiges'])} title={p.dienstleistungen}>
                                                                     {p.dienstleistungen}
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="px-4 py-3">
+                                                        <td className="px-3 py-3">
                                                             {p.offer_type && (
-                                                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                                                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[130px]" title={p.offer_type}>
                                                                     {p.offer_type}
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="px-4 py-3 text-slate-600 text-xs font-mono">
+                                                        <td className="px-3 py-3 text-slate-600 text-[11px] font-mono whitespace-nowrap">
                                                             {p.project_time || '—'}
                                                         </td>
-                                                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600"><Pencil className="h-4 w-4" /></button>
-                                                                <button onClick={(e) => handleDelete(p.project_id, e)} type="button" className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+                                                        <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+                                                                <button onClick={() => openEdit(p)} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
+                                                                <button onClick={(e) => handleDelete(p.project_id, e)} type="button" className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                                                             </div>
                                                         </td>
                                                     </tr>

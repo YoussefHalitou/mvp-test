@@ -162,6 +162,7 @@ export default function ProjectsPage() {
             email: p.email || '',
             notes: p.notes || '',
             dienstleistungen: p.dienstleistungen || '',
+            dienstleistung_makro: p.dienstleistung_makro || '',
             offer_type: p.offer_type || '',
             project_date: p.project_date || null,
             project_time: p.project_time || '',

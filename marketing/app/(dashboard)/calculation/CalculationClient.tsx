@@ -63,7 +63,7 @@ interface RevenueRow {
     unit_price: number; line_total: number; kind: string; isNew?: boolean;
 }
 interface DiscountRow {
-    discount_id: string; discount_type: string; label: string; value: number; isNew?: boolean;
+    id: string; mode: string; description: string; value: number; isNew?: boolean;
 }
 interface HvzCostRow {
     id: string; datum_von: string | null; datum_bis: string | null; tage: number | null;
@@ -349,7 +349,7 @@ export default function CalculationPage() {
         })));
 
         setExtraCosts(extData.map((e: any) => ({ cost_id: e.cost_id, cost_type: e.cost_type, description: e.description || '', cost: e.cost })));
-        setDiscounts(discData.map((d: any) => ({ discount_id: d.discount_id, discount_type: d.discount_type || 'flat', label: d.label || '', value: d.value || 0 })));
+        setDiscounts(discData.map((d: any) => ({ id: d.id, mode: d.mode || 'flat', description: d.description || '', value: d.value || 0 })));
         setHvzCosts(hvzData.map((h: any) => ({ id: h.id, datum_von: h.datum_von, datum_bis: h.datum_bis, tage: h.tage, ek_preis: h.ek_preis, vk_preis: h.vk_preis })));
         setBnkCosts(bnkData.map((b: any) => ({ id: b.id, beschreibung: b.beschreibung, menge: b.menge, ek_preis: b.ek_preis, vk_preis: b.vk_preis })));
         setLoading(false);
@@ -381,9 +381,9 @@ export default function CalculationPage() {
     const totalCosts = personalKosten + materialKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
     const baseRevenue = revenueTotal + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
     const discountTotal = useMemo(() => discounts.reduce((s, d) => {
-        const mode = (d as any).mode || d.discount_type;
-        if (mode === 'percent') return s + (baseRevenue * (d.value / 100)); // Apply % to revenue
-        return s + d.value;
+        const mode = d.mode || 'flat';
+        if (mode === 'percent') return s + (baseRevenue * ((d.value || 0) / 100)); // Apply % to revenue
+        return s + (d.value || 0);
     }, 0), [discounts, baseRevenue]);
     const totalRevenue = baseRevenue - discountTotal;
     const margin = totalRevenue - totalCosts;
@@ -513,14 +513,14 @@ export default function CalculationPage() {
         setDiscounts(prev => [...prev, { id: `temp-${Date.now()}`, mode: 'flat', description: '', value: 0, isNew: true } as any]);
     };
     const updateDiscount = (id: string, field: string, value: any) => {
-        setDiscounts(prev => prev.map(d => (d as any).id === id || (d as any).discount_id === id ? { ...d, [field]: value } : d));
+        setDiscounts(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d));
     };
     const saveDiscounts = async () => {
         if (!selectedProjectId) return;
         try {
             await Promise.all(discounts.map((d: any) => {
-                const record = { project_id: selectedProjectId, mode: d.mode || d.discount_type, description: d.description || d.label, value: d.value, target: 'total' };
-                const currentId = d.id || d.discount_id;
+                const record = { project_id: selectedProjectId, mode: d.mode || 'flat', description: d.description || '', value: d.value, target: 'total' };
+                const currentId = d.id;
                 return d.isNew || currentId.startsWith('temp-')
                     ? supabase.from('t_project_discounts').insert(record)
                     : supabase.from('t_project_discounts').update(record).eq('id', currentId);
@@ -530,8 +530,8 @@ export default function CalculationPage() {
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteDiscount = async (id: string) => {
-        if (id.startsWith('temp-')) { setDiscounts(prev => prev.filter(d => (d as any).id !== id && (d as any).discount_id !== id)); return; }
-        setDiscounts(prev => prev.filter(d => (d as any).id !== id && (d as any).discount_id !== id));
+        if (id.startsWith('temp-')) { setDiscounts(prev => prev.filter(d => d.id !== id)); return; }
+        setDiscounts(prev => prev.filter(d => d.id !== id));
         const { error } = await supabase.from('t_project_discounts').delete().eq('id', id);
         if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
     };
@@ -639,7 +639,7 @@ export default function CalculationPage() {
         ${extraCosts.map(e => `<tr><td>${e.cost_type}</td><td>${e.description}</td><td class="right">${eur(e.cost)}</td></tr>`).join('')}
         <tr><th colspan="2">Summe</th><th class="right">${eur(extraKosten)}</th></tr></table>
         <h2>6. Rabatte / Nachlässe (${eur(discountTotal)})</h2><table><tr><th>Bezeichnung</th><th>Typ</th><th class="right">Wert</th><th class="right">Betrag</th></tr>
-        ${discounts.map((d: any) => `<tr><td>${d.description || d.label}</td><td>${(d.mode || d.discount_type) === 'percent' ? 'Prozent' : 'Pauschal'}</td><td class="right">${(d.mode || d.discount_type) === 'percent' ? `${d.value}%` : eur(d.value)}</td><td class="right">${eur((d.mode || d.discount_type) === 'percent' ? baseRevenue * (d.value / 100) : d.value)}</td></tr>`).join('')}
+        ${discounts.map((d: any) => `<tr><td>${d.description || ''}</td><td>${d.mode === 'percent' ? 'Prozent' : 'Pauschal'}</td><td class="right">${d.mode === 'percent' ? `${d.value}%` : eur(d.value)}</td><td class="right">${eur(d.mode === 'percent' ? baseRevenue * (d.value / 100) : d.value)}</td></tr>`).join('')}
         <tr><th colspan="3">Summe Abzug</th><th class="right">${eur(discountTotal)}</th></tr></table>
         <h2>7. Erlöse Manuell (${eur(revenueTotal)})</h2><table><tr><th>Position</th><th>Menge</th><th>Einheit</th><th class="right">Preis</th><th class="right">Gesamt</th></tr>
         ${revenue.map(r => `<tr><td>${r.position_label}</td><td>${r.qty}</td><td>${r.unit}</td><td class="right">${eur(r.unit_price)}</td><td class="right">${eur(r.line_total)}</td></tr>`).join('')}
@@ -1364,11 +1364,11 @@ export default function CalculationPage() {
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
                                                                     {discounts.length === 0 ? <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">Keine Rabatte</td></tr> : discounts.map((d: any) => {
-                                                                        const rowId = d.id || d.discount_id;
+                                                                        const rowId = d.id;
                                                                         return (
                                                                             <tr key={rowId} className="hover:bg-slate-50 group">
-                                                                                <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={d.description || d.label || ''} onChange={e => updateDiscount(rowId, 'description', e.target.value)} placeholder="Beschreibung..." /></td>
-                                                                                <td className="px-4 py-1.5"><select className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1 py-1 text-sm" value={d.mode || d.discount_type || 'flat'} onChange={e => updateDiscount(rowId, 'mode', e.target.value)}><option value="flat">Pauschal</option><option value="percent">Prozent</option></select></td>
+                                                                                <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={d.description || ''} onChange={e => updateDiscount(rowId, 'description', e.target.value)} placeholder="Beschreibung..." /></td>
+                                                                                <td className="px-4 py-1.5"><select className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1 py-1 text-sm" value={d.mode || 'flat'} onChange={e => updateDiscount(rowId, 'mode', e.target.value)}><option value="flat">Pauschal</option><option value="percent">Prozent</option></select></td>
                                                                                 <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={d.value === 0 ? '' : (d.value ?? '')} onChange={e => updateDiscount(rowId, 'value', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                                 <td className="px-2"><button onClick={() => deleteDiscount(rowId)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                             </tr>

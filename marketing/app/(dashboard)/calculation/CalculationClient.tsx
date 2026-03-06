@@ -112,13 +112,13 @@ export default function CalculationPage() {
 
     // Add modals
     const [addMatModal, setAddMatModal] = useState(false);
-    const [addMatForm, setAddMatForm] = useState({ material_id: '', quantity: 1 });
+    const [addMatForm, setAddMatForm] = useState({ material_id: '', quantity: 0 });
     const [addVehModal, setAddVehModal] = useState(false);
     const [addVehForm, setAddVehForm] = useState({ vehicle_id: '', usage_type: 'km', usage_value: 0, cost_per_unit: 0, notes: '' });
     const [addExtraModal, setAddExtraModal] = useState(false);
     const [addExtraForm, setAddExtraForm] = useState({ cost_type: 'Sonstiges', description: '', cost: 0 });
     const [addSvcModal, setAddSvcModal] = useState(false);
-    const [addSvcForm, setAddSvcForm] = useState({ service_id: '', quantity: 1, unit: 'Std', cost_per_unit: 0, supplier: '' });
+    const [addSvcForm, setAddSvcForm] = useState({ service_id: '', quantity: 0, unit: 'Std', cost_per_unit: 0, supplier: '' });
     const [addHvzModal, setAddHvzModal] = useState(false);
     const [addHvzForm, setAddHvzForm] = useState({ datum_von: '', datum_bis: '', tage: 0, ek_preis: 0, vk_preis: 0 });
     const [addBnkModal, setAddBnkModal] = useState(false);
@@ -1416,7 +1416,7 @@ export default function CalculationPage() {
                                     {materialCatalog.map((m: any) => <option key={m.material_id} value={m.material_id}>{m.name} ({m.unit})</option>)}
                                 </select></div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
-                                <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addMatForm.quantity} onChange={e => setAddMatForm({ ...addMatForm, quantity: +e.target.value })} /></div>
+                                <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addMatForm.quantity === 0 ? '' : (addMatForm.quantity ?? '')} onChange={e => setAddMatForm({ ...addMatForm, quantity: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                         </div>
                     </Modal>}
 
@@ -1434,9 +1434,9 @@ export default function CalculationPage() {
                                         <option value="km">km</option><option value="Std">Std</option><option value="Tag">Tag</option><option value="Pauschal">Pauschal</option>
                                     </select></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Wert</label>
-                                    <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.usage_value} onChange={e => setAddVehForm({ ...addVehForm, usage_value: +e.target.value })} /></div>
+                                    <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.usage_value === 0 ? '' : (addVehForm.usage_value ?? '')} onChange={e => setAddVehForm({ ...addVehForm, usage_value: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Satz (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.cost_per_unit} onChange={e => setAddVehForm({ ...addVehForm, cost_per_unit: +e.target.value })} /></div>
+                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.cost_per_unit === 0 ? '' : (addVehForm.cost_per_unit ?? '')} onChange={e => setAddVehForm({ ...addVehForm, cost_per_unit: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                             </div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Notizen</label>
                                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.notes} onChange={e => setAddVehForm({ ...addVehForm, notes: e.target.value })} /></div>
@@ -1476,7 +1476,7 @@ export default function CalculationPage() {
                                     </select>
                                 </div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
-                                    <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.quantity} onChange={e => setAddSvcForm({ ...addSvcForm, quantity: +e.target.value })} />
+                                    <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.quantity === 0 ? '' : (addSvcForm.quantity ?? '')} onChange={e => setAddSvcForm({ ...addSvcForm, quantity: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} />
                                 </div>
                             </div>
                         </div>
@@ -1492,7 +1492,7 @@ export default function CalculationPage() {
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Beschreibung</label>
                                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.description} onChange={e => setAddExtraForm({ ...addExtraForm, description: e.target.value })} placeholder="z.B. Autobahnmaut A3" /></div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Betrag (€)</label>
-                                <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.cost} onChange={e => setAddExtraForm({ ...addExtraForm, cost: +e.target.value })} /></div>
+                                <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.cost === 0 ? '' : (addExtraForm.cost ?? '')} onChange={e => setAddExtraForm({ ...addExtraForm, cost: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                         </div>
                     </Modal>}
                     {/* ======= ADD HVZ MODAL ======= */}
@@ -1505,12 +1505,12 @@ export default function CalculationPage() {
                                     <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.datum_bis} onChange={e => setAddHvzForm({ ...addHvzForm, datum_bis: e.target.value })} /></div>
                             </div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Tage</label>
-                                <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.tage} onChange={e => setAddHvzForm({ ...addHvzForm, tage: +e.target.value })} /></div>
+                                <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.tage === 0 ? '' : (addHvzForm.tage ?? '')} onChange={e => setAddHvzForm({ ...addHvzForm, tage: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">EK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.ek_preis} onChange={e => setAddHvzForm({ ...addHvzForm, ek_preis: +e.target.value })} /></div>
+                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.ek_preis === 0 ? '' : (addHvzForm.ek_preis ?? '')} onChange={e => setAddHvzForm({ ...addHvzForm, ek_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">VK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.vk_preis} onChange={e => setAddHvzForm({ ...addHvzForm, vk_preis: +e.target.value })} /></div>
+                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.vk_preis === 0 ? '' : (addHvzForm.vk_preis ?? '')} onChange={e => setAddHvzForm({ ...addHvzForm, vk_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                             </div>
                         </div>
                     </Modal>}
@@ -1521,12 +1521,12 @@ export default function CalculationPage() {
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Beschreibung</label>
                                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.beschreibung} onChange={e => setAddBnkForm({ ...addBnkForm, beschreibung: e.target.value })} /></div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
-                                <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.menge} onChange={e => setAddBnkForm({ ...addBnkForm, menge: +e.target.value })} /></div>
+                                <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.menge === 0 ? '' : (addBnkForm.menge ?? '')} onChange={e => setAddBnkForm({ ...addBnkForm, menge: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">EK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.ek_preis} onChange={e => setAddBnkForm({ ...addBnkForm, ek_preis: +e.target.value })} /></div>
+                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.ek_preis === 0 ? '' : (addBnkForm.ek_preis ?? '')} onChange={e => setAddBnkForm({ ...addBnkForm, ek_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">VK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.vk_preis} onChange={e => setAddBnkForm({ ...addBnkForm, vk_preis: +e.target.value })} /></div>
+                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.vk_preis === 0 ? '' : (addBnkForm.vk_preis ?? '')} onChange={e => setAddBnkForm({ ...addBnkForm, vk_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                             </div>
                         </div>
                     </Modal>}

@@ -275,11 +275,11 @@ export default function TrackingPage() {
                 material_id: m.material_id,
                 material_name: m.material?.name || m.material_id,
                 unit: m.material?.unit || '',
-                quantity: m.quantity,
+                quantity: m.quantity || 0,
                 cost_per_unit: p?.cost_per_unit || 0,
                 price_per_unit: p?.price_per_unit || 0,
-                total_cost: +(m.quantity * (p?.cost_per_unit || 0)).toFixed(2),
-                total_revenue: +(m.quantity * (p?.price_per_unit || 0)).toFixed(2),
+                total_cost: +((m.quantity || 0) * (p?.cost_per_unit || 0)).toFixed(2),
+                total_revenue: +((m.quantity || 0) * (p?.price_per_unit || 0)).toFixed(2),
                 isNew: false,
             });
         });
@@ -297,11 +297,11 @@ export default function TrackingPage() {
                 service_id: s.service_id,
                 service_name: s.service?.name || s.service_id,
                 supplier: s.supplier || p?.supplier || '',
-                quantity: s.quantity || 1,
+                quantity: s.quantity || 0,
                 cost_per_unit: p?.cost_per_unit || 0,
                 price_per_unit: p?.customer_price_per_unit || 0,
-                total_cost: +((s.quantity || 1) * (p?.cost_per_unit || 0)).toFixed(2),
-                total_revenue: +((s.quantity || 1) * (p?.customer_price_per_unit || 0)).toFixed(2),
+                total_cost: +((s.quantity || 0) * (p?.cost_per_unit || 0)).toFixed(2),
+                total_revenue: +((s.quantity || 0) * (p?.customer_price_per_unit || 0)).toFixed(2),
                 isNew: false,
             });
         });
@@ -341,7 +341,7 @@ export default function TrackingPage() {
                 material_id: '',
                 material_name: '',
                 unit: '',
-                quantity: 1,
+                quantity: 0,
                 cost_per_unit: 0,
                 price_per_unit: 0,
                 total_cost: 0,
@@ -422,7 +422,7 @@ export default function TrackingPage() {
                 service_id: '',
                 service_name: '',
                 supplier: '',
-                quantity: 1,
+                quantity: 0,
                 cost_per_unit: 0,
                 price_per_unit: 0,
                 total_cost: 0,
@@ -928,7 +928,8 @@ export default function TrackingPage() {
                                                             <td className="px-2 py-2 text-center text-sm font-semibold text-green-700 bg-green-50/20">{calculateHours(row.kunde_von, row.kunde_bis)}</td>
                                                             <td className="px-2 py-2">
                                                                 <input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-1 text-center text-sm"
-                                                                    value={row.pause_min} onChange={(e) => updateRow(row._tempId, 'pause_min', parseInt(e.target.value) || 0)}
+                                                                    value={row.pause_min === 0 ? '' : (row.pause_min ?? '')}
+                                                                    onChange={(e) => updateRow(row._tempId, 'pause_min', e.target.value === '' ? 0 : parseInt(e.target.value))}
                                                                     onFocus={(e) => e.target.select()} />
                                                             </td>
                                                             <td className="px-2 py-2">
@@ -1007,8 +1008,9 @@ export default function TrackingPage() {
                                                                         <td className="px-2 py-1.5">
                                                                             <input type="number" min="0" step="0.1"
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                                value={row.quantity}
-                                                                                onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
+                                                                                value={row.quantity === 0 ? '' : (row.quantity ?? '')}
+                                                                                onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                                                                onFocus={e => e.target.select()} />
                                                                         </td>
                                                                         <td className="px-2 py-1.5 text-slate-500">{row.unit}</td>
 
@@ -1108,8 +1110,9 @@ export default function TrackingPage() {
                                                                         <td className="px-2 py-1.5">
                                                                             <input type="number" min="0" step="0.1"
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                                value={row.quantity}
-                                                                                onChange={e => updateServiceRow(projectId, row._localId, 'quantity', parseFloat(e.target.value) || 0)} />
+                                                                                value={row.quantity === 0 ? '' : (row.quantity ?? '')}
+                                                                                onChange={e => updateServiceRow(projectId, row._localId, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                                                                onFocus={e => e.target.select()} />
                                                                         </td>
 
                                                                         <td className="px-1 text-center">
@@ -1204,8 +1207,9 @@ export default function TrackingPage() {
                                                                                 type="number"
                                                                                 min="0"
                                                                                 step="0.01"
-                                                                                value={row.cost}
-                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'cost', parseFloat(e.target.value) || 0)}
+                                                                                value={row.cost === 0 ? '' : (row.cost ?? '')}
+                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'cost', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                                                                onFocus={e => e.target.select()}
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
                                                                             />
                                                                         </td>
@@ -1321,15 +1325,19 @@ export default function TrackingPage() {
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Pause (min)</label>
-                                        <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.break_minutes}
-                                            onChange={e => setWaForm({ ...waForm, break_minutes: parseInt(e.target.value) || 0 })} />
+                                        <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            value={waForm.break_minutes === 0 ? '' : (waForm.break_minutes ?? '')}
+                                            onChange={e => setWaForm({ ...waForm, break_minutes: e.target.value === '' ? 0 : parseInt(e.target.value) })}
+                                            onFocus={e => e.target.select()} />
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Geschätzte Stunden</label>
-                                        <input type="number" step="0.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.hours_estimated}
-                                            onChange={e => setWaForm({ ...waForm, hours_estimated: parseFloat(e.target.value) || 0 })} />
+                                        <input type="number" step="0.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            value={waForm.hours_estimated === 0 ? '' : (waForm.hours_estimated ?? '')}
+                                            onChange={e => setWaForm({ ...waForm, hours_estimated: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                                            onFocus={e => e.target.select()} />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>

@@ -610,11 +610,11 @@ export default function ProjectsPage() {
                                 <div className="grid grid-cols-6 gap-3">
                                     <div className="col-span-2">
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Anrede</label>
-                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                                            value={editingProject.anrede || ''} onChange={e => setField('anrede', e.target.value)}>
-                                            <option value="">—</option>
-                                            {ANREDE_OPTIONS.map(a => <option key={a} value={a}>{a}</option>)}
-                                        </select>
+                                        <input list="anrede-options" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                                            value={editingProject.anrede || ''} onChange={e => setField('anrede', e.target.value)} placeholder="—" />
+                                        <datalist id="anrede-options">
+                                            {ANREDE_OPTIONS.map(a => <option key={a} value={a} />)}
+                                        </datalist>
                                     </div>
                                     <div className="col-span-4">
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Name *</label>
@@ -671,7 +671,7 @@ export default function ProjectsPage() {
                                 <div className="grid grid-cols-3 gap-3">
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung (Makro)</label>
-                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                                        <input list="makro-options" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
                                             value={editingProject.dienstleistung_makro || ''}
                                             onChange={e => {
                                                 const val = e.target.value;
@@ -680,22 +680,23 @@ export default function ProjectsPage() {
                                                     dienstleistung_makro: val,
                                                     dienstleistungen: '' // Clear mikro when makro changes
                                                 }));
-                                            }}>
-                                            <option value="">Bitte wählen...</option>
-                                            {MAKRO_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                        </select>
+                                            }} placeholder="Bitte wählen..." />
+                                        <datalist id="makro-options">
+                                            {MAKRO_OPTIONS.map(opt => <option key={opt} value={opt} />)}
+                                        </datalist>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Dienstleistung (Mikro)</label>
-                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white disabled:bg-slate-50 opacity-100"
+                                        <input list="mikro-options" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white disabled:bg-slate-50 opacity-100"
                                             value={editingProject.dienstleistungen || ''}
                                             onChange={e => setField('dienstleistungen', e.target.value)}
-                                            disabled={!editingProject.dienstleistung_makro}>
-                                            <option value="">{editingProject.dienstleistung_makro ? 'Bitte wählen...' : 'Makro wählen...'}</option>
+                                            disabled={!editingProject.dienstleistung_makro}
+                                            placeholder={editingProject.dienstleistung_makro ? 'Bitte wählen...' : 'Makro wählen...'} />
+                                        <datalist id="mikro-options">
                                             {(editingProject.dienstleistung_makro ? MAKRO_MIKRO_MAP[editingProject.dienstleistung_makro as string] || [] : []).map(m => (
-                                                <option key={m} value={m}>{m}</option>
+                                                <option key={m} value={m} />
                                             ))}
-                                        </select>
+                                        </datalist>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Angebotsart</label>

@@ -224,7 +224,13 @@ export default function CalculationPage() {
     }, [filteredProjects]);
 
     const toggleMonthExpanded = (monthKey: string) => {
-        setExpandedMonths(prev => ({ ...prev, [monthKey]: !prev[monthKey] }));
+        setExpandedMonths(prev => {
+            const current = prev[monthKey];
+            // If it's undefined (default open) or true, we want to close it (false).
+            // If it's false, we want to open it (true).
+            const nextValue = current === false ? true : false;
+            return { ...prev, [monthKey]: nextValue };
+        });
     };
 
     useEffect(() => {

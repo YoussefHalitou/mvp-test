@@ -791,7 +791,7 @@ export default function CalculationPage() {
             })()}
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
-            <td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td><td></td><td></td>
+            <td></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td><td></td>
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">HVZ</td>

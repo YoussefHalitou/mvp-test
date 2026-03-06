@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import {
     Calculator, ChevronDown, Users, Truck, Package, Wrench,
     TrendingUp, DollarSign, Loader2, Plus, Trash2, Save, FileText, X, Pencil,
-    AlertCircle, Percent, Search, Calendar, ChevronLeft, ChevronRight
+    AlertCircle, Percent, Search, Calendar, ChevronLeft, ChevronRight, ChevronUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -180,6 +180,7 @@ export default function CalculationPage() {
     const [projectSearch, setProjectSearch] = useState('');
     const [projectFilterStart, setProjectFilterStart] = useState('');
     const [projectFilterEnd, setProjectFilterEnd] = useState('');
+    const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
 
     const filteredProjects = useMemo(() => {
         let res = [...projects];
@@ -210,6 +211,21 @@ export default function CalculationPage() {
         }
         return res;
     }, [projects, projectSearch, projectFilterStart, projectFilterEnd]);
+
+    // Group projects by Month (e.g., "März 2026")
+    const groupedProjects = useMemo(() => {
+        const groups: Record<string, typeof filteredProjects> = {};
+        filteredProjects.forEach(p => {
+            const dateStr = p.project_date ? new Date(p.project_date).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }) : 'Ohne Datum';
+            if (!groups[dateStr]) groups[dateStr] = [];
+            groups[dateStr].push(p);
+        });
+        return groups;
+    }, [filteredProjects]);
+
+    const toggleMonthExpanded = (monthKey: string) => {
+        setExpandedMonths(prev => ({ ...prev, [monthKey]: !prev[monthKey] }));
+    };
 
     useEffect(() => {
         (async () => {
@@ -934,62 +950,92 @@ export default function CalculationPage() {
                         </div>
                     ) : (
                         <div className="divide-y divide-slate-100">
-                            {filteredProjects.map(p => (
-                                <button
-                                    key={p.project_id}
-                                    onClick={() => multiSelectMode ? toggleChecked(p.project_id) : setSelectedProjectId(p.project_id)}
-                                    className={cn(
-                                        "w-full text-left p-3 hover:bg-slate-50 transition-all border-l-[3px] group focus:outline-none",
-                                        !multiSelectMode && selectedProjectId === p.project_id
-                                            ? "bg-blue-50/60 border-l-blue-600"
-                                            : multiSelectMode && checkedProjectIds.has(p.project_id)
-                                                ? "bg-blue-50/60 border-l-blue-600"
-                                                : "border-l-transparent"
-                                    )}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        {multiSelectMode && (
-                                            <div className={cn(
-                                                "w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors",
-                                                checkedProjectIds.has(p.project_id)
-                                                    ? "bg-blue-600 border-blue-600"
-                                                    : "border-slate-300 bg-white"
-                                            )}>
-                                                {checkedProjectIds.has(p.project_id) && (
-                                                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                                )}
-                                            </div>
-                                        )}
-                                        <div className="flex-1 min-w-0">
-                                            <div className={cn(
-                                                "text-sm font-medium truncate mb-1",
-                                                (!multiSelectMode && selectedProjectId === p.project_id) || (multiSelectMode && checkedProjectIds.has(p.project_id))
-                                                    ? "text-blue-700" : "text-slate-700"
-                                            )}>
-                                                {p.name || 'Unbenanntes Projekt'}
-                                            </div>
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div className="flex items-center gap-1.5 min-w-0">
-                                                    {p.project_code && (
-                                                        <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                                                            {p.project_code}
-                                                        </span>
-                                                    )}
-                                                    {p.ort && (
-                                                        <span className="text-xs text-slate-400 truncate flex-1 block" title={p.ort}>
-                                                            {p.ort}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                {p.project_date && (
-                                                    <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono">
-                                                        {format(new Date(p.project_date), 'dd.MM.yy')}
-                                                    </span>
-                                                )}
-                                            </div>
+                            {Object.entries(groupedProjects).map(([monthKey, monthProjects]) => (
+                                <div key={monthKey} className="border-b border-slate-200 last:border-0">
+                                    <button
+                                        onClick={() => toggleMonthExpanded(monthKey)}
+                                        className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 transition-colors focus:outline-none"
+                                    >
+                                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">{monthKey} <span className="text-slate-400 font-normal ml-1">({monthProjects.length})</span></span>
+                                        {expandedMonths[monthKey] === false ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronUp className="h-4 w-4 text-slate-400" />}
+                                    </button>
+
+                                    {expandedMonths[monthKey] !== false && (
+                                        <div className="divide-y divide-slate-50 border-t border-slate-100">
+                                            {monthProjects.map(p => {
+                                                // Basic visual status indicators: past = red/gray, upcoming = blue
+                                                const isPast = p.project_date ? new Date(p.project_date).getTime() < new Date().setHours(0, 0, 0, 0) : true;
+                                                const isUnassigned = (!p.project_date && !p.ort);
+
+                                                return (
+                                                    <button
+                                                        key={p.project_id}
+                                                        onClick={() => multiSelectMode ? toggleChecked(p.project_id) : setSelectedProjectId(p.project_id)}
+                                                        className={cn(
+                                                            "w-full text-left p-3 hover:bg-white transition-all border-l-[3px] group focus:outline-none bg-slate-50/50",
+                                                            !multiSelectMode && selectedProjectId === p.project_id
+                                                                ? "bg-blue-50/60 border-l-blue-600 shadow-inner"
+                                                                : multiSelectMode && checkedProjectIds.has(p.project_id)
+                                                                    ? "bg-blue-50/60 border-l-blue-600 shadow-inner"
+                                                                    : "border-l-transparent"
+                                                        )}
+                                                    >
+                                                        <div className="flex items-start gap-3">
+                                                            {multiSelectMode && (
+                                                                <div className={cn(
+                                                                    "w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors mt-0.5",
+                                                                    checkedProjectIds.has(p.project_id)
+                                                                        ? "bg-blue-600 border-blue-600"
+                                                                        : "border-slate-300 bg-white"
+                                                                )}>
+                                                                    {checkedProjectIds.has(p.project_id) && (
+                                                                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    {/* Status Indicator Dot */}
+                                                                    <div className={cn(
+                                                                        "w-2 h-2 rounded-full flex-shrink-0",
+                                                                        isUnassigned ? "bg-slate-300" : isPast ? "bg-amber-400" : "bg-emerald-400"
+                                                                    )} title={isUnassigned ? "Unvollständig" : isPast ? "Abgeschlossen/Vergangen" : "Zukünftig"} />
+
+                                                                    <div className={cn(
+                                                                        "text-sm font-medium truncate",
+                                                                        (!multiSelectMode && selectedProjectId === p.project_id) || (multiSelectMode && checkedProjectIds.has(p.project_id))
+                                                                            ? "text-blue-700" : "text-slate-700"
+                                                                    )}>
+                                                                        {p.name || 'Unbenanntes Projekt'}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center justify-between gap-2 pl-4">
+                                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                                        {p.project_code && (
+                                                                            <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                                                                {p.project_code}
+                                                                            </span>
+                                                                        )}
+                                                                        {p.ort && (
+                                                                            <span className="text-xs text-slate-400 truncate flex-1 block" title={p.ort}>
+                                                                                {p.ort}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    {p.project_date && (
+                                                                        <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono">
+                                                                            {format(new Date(p.project_date), 'dd.MM.yy')}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
-                                    </div>
-                                </button>
+                                    )}
+                                </div>
                             ))}
                         </div>
                     )}

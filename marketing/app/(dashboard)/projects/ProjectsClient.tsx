@@ -259,9 +259,9 @@ export default function ProjectsPage() {
     };
 
     return (
-        <div className="flex h-full bg-slate-50">
+        <div className="flex h-full bg-slate-50 overflow-hidden">
             {/* Main Table Area */}
-            <div className={cn("flex flex-col flex-1 transition-all duration-300", selectedProject ? "mr-0" : "")}>
+            <div className={cn("flex flex-col flex-1 min-w-0 transition-all duration-300", selectedProject ? "mr-0" : "")}>
                 {/* Header */}
                 <header className="flex items-center justify-between border-b bg-white px-6 py-4 shadow-sm">
                     <div className="flex items-center gap-3">
@@ -419,7 +419,7 @@ export default function ProjectsPage() {
 
             {/* Detail Panel (slide-out) */}
             {selectedProject && (
-                <div className="w-[420px] border-l border-slate-200 bg-white flex flex-col shadow-lg animate-in slide-in-from-right">
+                <div className="w-[420px] shrink-0 border-l border-slate-200 bg-white flex flex-col shadow-lg animate-in slide-in-from-right relative z-10">
                     {/* Detail Header */}
                     <div className="flex items-center justify-between px-5 py-4 border-b bg-slate-50">
                         <div className="flex items-center gap-2 min-w-0">

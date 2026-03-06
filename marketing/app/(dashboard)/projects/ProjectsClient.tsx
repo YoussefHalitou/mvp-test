@@ -343,7 +343,9 @@ export default function ProjectsPage() {
                                                     <th className="px-4 py-3 w-[250px]">Kunde</th>
                                                     <th className="px-4 py-3">Adresse</th>
                                                     <th className="px-4 py-3">Kontakt</th>
-                                                    <th className="px-4 py-3">Dienstleistung</th>
+                                                    <th className="px-4 py-3">Dienstleistung (Makro)</th>
+                                                    <th className="px-4 py-3">Dienstleistung (Mikro)</th>
+                                                    <th className="px-4 py-3">Angebotsart</th>
                                                     <th className="px-4 py-3 w-[100px]">Uhrzeit</th>
                                                     <th className="w-20"></th>
                                                 </tr>
@@ -374,9 +376,23 @@ export default function ProjectsPage() {
                                                             {p.email && <div className="flex items-center gap-1 text-xs"><Mail className="h-3 w-3" />{p.email}</div>}
                                                         </td>
                                                         <td className="px-4 py-3">
+                                                            {p.dienstleistung_makro && (
+                                                                <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', SERVICE_COLORS[p.dienstleistung_makro] || SERVICE_COLORS['Sonstiges'])}>
+                                                                    {p.dienstleistung_makro}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3">
                                                             {p.dienstleistungen && (
                                                                 <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', SERVICE_COLORS[p.dienstleistungen] || SERVICE_COLORS['Sonstiges'])}>
                                                                     {p.dienstleistungen}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            {p.offer_type && (
+                                                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                                                                    {p.offer_type}
                                                                 </span>
                                                             )}
                                                         </td>

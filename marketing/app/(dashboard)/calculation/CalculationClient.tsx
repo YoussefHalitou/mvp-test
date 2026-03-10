@@ -817,10 +817,16 @@ export default function CalculationPage() {
             ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
         </tr>
         <tr>
-            <td style="border:none; background:transparent;"></td>
-            <td style="border:none; background:transparent;"></td>
-            <td class="center" style="font-weight:600; color:#475569; border-top:2px solid #cbd5e1;">Rabatt</td>
-            <td class="right" style="border-top:2px solid #cbd5e1; font-weight:600;">${numFormat(discountTotal)}</td>
+            <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
+            <td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
+            ${isKvMode ? '<td></td>' : ''}
+        </tr>
+        <tr style="border-top:3px double #334155; background:#f1f5f9;">
+            <td style="font-weight:700; color:#0f172a;">Summe</td>
+            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>
+            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalRevenue)}</td>
+            ${isKvMode ? `<td style="font-weight:700; text-align:right; color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}</td>` : ''}
         </tr>
     </table>
 

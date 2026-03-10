@@ -90,6 +90,7 @@ export default function CalculationPage() {
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(false);
     const [isKvMode, setIsKvMode] = useState(false);
+    const [kvValues, setKvValues] = useState<Record<string, number>>({});
     // Multi-select mode
     const [multiSelectMode, setMultiSelectMode] = useState(false);
     const [checkedProjectIds, setCheckedProjectIds] = useState<Set<string>>(new Set());
@@ -245,7 +246,7 @@ export default function CalculationPage() {
     useEffect(() => {
         if (multiSelectMode) return; // don't auto-load in multi-select mode
         if (!selectedProjectId) {
-            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]);
+            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setKvValues({});
             return;
         }
         setMergedProjectNames([]);
@@ -275,7 +276,11 @@ export default function CalculationPage() {
     const loadProjectData = async (pids: string[]) => {
         setLoading(true);
         const proj = projects.find(p => p.project_id === pids[0]) || null;
-        if (proj) setSelectedProject(proj);
+        if (proj) {
+            setSelectedProject(proj);
+            setIsKvMode((proj as any).offer_type === 'Kostenvoranschlag');
+        }
+        setKvValues({});
 
 
 
@@ -743,7 +748,7 @@ export default function CalculationPage() {
         <div class="field-row" style="width: 50%;"><div class="label">Telefonnummer Kunde:</div><div class="value">${selectedProject?.telefon || ''}</div></div>
         <div style="width: 40%; display:flex; align-items: flex-end;">
             <div style="font-size:10px; font-weight:600; margin-right:12px; color: #475569;">KV oder FP</div>
-            <div style="flex:1; background-color:#86efac; height:18px; border-radius:2px;"></div>
+            <div style="flex:1; background-color:${isKvMode ? '#86efac' : '#fde68a'}; height:18px; border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; color:${isKvMode ? '#166534' : '#92400e'};">${isKvMode ? 'KV' : 'FP'}</div>
             <div style="font-size:10px; font-weight:600; margin-left:15px; margin-right:12px; color: #475569;">Kunden Nr.</div>
             <div class="value" style="flex:1;"></div>
         </div>
@@ -757,57 +762,59 @@ export default function CalculationPage() {
             <th style="text-align:left;">Kosten:</th>
             <th style="width:28%;">Land in Sicht</th>
             <th style="width:28%;">Kunde</th>
-            <th class="bg-green" style="width:18%;">KV</th>
+            ${isKvMode ? '<th class="bg-green" style="width:18%;">KV</th>' : ''}
         </tr>
         <tr>
             <td class="text-orange" style="background:#fff7ed;">Gesamt Std</td>
             <td class="center text-orange" style="background:#fff7ed;">${gesamtStd.toFixed(2)}</td>
             <td style="background:#fff7ed;"></td>
-            <td style="background:#fff7ed;"></td>
+            ${isKvMode ? '<td style="background:#fff7ed;"></td>' : ''}
         </tr>
         ${Array.from(rateMap.values()).map(data => `<tr>
             <td style="font-weight:600; color:#475569;">Stunden ${data.names.join(', ')} <span style="color:#94a3b8; font-weight:400;">(${data.std.toFixed(2)} Std.)</span></td>
             <td class="center"><div class="val-container"><span>${data.std.toFixed(2)} x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td>
             <td></td>
-            <td></td>
+            ${isKvMode ? `<td class="right">${kvValues['personnel_' + data.satz] ? numFormat(kvValues['personnel_' + data.satz]) : ''}</td>` : ''}
         </tr>`).join('')}
-        ${rateMap.size === 0 ? `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td><td></td><td></td></tr>` : ''}
+        ${rateMap.size === 0 ? `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td><td></td>${isKvMode ? '<td></td>' : ''}</tr>` : ''}
         ${(() => {
                 const totalServiceKosten = services.reduce((s, x) => s + x.total_cost, 0);
-                // For Kunde side: use total_price if available, else total_cost
                 const totalServiceErloes = services.reduce((s, x) => s + ((x as any).total_price || x.total_cost), 0);
+                const kvServiceCell = isKvMode ? `<td class="right">${kvValues['service_total'] ? numFormat(kvValues['service_total']) : ''}</td>` : '';
                 if (services.length > 0) return `<tr>
             <td style="font-weight:600; color:#475569;">Entsorgungen</td>
             <td><div class="val-container"><span></span><span>${numFormat(totalServiceKosten)}</span></div></td>
             <td><div class="val-container"><span></span><span>${numFormat(totalServiceErloes)}</span></div></td>
-            <td></td>
+            ${kvServiceCell}
         </tr>`;
                 return `<tr>
             <td style="font-weight:600; color:#475569; height:28px;">Entsorgungen</td>
             <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
             <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
-            <td></td>
+            ${kvServiceCell}
         </tr>`;
             })()}
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
-            <td></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td><td></td>
+            <td></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
+            ${isKvMode ? `<td class="right">${kvValues['lkw'] ? numFormat(kvValues['lkw']) : ''}</td>` : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">HVZ</td>
             <td><div class="val-container"><span></span><span>${numFormat(hvzKosten)}</span></div></td>
             <td><div class="val-container"><span></span><span>${numFormat(hvzErloes)}</span></div></td>
-            <td></td>
+            ${isKvMode ? `<td class="right">${kvValues['hvz'] ? numFormat(kvValues['hvz']) : ''}</td>` : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Diesel / BNK</td>
             <td><div class="val-container"><span></span><span>${numFormat(bnkKosten)}</span></div></td>
             <td><div class="val-container"><span></span><span>${numFormat(bnkErloes)}</span></div></td>
-            <td></td>
+            ${isKvMode ? `<td class="right">${kvValues['diesel'] ? numFormat(kvValues['diesel']) : ''}</td>` : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
-            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td><td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td>
+            ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
         </tr>
         <tr>
             <td style="border:none; background:transparent;"></td>
@@ -854,7 +861,7 @@ export default function CalculationPage() {
     </div>
 
     <table class="summary-table">
-        <tr><td class="label">KV vorher</td><td class="val cur">- €</td></tr>
+        <tr><td class="label">KV vorher</td><td class="val${isKvMode ? '' : ' cur'}">${isKvMode ? numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0)) : '- €'}</td></tr>
         <tr><td class="label">Nettoumsatz</td><td class="val">${numFormat(totalRevenue)}</td></tr>
         <tr class="total"><td class="label">Bruttoumsatz</td><td class="val">${numFormat(totalRevenue * 1.19)}</td></tr>
         <tr><td class="label">Gesamtkosten netto</td><td class="val">${numFormat(totalCosts)}</td></tr>
@@ -1068,6 +1075,7 @@ export default function CalculationPage() {
                                 {mergedProjectNames.length > 1
                                     ? `${mergedProjectNames.length} Projekte zusammengeführt`
                                     : selectedProject ? (selectedProject.name || 'Unbenannt') : 'Nachkalkulation'}
+                                {isKvMode && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-300">KV</span>}
                             </h1>
                             {mergedProjectNames.length > 1 ? (
                                 <p className="text-xs text-blue-600 flex items-center gap-1 flex-wrap">
@@ -1152,6 +1160,90 @@ export default function CalculationPage() {
                                 <KpiCard label="Marge (%)" value={`${marginPct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
                                     color={marginPct >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={marginPct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
                             </div>
+
+                            {/* KV Input Panel */}
+                            {isKvMode && (
+                                <div className="bg-green-50 border border-green-200 rounded-xl p-5 shadow-sm">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-300">KV</span>
+                                        <h3 className="text-sm font-semibold text-green-800">Kostenvoranschlag – Werte</h3>
+                                        <span className="text-xs text-green-600 ml-auto font-medium">
+                                            Gesamt KV: {eur((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                        {/* Dynamic personnel rate groups */}
+                                        {(() => {
+                                            const rates = new Set<number>();
+                                            adjustedPersonnel.forEach((p: any) => rates.add(p.satz));
+                                            return Array.from(rates).map(satz => (
+                                                <div key={`kv_personnel_${satz}`} className="flex flex-col gap-1">
+                                                    <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Stunden ({eur(satz)}/Std)</label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        placeholder="0,00"
+                                                        className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                        value={kvValues[`personnel_${satz}`] || ''}
+                                                        onChange={e => setKvValues(prev => ({ ...prev, [`personnel_${satz}`]: e.target.value === '' ? 0 : +e.target.value }))}
+                                                    />
+                                                </div>
+                                            ));
+                                        })()}
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Entsorgungen</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['service_total'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, service_total: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">LKW</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['lkw'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, lkw: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">HVZ</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['hvz'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, hvz: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Diesel / BNK</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['diesel'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, diesel: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Sonstige Kosten</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['extra'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, extra: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        {/* Material KV inputs (per material) */}
+                                        {materials.map(m => (
+                                            <div key={`kv_mat_${m.id}`} className="flex flex-col gap-1">
+                                                <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider truncate" title={m.material_name}>Material: {m.material_name}</label>
+                                                <input type="number" step="0.01" placeholder="0,00"
+                                                    className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                    value={kvValues[`material_${m.material_name}`] || ''}
+                                                    onChange={e => setKvValues(prev => ({ ...prev, [`material_${m.material_name}`]: e.target.value === '' ? 0 : +e.target.value }))}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Sortable Sections */}
                             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

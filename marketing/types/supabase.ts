@@ -30,6 +30,7 @@ export interface Database {
                     project_start_date: string | null
                     project_end_date: string | null
                     offer_type: string | null
+                    mannanzahl: number | null
                     created_at: string
                     updated_at: string
                 }
@@ -53,6 +54,7 @@ export interface Database {
                     project_start_date?: string | null
                     project_end_date?: string | null
                     offer_type?: string | null
+                    mannanzahl?: number | null
                 }
                 Update: {
                     project_id?: string
@@ -74,6 +76,7 @@ export interface Database {
                     project_start_date?: string | null
                     project_end_date?: string | null
                     offer_type?: string | null
+                    mannanzahl?: number | null
                 }
             }
             t_employees: {
@@ -164,6 +167,7 @@ export interface Database {
                     angebotsart: string | null
                     vehicle_names: string | null
                     sort_order: number | null
+                    is_besichtigung: boolean | null
                     created_at: string | null
                     updated_at: string | null
                 }
@@ -178,6 +182,7 @@ export interface Database {
                     angebotsart?: string | null
                     vehicle_names?: string | null
                     sort_order?: number | null
+                    is_besichtigung?: boolean | null
                 }
                 Update: {
                     plan_id?: string
@@ -190,6 +195,7 @@ export interface Database {
                     angebotsart?: string | null
                     vehicle_names?: string | null
                     sort_order?: number | null
+                    is_besichtigung?: boolean | null
                 }
             }
             t_morningplan_staff: {

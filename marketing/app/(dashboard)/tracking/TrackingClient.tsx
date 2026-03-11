@@ -941,6 +941,37 @@ export default function TrackingPage() {
                                                             </td>
                                                         </tr>
                                                     ))}
+                                                    {/* ===== SUMMARY ROW ===== */}
+                                                    {(() => {
+                                                        const totalLiS = projectRows.reduce((sum, row) => {
+                                                            const h = calculateHours(row.lis_von, row.lis_bis, row.pause_min);
+                                                            return sum + (h === '—' ? 0 : parseFloat(h));
+                                                        }, 0);
+                                                        const totalKd = projectRows.reduce((sum, row) => {
+                                                            const h = calculateHours(row.kunde_von, row.kunde_bis);
+                                                            return sum + (h === '—' ? 0 : parseFloat(h));
+                                                        }, 0);
+                                                        return (
+                                                            <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold text-sm">
+                                                                <td className="hidden"></td>
+                                                                {viewMode === 'project' && <td />}
+                                                                <td className="px-4 py-2.5 text-slate-500 text-xs uppercase tracking-wide">Gesamt</td>
+                                                                <td className="border-l border-blue-100 bg-blue-50/40" />
+                                                                <td className="bg-blue-50/40" />
+                                                                <td className="px-2 py-2.5 text-center text-blue-800 bg-blue-50/40">
+                                                                    {totalLiS > 0 ? totalLiS.toFixed(2) : '—'}
+                                                                </td>
+                                                                <td className="border-l border-green-100 bg-green-50/40" />
+                                                                <td className="bg-green-50/40" />
+                                                                <td className="px-2 py-2.5 text-center text-green-800 bg-green-50/40">
+                                                                    {totalKd > 0 ? totalKd.toFixed(2) : '—'}
+                                                                </td>
+                                                                <td />
+                                                                <td />
+                                                                <td />
+                                                            </tr>
+                                                        );
+                                                    })()}
                                                 </tbody>
                                             </table>
                                         </div>

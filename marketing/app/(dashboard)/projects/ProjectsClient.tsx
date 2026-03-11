@@ -57,7 +57,7 @@ const empty: ProjectInsert = {
     anrede: '', name: '', strasse: '', nr: '', plz: '', ort: '',
     telefon: '', email: '', notes: '',
     dienstleistungen: '', dienstleistung_makro: '', offer_type: '', project_date: null, project_time: '',
-    project_start_date: null, project_end_date: null,
+    project_start_date: null, project_end_date: null, mannanzahl: null,
 };
 
 export default function ProjectsPage() {
@@ -168,6 +168,7 @@ export default function ProjectsPage() {
             project_time: p.project_time || '',
             project_start_date: p.project_start_date || null,
             project_end_date: p.project_end_date || null,
+            mannanzahl: p.mannanzahl ?? null,
         });
         setIsEditing(true);
         setModalOpen(true);
@@ -494,6 +495,7 @@ export default function ProjectsPage() {
                                         <DetailField label="Uhrzeit" value={selectedProject.project_time} />
                                         <DetailField label="Beginn" value={selectedProject.project_start_date ? format(new Date(selectedProject.project_start_date), 'dd.MM.yyyy') : null} />
                                         <DetailField label="Ende" value={selectedProject.project_end_date ? format(new Date(selectedProject.project_end_date), 'dd.MM.yyyy') : null} />
+                                        <DetailField label="Mannanzahl" value={selectedProject.mannanzahl != null ? `${selectedProject.mannanzahl} Mann` : null} />
                                     </div>
                                 </section>
 
@@ -739,6 +741,18 @@ export default function ProjectsPage() {
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Ende (Mehrtag)</label>
                                         <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                                             value={editingProject.project_end_date || ''} onChange={e => setField('project_end_date', e.target.value)} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Uhrzeit</label>
+                                        <input type="text" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                                            value={editingProject.project_time || ''} onChange={e => setField('project_time', e.target.value)} placeholder="z.B. 08:00" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">Mannanzahl</label>
+                                        <input type="number" min={1} max={99} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                                            value={editingProject.mannanzahl ?? ''}
+                                            onChange={e => setEditingProject(prev => ({ ...prev, mannanzahl: e.target.value === '' ? null : parseInt(e.target.value) }))}
+                                            placeholder="z.B. 4" />
                                     </div>
                                 </div>
                             </div>

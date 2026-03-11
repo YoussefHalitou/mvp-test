@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import {
     Calculator, ChevronDown, Users, Truck, Package, Wrench,
     TrendingUp, DollarSign, Loader2, Plus, Trash2, Save, FileText, X, Pencil,
-    AlertCircle, Percent, Search, Calendar, ChevronLeft, ChevronRight, ChevronUp
+    AlertCircle, Percent, Search, Calendar, ChevronLeft, ChevronRight, ChevronUp, Send, CheckCircle2, Clock, XCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -178,6 +178,8 @@ export default function CalculationPage() {
 
     // Sidebar State
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [submissionStatus, setSubmissionStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected'>('none');
+    const [submitting, setSubmitting] = useState(false);
     const [projectSearch, setProjectSearch] = useState('');
     const [projectFilterStart, setProjectFilterStart] = useState('');
     const [projectFilterEnd, setProjectFilterEnd] = useState('');
@@ -243,14 +245,68 @@ export default function CalculationPage() {
         })();
     }, []);
 
+    // Check submission status for current project
+    const checkSubmissionStatus = useCallback(async (projectId: string) => {
+        const { data } = await supabase
+            .from('t_nachkalkulation_submissions')
+            .select('status')
+            .eq('project_id', projectId)
+            .order('submitted_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        setSubmissionStatus(data?.status || 'none');
+    }, []);
+
+    // Submit Nachkalkulation for approval
+    const submitNachkalkulation = async () => {
+        if (!selectedProjectId || !selectedProject) return;
+        setSubmitting(true);
+        try {
+            // Get current user
+            const { data: { user } } = await supabase.auth.getUser();
+            const email = user?.email || 'unbekannt';
+
+            // Build snapshot of all current calculation data
+            const snapshot = {
+                project: selectedProject,
+                adjustedPersonnel: adjustedPersonnel,
+                materials, vehicles, services, revenue, extraCosts, discounts,
+                hvzCosts, bnkCosts,
+                costBasis, perRowBasis, isKvMode, kvValues,
+                totalCosts, totalRevenue, margin, marginPct,
+                personalKosten, materialKosten, materialErloes,
+                vehicleErloes, serviceKosten, serviceErloes,
+                hvzKosten, hvzErloes, bnkKosten, bnkErloes,
+                extraKosten, revenueTotal, discountTotal,
+            };
+
+            const { error } = await supabase.from('t_nachkalkulation_submissions').insert({
+                project_id: selectedProjectId,
+                submitted_by: email,
+                status: 'pending',
+                snapshot_data: snapshot,
+            });
+            if (error) throw error;
+
+            toast('Nachkalkulation zur Freigabe eingereicht', 'success');
+            setSubmissionStatus('pending');
+        } catch (err) {
+            console.error('Error submitting:', err);
+            toast('Fehler beim Einreichen', 'error');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
     useEffect(() => {
         if (multiSelectMode) return; // don't auto-load in multi-select mode
         if (!selectedProjectId) {
-            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setKvValues({});
+            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setKvValues({}); setSubmissionStatus('none');
             return;
         }
         setMergedProjectNames([]);
         loadProjectData([selectedProjectId]);
+        checkSubmissionStatus(selectedProjectId);
     }, [selectedProjectId]);
 
     const toggleChecked = (pid: string) => {
@@ -732,6 +788,11 @@ export default function CalculationPage() {
     .half-table table { width: 100%; }
     .half-table td { padding: 4px 8px; border-color: #e2e8f0; }
     .half-table td.label { color: #475569; font-weight: 500; }
+    /* Page break rules */
+    .header-grid, table, .flex-tables, .summary-table { page-break-inside: avoid; break-inside: avoid; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+    .flex-tables { page-break-before: auto; }
+    .summary-table { page-break-before: auto; }
 </style>
 </head><body>
     <h1>Auftragsnachkalkulation</h1>
@@ -770,13 +831,21 @@ export default function CalculationPage() {
             <td style="background:#fff7ed;"></td>
             ${isKvMode ? '<td style="background:#fff7ed;"></td>' : ''}
         </tr>
-        ${Array.from(rateMap.values()).map(data => `<tr>
+        ${(() => {
+                const rateEntries = Array.from(rateMap.values());
+                let personnelKvShown = false;
+                return rateEntries.map(data => {
+                    const kvCell = isKvMode ? (personnelKvShown ? '<td></td>' : `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>`) : '';
+                    personnelKvShown = true;
+                    return `<tr>
             <td style="font-weight:600; color:#475569;">Stunden ${data.names.join(', ')} <span style="color:#94a3b8; font-weight:400;">(${data.std.toFixed(2)} Std.)</span></td>
             <td class="center"><div class="val-container"><span>${data.std.toFixed(2)} x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td>
             <td></td>
-            ${isKvMode ? `<td class="right">${kvValues['personnel_' + data.satz] ? numFormat(kvValues['personnel_' + data.satz]) : ''}</td>` : ''}
-        </tr>`).join('')}
-        ${rateMap.size === 0 ? `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td><td></td>${isKvMode ? '<td></td>' : ''}</tr>` : ''}
+            ${kvCell}
+        </tr>`;
+                }).join('');
+            })()}
+        ${rateMap.size === 0 ? `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td><td></td>${isKvMode ? `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>` : ''}</tr>` : ''}
         ${(() => {
                 const totalServiceKosten = services.reduce((s, x) => s + x.total_cost, 0);
                 const totalServiceErloes = services.reduce((s, x) => s + ((x as any).total_price || x.total_cost), 0);
@@ -815,6 +884,18 @@ export default function CalculationPage() {
             <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
             <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td>
             ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Material</td>
+            <td><div class="val-container"><span></span><span>${numFormat(materialKosten)}</span></div></td>
+            <td><div class="val-container"><span></span><span>${numFormat(materialErloes)}</span></div></td>
+            ${isKvMode ? `<td class="right">${kvValues['material'] ? numFormat(kvValues['material']) : ''}</td>` : ''}
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Erlöse</td>
+            <td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(revenueTotal)}</span></div></td>
+            ${isKvMode ? '<td></td>' : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
@@ -885,7 +966,8 @@ export default function CalculationPage() {
             filename: `Auftragsnachkalkulation_${selectedProject?.project_code || 'Projekt'}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
         }).from(container).save();
         document.body.removeChild(container);
         toast(`Auftragsnachkalkulation.pdf exportiert`, 'success');
@@ -1103,11 +1185,33 @@ export default function CalculationPage() {
                     <div className="flex items-center gap-2">
                         {selectedProject && (
                             <>
+                                {/* Submission status badge */}
+                                {submissionStatus !== 'none' && (
+                                    <span className={cn(
+                                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border",
+                                        submissionStatus === 'pending' && "bg-amber-50 text-amber-700 border-amber-200",
+                                        submissionStatus === 'accepted' && "bg-emerald-50 text-emerald-700 border-emerald-200",
+                                        submissionStatus === 'rejected' && "bg-red-50 text-red-700 border-red-200"
+                                    )}>
+                                        {submissionStatus === 'pending' && <><Clock className="h-3 w-3" /> Ausstehend</>}
+                                        {submissionStatus === 'accepted' && <><CheckCircle2 className="h-3 w-3" /> Angenommen</>}
+                                        {submissionStatus === 'rejected' && <><XCircle className="h-3 w-3" /> Abgelehnt</>}
+                                    </span>
+                                )}
                                 <button onClick={exportHTML} className="flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 border border-slate-300 shadow-sm transition-colors">
                                     <FileText className="h-4 w-4" /> Standard Export
                                 </button>
                                 <button onClick={exportAuftragsnachkalkulationHTML} className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900 shadow-sm transition-colors">
                                     <FileText className="h-4 w-4" /> Auftragsnachkalkulation
+                                </button>
+                                <button
+                                    onClick={submitNachkalkulation}
+                                    disabled={submitting || submissionStatus === 'pending'}
+                                    className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title={submissionStatus === 'pending' ? 'Bereits eingereicht' : 'Zur Freigabe einreichen'}
+                                >
+                                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                    Zur Freigabe einreichen
                                 </button>
                             </>
                         )}
@@ -1178,24 +1282,22 @@ export default function CalculationPage() {
                                         </span>
                                     </div>
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                                        {/* Dynamic personnel rate groups */}
-                                        {(() => {
-                                            const rates = new Set<number>();
-                                            adjustedPersonnel.forEach((p: any) => rates.add(p.satz));
-                                            return Array.from(rates).map(satz => (
-                                                <div key={`kv_personnel_${satz}`} className="flex flex-col gap-1">
-                                                    <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Stunden ({eur(satz)}/Std)</label>
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        placeholder="0,00"
-                                                        className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
-                                                        value={kvValues[`personnel_${satz}`] || ''}
-                                                        onChange={e => setKvValues(prev => ({ ...prev, [`personnel_${satz}`]: e.target.value === '' ? 0 : +e.target.value }))}
-                                                    />
-                                                </div>
-                                            ));
-                                        })()}
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Personalkosten</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['personalkosten'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, personalkosten: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Material</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['material'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, material: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
                                         <div className="flex flex-col gap-1">
                                             <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Entsorgungen</label>
                                             <input type="number" step="0.01" placeholder="0,00"
@@ -1236,17 +1338,6 @@ export default function CalculationPage() {
                                                 onChange={e => setKvValues(prev => ({ ...prev, extra: e.target.value === '' ? 0 : +e.target.value }))}
                                             />
                                         </div>
-                                        {/* Material KV inputs (per material) */}
-                                        {materials.map(m => (
-                                            <div key={`kv_mat_${m.id}`} className="flex flex-col gap-1">
-                                                <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider truncate" title={m.material_name}>Material: {m.material_name}</label>
-                                                <input type="number" step="0.01" placeholder="0,00"
-                                                    className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
-                                                    value={kvValues[`material_${m.material_name}`] || ''}
-                                                    onChange={e => setKvValues(prev => ({ ...prev, [`material_${m.material_name}`]: e.target.value === '' ? 0 : +e.target.value }))}
-                                                />
-                                            </div>
-                                        ))}
                                     </div>
                                 </div>
                             )}

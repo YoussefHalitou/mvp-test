@@ -18,7 +18,8 @@ import {
     Truck,
     Package,
     BarChart3,
-    LogOut
+    LogOut,
+    ClipboardCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +33,7 @@ const MENU_ITEMS = [
     { href: '/planning', label: 'Einsatzplanung', icon: Calendar },
     { href: '/tracking', label: 'Rückerfassung', icon: Clock },
     { href: '/calculation', label: 'Nachkalkulation', icon: Calculator },
+    { href: '/approvals', label: 'Freigaben', icon: ClipboardCheck },
     { href: '/projects', label: 'Projekte', icon: FolderKanban },
     { href: '/leave-planner', label: 'Urlaubs-/Terminplaner', icon: Calendar },
     { href: '/files', label: 'Dateien', icon: FolderOpen },
@@ -45,6 +47,7 @@ export function AppSidebar() {
 
     const [userEmail, setUserEmail] = useState<string>('Laden...');
     const [userName, setUserName] = useState<string>('Benutzer');
+    const [pendingCount, setPendingCount] = useState(0);
 
     useEffect(() => {
         const fetchUser = async () => {
@@ -68,6 +71,20 @@ export function AppSidebar() {
             }
         };
         fetchUser();
+
+        // Fetch pending submissions count
+        const fetchPending = async () => {
+            const { count } = await supabase
+                .from('t_nachkalkulation_submissions')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'pending');
+            setPendingCount(count || 0);
+        };
+        fetchPending();
+
+        // Refresh every 30 seconds
+        const interval = setInterval(fetchPending, 30000);
+        return () => clearInterval(interval);
     }, []);
 
     const handleLogout = async () => {
@@ -114,6 +131,7 @@ export function AppSidebar() {
                 {MENU_ITEMS.map((item) => {
                     const isActive = pathname?.startsWith(item.href);
                     const Icon = item.icon;
+                    const showBadge = item.href === '/approvals' && pendingCount > 0;
 
                     return (
                         <Link
@@ -128,13 +146,29 @@ export function AppSidebar() {
                             )}
                             title={collapsed ? item.label : undefined}
                         >
-                            <Icon
-                                className={cn(
-                                    'w-5 h-5 shrink-0 transition-colors',
-                                    isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'
+                            <div className="relative">
+                                <Icon
+                                    className={cn(
+                                        'w-5 h-5 shrink-0 transition-colors',
+                                        isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'
+                                    )}
+                                />
+                                {showBadge && collapsed && (
+                                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
+                                        {pendingCount > 9 ? '9+' : pendingCount}
+                                    </span>
                                 )}
-                            />
-                            {!collapsed && <span className="text-sm font-medium">{item.label}</span>}
+                            </div>
+                            {!collapsed && (
+                                <span className="text-sm font-medium flex-1 flex items-center justify-between">
+                                    {item.label}
+                                    {showBadge && (
+                                        <span className="ml-auto inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-bold">
+                                            {pendingCount > 9 ? '9+' : pendingCount}
+                                        </span>
+                                    )}
+                                </span>
+                            )}
                         </Link>
                     );
                 })}

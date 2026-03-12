@@ -78,7 +78,7 @@ interface ProjectExtraRow {
     isNew: boolean;
 }
 
-const WORK_TYPES = ['Büroarbeit', 'Lager', 'Werkstatt', 'Reinigung', 'Fahrt', 'Schulung', 'Sonstiges'];
+const WORK_TYPES = ['Büroarbeit', 'Lager', 'Werkstatt', 'Reinigung', 'Fahrt', 'Schulung', 'Entrümpelung', 'Sonstiges'];
 
 export default function TrackingPage() {
     const { toast } = useToast();
@@ -1330,10 +1330,11 @@ export default function TrackingPage() {
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Arbeitstyp *</label>
-                                        <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.work_type}
-                                            onChange={e => setWaForm({ ...waForm, work_type: e.target.value })}>
-                                            {WORK_TYPES.map(wt => <option key={wt} value={wt}>{wt}</option>)}
-                                        </select>
+                                        <input list="work-types-list" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.work_type}
+                                            onChange={e => setWaForm({ ...waForm, work_type: e.target.value })} placeholder="Typ eingeben oder wählen" />
+                                        <datalist id="work-types-list">
+                                            {WORK_TYPES.map(wt => <option key={wt} value={wt} />)}
+                                        </datalist>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Mitarbeiter *</label>

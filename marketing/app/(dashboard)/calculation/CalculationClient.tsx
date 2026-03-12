@@ -353,6 +353,7 @@ export default function CalculationPage() {
             supabase.from('t_project_discounts').select('*').eq('project_id', pid),
             supabase.from('t_project_hvz_costs').select('*').eq('project_id', pid),
             supabase.from('t_project_bnk_costs').select('*').eq('project_id', pid),
+            supabase.from('t_work_assignments').select('*').eq('project_id', pid).order('assignment_date'),
         ])));
 
         // Merge all results
@@ -365,8 +366,10 @@ export default function CalculationPage() {
         const discData = allResults.flatMap(r => r[6].data || []);
         const hvzData = allResults.flatMap(r => r[7].data || []);
         const bnkData = allResults.flatMap(r => r[8].data || []);
+        const waData = allResults.flatMap(r => r[9].data || []);
 
-        setPersonnel(tpData.filter(tp => tp.pause !== 'deleted').map(tp => {
+        // Map time pairs to personnel rows
+        const tpPersonnel: TimePairWithRate[] = tpData.filter(tp => tp.pause !== 'deleted').map(tp => {
             const lisH = calcHours(tp.lis_von, tp.lis_bis, tp.pause_min || 0);
             const kdH = calcHours(tp.kunde_von, tp.kunde_bis);
             const satz = rateMap[tp.mitarbeiter]?.rate || 0;
@@ -375,7 +378,21 @@ export default function CalculationPage() {
                 lis_von: tp.lis_von, lis_bis: tp.lis_bis, kunde_von: tp.kunde_von, kunde_bis: tp.kunde_bis,
                 pause_min: tp.pause_min || 0, lis_stunden: lisH, kunden_stunden: kdH, satz, kunden_satz: satz, kosten: 0
             };
-        }));
+        });
+
+        // Map work assignments to personnel rows
+        const waPersonnel: TimePairWithRate[] = (waData as any[]).map((wa: any) => {
+            const lisH = calcHours(wa.start_time, wa.end_time, wa.break_minutes || 0);
+            const satz = rateMap[wa.employee_name]?.rate || 0;
+            return {
+                pair_id: `wa-${wa.assignment_id}`, datum: wa.assignment_date, mitarbeiter: wa.employee_name,
+                role: rateMap[wa.employee_name]?.role || wa.work_type || null,
+                lis_von: wa.start_time, lis_bis: wa.end_time, kunde_von: null, kunde_bis: null,
+                pause_min: wa.break_minutes || 0, lis_stunden: lisH, kunden_stunden: 0, satz, kunden_satz: satz, kosten: 0
+            };
+        });
+
+        setPersonnel([...tpPersonnel, ...waPersonnel]);
 
         setMaterials((matData as any || []).map((m: any) => {
             const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;

@@ -110,7 +110,7 @@ export default function MobileCalculationPage() {
         (employees || []).forEach(e => { rateMap[e.name] = { rate: e.hourly_rate || 0, role: e.role }; });
 
         // Load all 9 tables — same as desktop
-        const [tpRes, matRes, vehRes, svcRes, revRes, extRes, discRes, hvzRes, bnkRes] = await Promise.all([
+        const [tpRes, matRes, vehRes, svcRes, revRes, extRes, discRes, hvzRes, bnkRes, waRes] = await Promise.all([
             supabase.from('t_time_pairs').select('*').eq('project_id', projectId).order('datum'),
             supabase.from('t_project_material_usage').select('*, material:t_materials(name, unit, prices:t_material_prices(cost_per_unit, price_per_unit))').eq('project_id', projectId),
             supabase.from('t_project_vehicle_costs').select('*, vehicle:t_vehicles(nickname)').eq('project_id', projectId),
@@ -120,10 +120,11 @@ export default function MobileCalculationPage() {
             supabase.from('t_project_discounts').select('*').eq('project_id', projectId),
             supabase.from('t_project_hvz_costs').select('*').eq('project_id', projectId),
             supabase.from('t_project_bnk_costs').select('*').eq('project_id', projectId),
+            supabase.from('t_work_assignments').select('*').eq('project_id', projectId).order('assignment_date'),
         ]);
 
-        // Transform — same logic as desktop
-        setPersonnel((tpRes.data || []).filter((tp: any) => tp.pause !== 'deleted').map((tp: any) => {
+        // Map time pairs to personnel rows
+        const tpPersonnel: TimePairWithRate[] = (tpRes.data || []).filter((tp: any) => tp.pause !== 'deleted').map((tp: any) => {
             const lisH = calcHours(tp.lis_von, tp.lis_bis, tp.pause_min || 0);
             const kdH = calcHours(tp.kunde_von, tp.kunde_bis);
             const satz = rateMap[tp.mitarbeiter]?.rate || 0;
@@ -132,7 +133,21 @@ export default function MobileCalculationPage() {
                 lis_von: tp.lis_von, lis_bis: tp.lis_bis, kunde_von: tp.kunde_von, kunde_bis: tp.kunde_bis,
                 pause_min: tp.pause_min || 0, lis_stunden: lisH, kunden_stunden: kdH, satz, kosten: +(lisH * satz).toFixed(2),
             };
-        }));
+        });
+
+        // Map work assignments to personnel rows
+        const waPersonnel: TimePairWithRate[] = (waRes.data || []).map((wa: any) => {
+            const lisH = calcHours(wa.start_time, wa.end_time, wa.break_minutes || 0);
+            const satz = rateMap[wa.employee_name]?.rate || 0;
+            return {
+                pair_id: `wa-${wa.assignment_id}`, datum: wa.assignment_date, mitarbeiter: wa.employee_name,
+                role: rateMap[wa.employee_name]?.role || wa.work_type || null,
+                lis_von: wa.start_time, lis_bis: wa.end_time, kunde_von: null, kunde_bis: null,
+                pause_min: wa.break_minutes || 0, lis_stunden: lisH, kunden_stunden: 0, satz, kosten: +(lisH * satz).toFixed(2),
+            };
+        });
+
+        setPersonnel([...tpPersonnel, ...waPersonnel]);
 
         setMaterials((matRes.data as any || []).map((m: any) => {
             const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;

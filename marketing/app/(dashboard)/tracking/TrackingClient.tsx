@@ -96,7 +96,7 @@ export default function TrackingPage() {
     // Work assignments
     const [workAssignments, setWorkAssignments] = useState<WorkAssignment[]>([]);
     const [waModal, setWaModal] = useState<{ mode: 'create' | 'edit'; item?: WorkAssignment } | null>(null);
-    const [waForm, setWaForm] = useState({ work_type: '', employee_name: '', employee_code: '', assignment_date: '', start_time: '', end_time: '', break_minutes: 0, hours_estimated: 0, status: 'Offen', notes: '' });
+    const [waForm, setWaForm] = useState({ work_type: '', employee_name: '', employee_code: '', assignment_date: '', start_time: '', end_time: '', break_minutes: 0, hours_estimated: 0, status: 'Offen', notes: '', project_id: '' });
     const [savingWa, setSavingWa] = useState(false);
 
     // Catalog-backed costs per project (mirrors Nachkalkulation)
@@ -641,7 +641,7 @@ export default function TrackingPage() {
     // ---- WORK ASSIGNMENTS CRUD ----
     const openCreateWa = () => {
         const dateStr = format(currentDate, 'yyyy-MM-dd');
-        setWaForm({ work_type: 'Büroarbeit', employee_name: '', employee_code: '', assignment_date: dateStr, start_time: '08:00', end_time: '16:00', break_minutes: 30, hours_estimated: 0, status: 'Offen', notes: '' });
+        setWaForm({ work_type: 'Büroarbeit', employee_name: '', employee_code: '', assignment_date: dateStr, start_time: '08:00', end_time: '16:00', break_minutes: 30, hours_estimated: 0, status: 'Offen', notes: '', project_id: '' });
         setWaModal({ mode: 'create' });
     };
 
@@ -657,6 +657,7 @@ export default function TrackingPage() {
             hours_estimated: item.hours_estimated || 0,
             status: item.status || 'Offen',
             notes: item.notes || '',
+            project_id: item.project_id || '',
         });
         setWaModal({ mode: 'edit', item });
     };
@@ -676,6 +677,7 @@ export default function TrackingPage() {
                 hours_estimated: waForm.hours_estimated,
                 status: waForm.status,
                 notes: waForm.notes || null,
+                project_id: waForm.project_id || null,
             };
 
             if (waModal?.mode === 'create') {
@@ -1273,6 +1275,7 @@ export default function TrackingPage() {
                                 <tr >
                                     <th className="px-4 py-3">Typ</th>
                                     <th className="px-4 py-3">Mitarbeiter</th>
+                                    <th className="px-4 py-3">Projekt</th>
                                     <th className="px-4 py-3 text-center">Start</th>
                                     <th className="px-4 py-3 text-center">Ende</th>
                                     <th className="px-4 py-3 text-center">Pause (min)</th>
@@ -1284,7 +1287,7 @@ export default function TrackingPage() {
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {workAssignments.length === 0 ? (
-                                    <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                                    <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-400">
                                         <Briefcase className="h-8 w-8 mx-auto mb-2 opacity-40" />
                                         <p>Keine Arbeitseinsätze für diesen Tag.</p>
                                         <button onClick={openCreateWa} className="text-orange-600 hover:underline mt-2">Neuen Einsatz anlegen</button>
@@ -1293,6 +1296,7 @@ export default function TrackingPage() {
                                     <tr key={wa.assignment_id} className="hover:bg-slate-50 group">
                                         <td className="px-4 py-3"><span className="text-xs font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{wa.work_type}</span></td>
                                         <td className="px-4 py-3 font-medium text-slate-900">{wa.employee_name}</td>
+                                        <td className="px-4 py-3 text-slate-600 text-sm">{wa.project_id ? (projects.find(p => p.project_id === wa.project_id)?.name || '—') : '—'}</td>
                                         <td className="px-4 py-3 text-center font-mono">{wa.start_time?.substring(0, 5) || '—'}</td>
                                         <td className="px-4 py-3 text-center font-mono">{wa.end_time?.substring(0, 5) || '—'}</td>
                                         <td className="px-4 py-3 text-center">{wa.break_minutes || 0}</td>
@@ -1342,6 +1346,14 @@ export default function TrackingPage() {
                                             {employees.map(emp => <option key={emp.employee_id} value={emp.name}>{emp.name}</option>)}
                                         </select>
                                     </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-500 mb-1">Projekt (optional)</label>
+                                    <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.project_id}
+                                        onChange={e => setWaForm({ ...waForm, project_id: e.target.value })}>
+                                        <option value="">Kein Projekt</option>
+                                        {projects.map(p => <option key={p.project_id} value={p.project_id}>{p.name}{p.project_code ? ` (${p.project_code})` : ''}</option>)}
+                                    </select>
                                 </div>
                                 <div className="grid grid-cols-3 gap-3">
                                     <div>

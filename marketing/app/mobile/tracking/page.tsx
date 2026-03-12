@@ -40,7 +40,7 @@ export default function MobileTrackingPage() {
 
     // WA modal
     const [waModal, setWaModal] = useState<{ mode: 'create' | 'edit'; item?: WorkAssignment } | null>(null);
-    const [waForm, setWaForm] = useState({ work_type: '', employee_name: '', employee_code: '', assignment_date: '', start_time: '', end_time: '', break_minutes: 0, hours_estimated: 0, status: 'Offen', notes: '' });
+    const [waForm, setWaForm] = useState({ work_type: '', employee_name: '', employee_code: '', assignment_date: '', start_time: '', end_time: '', break_minutes: 0, hours_estimated: 0, status: 'Offen', notes: '', project_id: '' });
     const [savingWa, setSavingWa] = useState(false);
 
     const dateStr = format(currentDate, 'yyyy-MM-dd');
@@ -147,7 +147,7 @@ export default function MobileTrackingPage() {
 
     // WA CRUD
     const openCreateWa = () => {
-        setWaForm({ work_type: 'Büroarbeit', employee_name: '', employee_code: '', assignment_date: dateStr, start_time: '08:00', end_time: '16:00', break_minutes: 30, hours_estimated: 0, status: 'Offen', notes: '' });
+        setWaForm({ work_type: 'Büroarbeit', employee_name: '', employee_code: '', assignment_date: dateStr, start_time: '08:00', end_time: '16:00', break_minutes: 30, hours_estimated: 0, status: 'Offen', notes: '', project_id: '' });
         setWaModal({ mode: 'create' });
     };
     const saveWa = async () => {
@@ -159,6 +159,7 @@ export default function MobileTrackingPage() {
                 assignment_date: waForm.assignment_date, start_time: waForm.start_time ? `${waForm.start_time}:00` : null,
                 end_time: waForm.end_time ? `${waForm.end_time}:00` : null, break_minutes: waForm.break_minutes,
                 hours_estimated: waForm.hours_estimated, status: waForm.status, notes: waForm.notes || null,
+                project_id: waForm.project_id || null,
             };
             if (waModal?.mode === 'create') {
                 const { error } = await supabase.from('t_work_assignments').insert(payload);
@@ -269,6 +270,7 @@ export default function MobileTrackingPage() {
                                 <span className={cn('text-xs px-2 py-0.5 rounded-full', wa.status === 'Erledigt' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700')}>{wa.status || 'Offen'}</span>
                             </div>
                             <p className="text-sm font-semibold text-slate-800">{wa.employee_name}</p>
+                            {wa.project_id && <p className="text-xs text-blue-600 font-medium mt-0.5">{projects.find(p => p.project_id === wa.project_id)?.name || 'Projekt'}</p>}
                             <p className="text-xs text-slate-500 mt-1">
                                 {wa.start_time?.substring(0, 5) || '—'} – {wa.end_time?.substring(0, 5) || '—'} · Pause: {wa.break_minutes || 0}min
                             </p>
@@ -314,6 +316,14 @@ export default function MobileTrackingPage() {
                                         onChange={e => { const emp = employees.find(em => em.name === e.target.value); setWaForm({ ...waForm, employee_name: e.target.value, employee_code: emp?.employee_code || '' }); }}>
                                         <option value="">Wählen...</option>
                                         {employees.map(emp => <option key={emp.employee_id} value={emp.name}>{emp.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-500 mb-1">Projekt (optional)</label>
+                                    <select className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white" value={waForm.project_id}
+                                        onChange={e => setWaForm({ ...waForm, project_id: e.target.value })}>
+                                        <option value="">Kein Projekt</option>
+                                        {projects.map(p => <option key={p.project_id} value={p.project_id}>{p.name}{p.project_code ? ` (${p.project_code})` : ''}</option>)}
                                     </select>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">

@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
     Calendar, Clock, Calculator, FolderKanban, FolderOpen,
-    Users, BarChart3, Menu, X, LogOut, CalendarDays
+    Users, BarChart3, Menu, X, LogOut, CalendarDays, ClipboardCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
     { href: '/mobile/planning', label: 'Einsatzplanung', icon: Calendar },
     { href: '/mobile/tracking', label: 'Rückerfassung', icon: Clock },
     { href: '/mobile/calculation', label: 'Nachkalkulation', icon: Calculator },
+    { href: '/mobile/approvals', label: 'Freigaben', icon: ClipboardCheck },
     { href: '/mobile/projects', label: 'Projekte', icon: FolderKanban },
     { href: '/mobile/leave-planner', label: 'Urlaubs-/Terminplaner', icon: CalendarDays },
     { href: '/mobile/files', label: 'Dateien', icon: FolderOpen },

@@ -54,7 +54,7 @@ export function PlanningClient() {
 
     // Plan modal
     const [planModal, setPlanModal] = useState<{ mode: 'create' | 'edit'; plan?: MorningPlan; date: string } | null>(null);
-    const [planForm, setPlanForm] = useState({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '' });
+    const [planForm, setPlanForm] = useState({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '', is_besichtigung: false });
     const [savingPlan, setSavingPlan] = useState(false);
 
     // Templates
@@ -176,7 +176,7 @@ export function PlanningClient() {
             const dateStr = over.id.toString().replace('day-', '');
             const project = projects.find(p => p.project_id === projectId);
             if (!project) return;
-            setPlanForm({ project_id: projectId, start_time: '', vehicle_id: '', vehicle_names: '', service_type: project.dienstleistungen || '', notes: '' });
+            setPlanForm({ project_id: projectId, start_time: '', vehicle_id: '', vehicle_names: '', service_type: project.dienstleistungen || '', notes: '', is_besichtigung: false });
             setPlanModal({ mode: 'create', date: dateStr });
             return;
         }
@@ -273,7 +273,7 @@ export function PlanningClient() {
 
     // ---- PLAN CRUD ----
     const openCreatePlan = (dateStr: string) => {
-        setPlanForm({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '' });
+        setPlanForm({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '', is_besichtigung: false });
         setPlanModal({ mode: 'create', date: dateStr });
     };
 
@@ -282,27 +282,32 @@ export function PlanningClient() {
             project_id: plan.project_id || '', start_time: plan.start_time?.substring(0, 5) || '',
             vehicle_id: plan.vehicle_id || '', vehicle_names: plan.vehicle_names || '',
             service_type: plan.service_type || '', notes: plan.notes || '',
+            is_besichtigung: !!(plan as any).is_besichtigung,
         });
         setPlanModal({ mode: 'edit', plan, date: plan.plan_date });
     };
 
     const savePlan = async () => {
-        if (!planForm.project_id || !planModal) return;
+        if (!planModal || !planForm.project_id) return;
         setSavingPlan(true);
         try {
-            const payload = {
-                plan_date: planModal.date, project_id: planForm.project_id, start_time: planForm.start_time || null,
+            const payload: any = {
+                plan_date: planModal.date,
+                project_id: planForm.project_id || null,
+                start_time: planForm.start_time || null,
                 vehicle_id: planForm.vehicle_id || null, vehicle_names: planForm.vehicle_names || null,
-                service_type: planForm.service_type || null, notes: planForm.notes || null,
+                service_type: planForm.is_besichtigung ? 'Besichtigung' : (planForm.service_type || null),
+                notes: planForm.notes || null,
+                is_besichtigung: planForm.is_besichtigung,
             };
             if (planModal.mode === 'create') {
                 const { error } = await supabase.from('t_morningplan').insert(payload);
                 if (error) throw error;
-                toast('Einsatz erstellt');
+                toast(planForm.is_besichtigung ? 'Besichtigung erstellt' : 'Einsatz erstellt');
             } else if (planModal.plan) {
                 const { error } = await supabase.from('t_morningplan').update(payload).eq('plan_id', planModal.plan.plan_id);
                 if (error) throw error;
-                toast('Einsatz aktualisiert');
+                toast(planForm.is_besichtigung ? 'Besichtigung aktualisiert' : 'Einsatz aktualisiert');
             }
             setPlanModal(null);
             fetchData();
@@ -828,12 +833,33 @@ export function PlanningClient() {
             {planModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setPlanModal(null)}>
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg m-4" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between border-b px-6 py-4">
-                            <h2 className="text-lg font-bold text-slate-800">{planModal.mode === 'create' ? 'Neuer Einsatz' : 'Einsatz bearbeiten'}</h2>
+                        <div className={cn("flex items-center justify-between border-b px-6 py-4", planForm.is_besichtigung && "bg-violet-50")}>
+                            <h2 className={cn("text-lg font-bold", planForm.is_besichtigung ? "text-violet-800" : "text-slate-800")}>
+                                {planForm.is_besichtigung
+                                    ? '🔍 ' + (planModal.mode === 'create' ? 'Neue Besichtigung' : 'Besichtigung bearbeiten')
+                                    : (planModal.mode === 'create' ? 'Neuer Einsatz' : 'Einsatz bearbeiten')
+                                }
+                            </h2>
                             <button onClick={() => setPlanModal(null)} className="p-1 rounded-lg hover:bg-slate-100"><X className="h-5 w-5 text-slate-400" /></button>
                         </div>
                         <div className="p-6 space-y-4">
                             <div className="text-sm text-slate-500 bg-slate-50 rounded-lg px-3 py-2">{format(new Date(planModal.date), 'EEEE, d. MMMM yyyy', { locale: de })}</div>
+
+                            {/* Besichtigung toggle */}
+                            <label className={cn(
+                                "flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all",
+                                planForm.is_besichtigung
+                                    ? "bg-violet-50 border-violet-300 text-violet-800"
+                                    : "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300"
+                            )}>
+                                <input
+                                    type="checkbox"
+                                    className="w-4 h-4 rounded accent-violet-600"
+                                    checked={planForm.is_besichtigung}
+                                    onChange={e => setPlanForm({ ...planForm, is_besichtigung: e.target.checked })}
+                                />
+                                <span className="text-sm font-medium">🔍 Als Besichtigung markieren</span>
+                            </label>
 
                             <div>
                                 <label className="block text-xs font-medium text-slate-500 mb-1">Projekt *</label>
@@ -891,7 +917,10 @@ export function PlanningClient() {
                         <div className="flex justify-end gap-3 border-t px-6 py-4">
                             <button onClick={() => setPlanModal(null)} className="px-4 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-300 hover:bg-slate-50">Abbrechen</button>
                             <button onClick={savePlan} disabled={savingPlan || !planForm.project_id}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 shadow-sm">
+                                className={cn(
+                                    "flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 shadow-sm",
+                                    planForm.is_besichtigung ? "bg-violet-600 hover:bg-violet-700" : "bg-blue-600 hover:bg-blue-700"
+                                )}>
                                 {savingPlan ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Speichern
                             </button>
                         </div>

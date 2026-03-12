@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import {
     Calculator, ChevronDown, Users, Truck, Package, Wrench,
     TrendingUp, DollarSign, Loader2, Plus, Trash2, Save, FileText, X, Pencil,
-    AlertCircle, Percent, Search, Calendar, ChevronLeft, ChevronRight, ChevronUp
+    AlertCircle, Percent, Search, Calendar, ChevronLeft, ChevronRight, ChevronUp, Send, CheckCircle2, Clock, XCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -33,7 +33,7 @@ type Project = Database['public']['Tables']['t_projects']['Row'];
 interface TimePairWithRate {
     pair_id: string; datum: string; mitarbeiter: string; role: string | null;
     lis_von: string | null; lis_bis: string | null; kunde_von: string | null; kunde_bis: string | null;
-    pause_min: number; lis_stunden: number; kunden_stunden: number; satz: number; kosten: number;
+    pause_min: number; lis_stunden: number; kunden_stunden: number; satz: number; kunden_satz: number; kosten: number;
 }
 interface MaterialRow {
     id: string; material_id: string; material_name: string; unit: string;
@@ -90,6 +90,7 @@ export default function CalculationPage() {
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(false);
     const [isKvMode, setIsKvMode] = useState(false);
+    const [kvValues, setKvValues] = useState<Record<string, number>>({});
     // Multi-select mode
     const [multiSelectMode, setMultiSelectMode] = useState(false);
     const [checkedProjectIds, setCheckedProjectIds] = useState<Set<string>>(new Set());
@@ -159,24 +160,23 @@ export default function CalculationPage() {
         }
     };
 
-    // Cost basis toggle: 'lis' or 'kd' (global default)
-    const [costBasis, setCostBasis] = useState<'lis' | 'kd'>('lis');
-    // Per-row overrides: pair_id -> 'lis' | 'kd'
-    const [perRowBasis, setPerRowBasis] = useState<Record<string, 'lis' | 'kd'>>({});
-    const getRowBasis = (pairId: string): 'lis' | 'kd' => perRowBasis[pairId] || costBasis;
-    const toggleRowBasis = (pairId: string) => {
-        setPerRowBasis(prev => {
-            const current = prev[pairId] || costBasis;
-            return { ...prev, [pairId]: current === 'lis' ? 'kd' : 'lis' };
-        });
+    // Fixed: LiS Std always = costs (satz), Kd Std always = revenue (kunden_satz, editable per row)
+    // Per-row Kd Satz overrides: pair_id -> kunden_satz value
+    const [perRowKundenSatz, setPerRowKundenSatz] = useState<Record<string, number>>({});
+    const [globalKdSatz, setGlobalKdSatz] = useState<number | null>(null);
+    const getKundenSatz = (pairId: string, defaultSatz: number) => perRowKundenSatz[pairId] ?? globalKdSatz ?? defaultSatz;
+    const setKundenSatz = (pairId: string, value: number, defaultSatz: number) => {
+        setPerRowKundenSatz(prev => ({ ...prev, [pairId]: value }));
     };
-    const setGlobalBasis = (basis: 'lis' | 'kd') => {
-        setCostBasis(basis);
-        setPerRowBasis({}); // reset all individual overrides
+    const applyGlobalKdSatz = (value: number | null) => {
+        setGlobalKdSatz(value);
+        setPerRowKundenSatz({}); // clear individual overrides so the global applies
     };
 
     // Sidebar State
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [submissionStatus, setSubmissionStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected'>('none');
+    const [submitting, setSubmitting] = useState(false);
     const [projectSearch, setProjectSearch] = useState('');
     const [projectFilterStart, setProjectFilterStart] = useState('');
     const [projectFilterEnd, setProjectFilterEnd] = useState('');
@@ -242,14 +242,70 @@ export default function CalculationPage() {
         })();
     }, []);
 
+    // Check submission status for current project
+    const checkSubmissionStatus = useCallback(async (projectId: string) => {
+        const { data } = await supabase
+            .from('t_nachkalkulation_submissions')
+            .select('status')
+            .eq('project_id', projectId)
+            .order('submitted_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        setSubmissionStatus(data?.status || 'none');
+    }, []);
+
+    // Submit Nachkalkulation for approval
+    const submitNachkalkulation = async () => {
+        if (!selectedProjectId || !selectedProject) return;
+        setSubmitting(true);
+        try {
+            // Get current user
+            const { data: { user } } = await supabase.auth.getUser();
+            const email = user?.email || 'unbekannt';
+
+            // Build snapshot of all current calculation data
+            const snapshot = {
+                project: selectedProject,
+                adjustedPersonnel: adjustedPersonnel,
+                materials, vehicles, services, revenue, extraCosts, discounts,
+                hvzCosts, bnkCosts,
+                isKvMode, kvValues,
+                totalCosts, totalRevenue, margin, marginPct,
+                personalKosten, personalErloes, materialKosten, materialErloes,
+                vehicleErloes, serviceKosten, serviceErloes,
+                hvzKosten, hvzErloes, bnkKosten, bnkErloes,
+                extraKosten, revenueTotal, discountTotal,
+            };
+
+            const { error } = await supabase.from('t_nachkalkulation_submissions').insert({
+                project_id: selectedProjectId,
+                submitted_by: email,
+                status: 'pending',
+                snapshot_data: snapshot,
+            });
+            if (error) throw error;
+
+            toast('Nachkalkulation zur Freigabe eingereicht', 'success');
+            setSubmissionStatus('pending');
+        } catch (err) {
+            console.error('Error submitting:', err);
+            toast('Fehler beim Einreichen', 'error');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
     useEffect(() => {
         if (multiSelectMode) return; // don't auto-load in multi-select mode
         if (!selectedProjectId) {
-            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]);
+            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setKvValues({}); setPerRowKundenSatz({}); setGlobalKdSatz(null); setSubmissionStatus('none');
             return;
         }
         setMergedProjectNames([]);
+        setPerRowKundenSatz({});
+        setGlobalKdSatz(null);
         loadProjectData([selectedProjectId]);
+        checkSubmissionStatus(selectedProjectId);
     }, [selectedProjectId]);
 
     const toggleChecked = (pid: string) => {
@@ -275,7 +331,11 @@ export default function CalculationPage() {
     const loadProjectData = async (pids: string[]) => {
         setLoading(true);
         const proj = projects.find(p => p.project_id === pids[0]) || null;
-        if (proj) setSelectedProject(proj);
+        if (proj) {
+            setSelectedProject(proj);
+            setIsKvMode((proj as any).offer_type === 'Kostenvoranschlag');
+        }
+        setKvValues({});
 
 
 
@@ -313,7 +373,7 @@ export default function CalculationPage() {
             return {
                 pair_id: tp.pair_id, datum: tp.datum, mitarbeiter: tp.mitarbeiter, role: rateMap[tp.mitarbeiter]?.role || null,
                 lis_von: tp.lis_von, lis_bis: tp.lis_bis, kunde_von: tp.kunde_von, kunde_bis: tp.kunde_bis,
-                pause_min: tp.pause_min || 0, lis_stunden: lisH, kunden_stunden: kdH, satz, kosten: 0
+                pause_min: tp.pause_min || 0, lis_stunden: lisH, kunden_stunden: kdH, satz, kunden_satz: satz, kosten: 0
             };
         }));
 
@@ -355,17 +415,19 @@ export default function CalculationPage() {
         setLoading(false);
     };
 
-    // Recalculate personnel costs based on per-row or global costBasis
+    // LiS Std = costs (satz), Kd Std = revenue (kunden_satz, editable)
     const adjustedPersonnel = useMemo(() => personnel.map(p => {
-        const basis = perRowBasis[p.pair_id] || costBasis;
+        const kd_satz = getKundenSatz(p.pair_id, p.satz);
         return {
             ...p,
-            _basis: basis,
-            kosten: +((basis === 'lis' ? p.lis_stunden : p.kunden_stunden) * p.satz).toFixed(2)
+            kunden_satz: kd_satz,
+            kosten: +(p.lis_stunden * p.satz).toFixed(2),
+            erloes: +(p.kunden_stunden * kd_satz).toFixed(2),
         };
-    }), [personnel, costBasis, perRowBasis]);
+    }), [personnel, perRowKundenSatz, globalKdSatz]);
     // Calculations
     const personalKosten = useMemo(() => adjustedPersonnel.reduce((s, p) => s + p.kosten, 0), [adjustedPersonnel]);
+    const personalErloes = useMemo(() => adjustedPersonnel.reduce((s, p) => s + p.erloes, 0), [adjustedPersonnel]);
     const materialKosten = useMemo(() => materials.reduce((s, m) => s + m.total_cost, 0), [materials]);
     const materialErloes = useMemo(() => materials.reduce((s, m) => s + m.total_price, 0), [materials]);
     const vehicleErloes = useMemo(() => vehicles.reduce((s, v) => s + v.total_cost, 0), [vehicles]);
@@ -379,7 +441,7 @@ export default function CalculationPage() {
     const bnkErloes = useMemo(() => bnkCosts.reduce((s, b) => s + (b.menge || 0) * (b.vk_preis || 0), 0), [bnkCosts]);
 
     const totalCosts = personalKosten + materialKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
-    const baseRevenue = revenueTotal + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
+    const baseRevenue = revenueTotal + personalErloes + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
     const discountTotal = useMemo(() => discounts.reduce((s, d) => {
         const mode = d.mode || 'flat';
         if (mode === 'percent') return s + (baseRevenue * ((d.value || 0) / 100)); // Apply % to revenue
@@ -624,9 +686,9 @@ export default function CalculationPage() {
         <div class="kpi-card"><div class="kpi-label">Gesamterlöse</div><div class="kpi-value">${eur(totalRevenue)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Marge</div><div class="kpi-value ${margin >= 0 ? 'positive' : 'negative'}">${eur(margin)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Marge %</div><div class="kpi-value ${marginPct >= 0 ? 'positive' : 'negative'}">${marginPct.toFixed(1)}%</div></div></div>
-        <h2>1. Personalkosten (${eur(personalKosten)})</h2><table><tr><th>Datum</th><th>Mitarbeiter</th><th>LiS Std.</th><th>Kd Std.</th><th>Basis</th><th class="right">Satz</th><th class="right">Kosten</th></tr>
-        ${adjustedPersonnel.map((p: any) => { const b = p._basis || costBasis; return `<tr><td>${p.datum}</td><td>${p.mitarbeiter}</td><td style="${b === 'lis' ? 'font-weight:700;color:#1d4ed8' : 'color:#94a3b8'}">${p.lis_stunden.toFixed(2)}</td><td style="${b === 'kd' ? 'font-weight:700;color:#15803d' : 'color:#94a3b8'}">${p.kunden_stunden.toFixed(2)}</td><td style="text-align:center"><span style="background:${b === 'lis' ? '#dbeafe;color:#1d4ed8' : '#dcfce7;color:#15803d'};padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:600">${b === 'lis' ? 'LiS' : 'Kd'}</span></td><td class="right">${eur(p.satz)}</td><td class="right">${eur(p.kosten)}</td></tr>`; }).join('')}
-        <tr><th colspan="6">Summe</th><th class="right">${eur(personalKosten)}</th></tr></table>
+        <h2>1. Personal – Kosten (${eur(personalKosten)}) / Erlöse (${eur(personalErloes)})</h2><table><tr><th>Datum</th><th>Mitarbeiter</th><th class="right" style="color:#1d4ed8">LiS Std.</th><th class="right" style="color:#15803d">Kd Std.</th><th class="right" style="color:#1d4ed8">LiS Satz</th><th class="right" style="color:#15803d">Kd Satz</th><th class="right" style="color:#1d4ed8">Kosten (LiS)</th><th class="right" style="color:#15803d">Erlöse (Kd)</th></tr>
+        ${adjustedPersonnel.map((p: any) => `<tr><td>${p.datum}</td><td>${p.mitarbeiter}</td><td class="right" style="font-weight:700;color:#1d4ed8">${p.lis_stunden.toFixed(2)}</td><td class="right" style="font-weight:700;color:#15803d">${p.kunden_stunden.toFixed(2)}</td><td class="right" style="color:#1d4ed8">${eur(p.satz)}</td><td class="right" style="color:#15803d">${eur(p.kunden_satz)}</td><td class="right" style="color:#1d4ed8">${eur(p.kosten)}</td><td class="right" style="color:#15803d">${eur(p.erloes)}</td></tr>`).join('')}
+        <tr><th colspan="6">Summe</th><th class="right" style="color:#1d4ed8">${eur(personalKosten)}</th><th class="right" style="color:#15803d">${eur(personalErloes)}</th></tr></table>
         <h2>2. Material (${eur(materialKosten)})</h2><table><tr><th>Material</th><th>Menge</th><th>Einheit</th><th class="right">EK</th><th class="right">VK</th><th class="right">Kosten</th><th class="right">Erlöse</th></tr>
         ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.price_per_unit)}</td><td class="right">${eur(m.total_cost)}</td><td class="right">${eur(m.total_price)}</td></tr>`).join('')}
         <tr><th colspan="5">Summe</th><th class="right">${eur(materialKosten)}</th><th class="right">${eur(materialErloes)}</th></tr></table>
@@ -660,16 +722,18 @@ export default function CalculationPage() {
 
     const exportAuftragsnachkalkulationHTML = async () => {
         // Prepare personnel grouping by rate (merge employees with same rate)
-        const rateMap = new Map<number, { names: string[], std: number, satz: number, kosten: number }>();
+        // LiS Std = costs, Kd Std = revenue
+        const rateMap = new Map<number, { names: string[], std: number, satz: number, kosten: number, erloes: number }>();
         let gesamtStd = 0;
+        let gesamtKdStd = 0;
         adjustedPersonnel.forEach((p: any) => {
-            const basis = p._basis || costBasis;
-            const hours = basis === 'lis' ? p.lis_stunden : p.kunden_stunden;
-            gesamtStd += hours;
-            const existing = rateMap.get(p.satz) || { names: [] as string[], std: 0, satz: p.satz, kosten: 0 };
+            gesamtStd += p.lis_stunden;
+            gesamtKdStd += p.kunden_stunden;
+            const existing = rateMap.get(p.satz) || { names: [] as string[], std: 0, satz: p.satz, kosten: 0, erloes: 0 };
             if (!existing.names.includes(p.mitarbeiter)) existing.names.push(p.mitarbeiter);
-            existing.std += hours;
+            existing.std += p.lis_stunden;
             existing.kosten += p.kosten;
+            existing.erloes += p.erloes;
             rateMap.set(p.satz, existing);
         });
 
@@ -727,6 +791,11 @@ export default function CalculationPage() {
     .half-table table { width: 100%; }
     .half-table td { padding: 4px 8px; border-color: #e2e8f0; }
     .half-table td.label { color: #475569; font-weight: 500; }
+    /* Page break rules */
+    .header-grid, table, .flex-tables, .summary-table { page-break-inside: avoid; break-inside: avoid; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+    .flex-tables { page-break-before: auto; }
+    .summary-table { page-break-before: auto; }
 </style>
 </head><body>
     <h1>Auftragsnachkalkulation</h1>
@@ -743,7 +812,7 @@ export default function CalculationPage() {
         <div class="field-row" style="width: 50%;"><div class="label">Telefonnummer Kunde:</div><div class="value">${selectedProject?.telefon || ''}</div></div>
         <div style="width: 40%; display:flex; align-items: flex-end;">
             <div style="font-size:10px; font-weight:600; margin-right:12px; color: #475569;">KV oder FP</div>
-            <div style="flex:1; background-color:#86efac; height:18px; border-radius:2px;"></div>
+            <div style="flex:1; background-color:${isKvMode ? '#86efac' : '#fde68a'}; height:18px; border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; color:${isKvMode ? '#166534' : '#92400e'};">${isKvMode ? 'KV' : 'FP'}</div>
             <div style="font-size:10px; font-weight:600; margin-left:15px; margin-right:12px; color: #475569;">Kunden Nr.</div>
             <div class="value" style="flex:1;"></div>
         </div>
@@ -757,63 +826,91 @@ export default function CalculationPage() {
             <th style="text-align:left;">Kosten:</th>
             <th style="width:28%;">Land in Sicht</th>
             <th style="width:28%;">Kunde</th>
-            <th class="bg-green" style="width:18%;">KV</th>
+            ${isKvMode ? '<th class="bg-green" style="width:18%;">KV</th>' : ''}
         </tr>
         <tr>
             <td class="text-orange" style="background:#fff7ed;">Gesamt Std</td>
             <td class="center text-orange" style="background:#fff7ed;">${gesamtStd.toFixed(2)}</td>
-            <td style="background:#fff7ed;"></td>
-            <td style="background:#fff7ed;"></td>
+            <td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>
+            ${isKvMode ? '<td style="background:#fff7ed;"></td>' : ''}
         </tr>
-        ${Array.from(rateMap.values()).map(data => `<tr>
+        ${(() => {
+                const rateEntries = Array.from(rateMap.values());
+                let personnelKvShown = false;
+                return rateEntries.map(data => {
+                    const kvCell = isKvMode ? (personnelKvShown ? '<td></td>' : `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>`) : '';
+                    personnelKvShown = true;
+                    return `<tr>
             <td style="font-weight:600; color:#475569;">Stunden ${data.names.join(', ')} <span style="color:#94a3b8; font-weight:400;">(${data.std.toFixed(2)} Std.)</span></td>
             <td class="center"><div class="val-container"><span>${data.std.toFixed(2)} x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td>
-            <td></td>
-            <td></td>
-        </tr>`).join('')}
-        ${rateMap.size === 0 ? `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td><td></td><td></td></tr>` : ''}
+            <td class="center"><div class="val-container"><span></span><span style="color:#15803d;">${numFormat(data.erloes)}</span></div></td>
+            ${kvCell}
+        </tr>`;
+                }).join('');
+            })()}
+        ${rateMap.size === 0 ? `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td><td class="center"><div class="val-container"><span></span><span class="cur">- €</span></div></td>${isKvMode ? `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>` : ''}</tr>` : ''}
         ${(() => {
                 const totalServiceKosten = services.reduce((s, x) => s + x.total_cost, 0);
-                // For Kunde side: use total_price if available, else total_cost
                 const totalServiceErloes = services.reduce((s, x) => s + ((x as any).total_price || x.total_cost), 0);
+                const kvServiceCell = isKvMode ? `<td class="right">${kvValues['service_total'] ? numFormat(kvValues['service_total']) : ''}</td>` : '';
                 if (services.length > 0) return `<tr>
             <td style="font-weight:600; color:#475569;">Entsorgungen</td>
             <td><div class="val-container"><span></span><span>${numFormat(totalServiceKosten)}</span></div></td>
             <td><div class="val-container"><span></span><span>${numFormat(totalServiceErloes)}</span></div></td>
-            <td></td>
+            ${kvServiceCell}
         </tr>`;
                 return `<tr>
             <td style="font-weight:600; color:#475569; height:28px;">Entsorgungen</td>
             <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
             <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
-            <td></td>
+            ${kvServiceCell}
         </tr>`;
             })()}
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
-            <td></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td><td></td>
+            <td></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
+            ${isKvMode ? `<td class="right">${kvValues['lkw'] ? numFormat(kvValues['lkw']) : ''}</td>` : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">HVZ</td>
             <td><div class="val-container"><span></span><span>${numFormat(hvzKosten)}</span></div></td>
             <td><div class="val-container"><span></span><span>${numFormat(hvzErloes)}</span></div></td>
-            <td></td>
+            ${isKvMode ? `<td class="right">${kvValues['hvz'] ? numFormat(kvValues['hvz']) : ''}</td>` : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Diesel / BNK</td>
             <td><div class="val-container"><span></span><span>${numFormat(bnkKosten)}</span></div></td>
             <td><div class="val-container"><span></span><span>${numFormat(bnkErloes)}</span></div></td>
-            <td></td>
+            ${isKvMode ? `<td class="right">${kvValues['diesel'] ? numFormat(kvValues['diesel']) : ''}</td>` : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
-            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td><td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td>
+            ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
         </tr>
         <tr>
-            <td style="border:none; background:transparent;"></td>
-            <td style="border:none; background:transparent;"></td>
-            <td class="center" style="font-weight:600; color:#475569; border-top:2px solid #cbd5e1;">Rabatt</td>
-            <td class="right" style="border-top:2px solid #cbd5e1; font-weight:600;">${numFormat(discountTotal)}</td>
+            <td style="font-weight:600; color:#475569; height:28px;">Material</td>
+            <td><div class="val-container"><span></span><span>${numFormat(materialKosten)}</span></div></td>
+            <td><div class="val-container"><span></span><span>${numFormat(materialErloes)}</span></div></td>
+            ${isKvMode ? `<td class="right">${kvValues['material'] ? numFormat(kvValues['material']) : ''}</td>` : ''}
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Erlöse</td>
+            <td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(revenueTotal)}</span></div></td>
+            ${isKvMode ? '<td></td>' : ''}
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
+            <td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
+            ${isKvMode ? '<td></td>' : ''}
+        </tr>
+        <tr style="border-top:3px double #334155; background:#f1f5f9;">
+            <td style="font-weight:700; color:#0f172a;">Summe</td>
+            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>
+            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalRevenue)}</td>
+            ${isKvMode ? `<td style="font-weight:700; text-align:right; color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}</td>` : ''}
         </tr>
     </table>
 
@@ -854,7 +951,7 @@ export default function CalculationPage() {
     </div>
 
     <table class="summary-table">
-        <tr><td class="label">KV vorher</td><td class="val cur">- €</td></tr>
+        <tr><td class="label">KV vorher</td><td class="val${isKvMode ? '' : ' cur'}">${isKvMode ? numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0)) : '- €'}</td></tr>
         <tr><td class="label">Nettoumsatz</td><td class="val">${numFormat(totalRevenue)}</td></tr>
         <tr class="total"><td class="label">Bruttoumsatz</td><td class="val">${numFormat(totalRevenue * 1.19)}</td></tr>
         <tr><td class="label">Gesamtkosten netto</td><td class="val">${numFormat(totalCosts)}</td></tr>
@@ -872,7 +969,8 @@ export default function CalculationPage() {
             filename: `Auftragsnachkalkulation_${selectedProject?.project_code || 'Projekt'}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
         }).from(container).save();
         document.body.removeChild(container);
         toast(`Auftragsnachkalkulation.pdf exportiert`, 'success');
@@ -1068,6 +1166,7 @@ export default function CalculationPage() {
                                 {mergedProjectNames.length > 1
                                     ? `${mergedProjectNames.length} Projekte zusammengeführt`
                                     : selectedProject ? (selectedProject.name || 'Unbenannt') : 'Nachkalkulation'}
+                                {isKvMode && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-300">KV</span>}
                             </h1>
                             {mergedProjectNames.length > 1 ? (
                                 <p className="text-xs text-blue-600 flex items-center gap-1 flex-wrap">
@@ -1089,11 +1188,33 @@ export default function CalculationPage() {
                     <div className="flex items-center gap-2">
                         {selectedProject && (
                             <>
+                                {/* Submission status badge */}
+                                {submissionStatus !== 'none' && (
+                                    <span className={cn(
+                                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border",
+                                        submissionStatus === 'pending' && "bg-amber-50 text-amber-700 border-amber-200",
+                                        submissionStatus === 'accepted' && "bg-emerald-50 text-emerald-700 border-emerald-200",
+                                        submissionStatus === 'rejected' && "bg-red-50 text-red-700 border-red-200"
+                                    )}>
+                                        {submissionStatus === 'pending' && <><Clock className="h-3 w-3" /> Ausstehend</>}
+                                        {submissionStatus === 'accepted' && <><CheckCircle2 className="h-3 w-3" /> Angenommen</>}
+                                        {submissionStatus === 'rejected' && <><XCircle className="h-3 w-3" /> Abgelehnt</>}
+                                    </span>
+                                )}
                                 <button onClick={exportHTML} className="flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 border border-slate-300 shadow-sm transition-colors">
                                     <FileText className="h-4 w-4" /> Standard Export
                                 </button>
                                 <button onClick={exportAuftragsnachkalkulationHTML} className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900 shadow-sm transition-colors">
                                     <FileText className="h-4 w-4" /> Auftragsnachkalkulation
+                                </button>
+                                <button
+                                    onClick={submitNachkalkulation}
+                                    disabled={submitting || submissionStatus === 'pending'}
+                                    className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title={submissionStatus === 'pending' ? 'Bereits eingereicht' : 'Zur Freigabe einreichen'}
+                                >
+                                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                    Zur Freigabe einreichen
                                 </button>
                             </>
                         )}
@@ -1117,30 +1238,35 @@ export default function CalculationPage() {
                         </div>
                     ) : (
                         <div className="p-6 space-y-6 pb-20">
-                            {/* Cost Basis Toggle */}
-                            <div className="flex items-center gap-3 mb-2">
-                                <span className="text-sm font-medium text-slate-600">Standard-Basis Personalkosten:</span>
-                                <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
-                                    <button
-                                        onClick={() => setGlobalBasis('lis')}
-                                        className={cn(
-                                            "px-3 py-1.5 text-sm font-medium rounded-md transition-all",
-                                            costBasis === 'lis' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                                        )}
-                                    >
-                                        LiS Std.
-                                    </button>
-                                    <button
-                                        onClick={() => setGlobalBasis('kd')}
-                                        className={cn(
-                                            "px-3 py-1.5 text-sm font-medium rounded-md transition-all",
-                                            costBasis === 'kd' ? "bg-white text-green-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                                        )}
-                                    >
-                                        Kd Std.
-                                    </button>
+                            {/* Personnel Legend + Global Kd Satz Input */}
+                            <div className="flex flex-wrap items-center gap-3 mb-2">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-50 border border-blue-100 text-xs font-medium text-blue-700">
+                                    <span className="font-bold">LiS Std.</span> = Kosten
+                                </span>
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-green-50 border border-green-100 text-xs font-medium text-green-700">
+                                    <span className="font-bold">Kd Std.</span> = Erlöse
+                                </span>
+                                {/* Global Kd Satz */}
+                                <div className="flex items-center gap-2 ml-auto bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
+                                    <span className="text-xs font-semibold text-green-700 whitespace-nowrap">Kd Satz (alle):</span>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        className="w-24 bg-white border border-green-300 rounded px-2 py-0.5 text-xs text-right font-mono text-green-800 focus:outline-none focus:ring-1 focus:ring-green-400"
+                                        placeholder={`z.B. ${personnel[0]?.satz?.toFixed(2) ?? '0.00'}`}
+                                        value={globalKdSatz === null ? '' : globalKdSatz}
+                                        onChange={e => applyGlobalKdSatz(e.target.value === '' ? null : +e.target.value)}
+                                        onFocus={e => e.target.select()}
+                                        title="Kunden-Stundensatz für alle Mitarbeiter setzen"
+                                    />
+                                    {globalKdSatz !== null && (
+                                        <button
+                                            onClick={() => applyGlobalKdSatz(null)}
+                                            className="text-green-500 hover:text-red-500 transition-colors text-xs font-bold"
+                                            title="Zurücksetzen"
+                                        >✕</button>
+                                    )}
                                 </div>
-                                {Object.keys(perRowBasis).length > 0 && <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">⚠ {Object.keys(perRowBasis).length} individuelle Überschreibung(en)</span>}
                             </div>
 
                             {/* KPI Cards */}
@@ -1153,6 +1279,77 @@ export default function CalculationPage() {
                                     color={marginPct >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={marginPct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
                             </div>
 
+                            {/* KV Input Panel */}
+                            {isKvMode && (
+                                <div className="bg-green-50 border border-green-200 rounded-xl p-5 shadow-sm">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-300">KV</span>
+                                        <h3 className="text-sm font-semibold text-green-800">Kostenvoranschlag – Werte</h3>
+                                        <span className="text-xs text-green-600 ml-auto font-medium">
+                                            Gesamt KV: {eur((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Personalkosten</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['personalkosten'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, personalkosten: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Material</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['material'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, material: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Entsorgungen</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['service_total'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, service_total: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">LKW</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['lkw'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, lkw: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">HVZ</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['hvz'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, hvz: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Diesel / BNK</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['diesel'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, diesel: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Sonstige Kosten</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['extra'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, extra: e.target.value === '' ? 0 : +e.target.value }))}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Sortable Sections */}
                             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                                 <SortableContext items={containerOrder} strategy={verticalListSortingStrategy}>
@@ -1164,29 +1361,54 @@ export default function CalculationPage() {
                                                         <CostSection title="Personalkosten" icon={<Users className="h-5 w-5" />} total={personalKosten} color="blue">
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Datum</th><th className="px-4 py-2 text-left">Mitarbeiter</th><th className="px-4 py-2 text-left">Rolle</th>
-                                                                        <th className="px-4 py-2 text-right">LiS Std.</th><th className="px-4 py-2 text-right">Kd Std.</th><th className="px-4 py-2 text-center w-[80px]">Basis</th><th className="px-4 py-2 text-right">Satz</th><th className="px-4 py-2 text-right">Kosten</th></tr>
+                                                                    <tr>
+                                                                        <th className="px-4 py-2 text-left">Datum</th>
+                                                                        <th className="px-4 py-2 text-left">Mitarbeiter</th>
+                                                                        <th className="px-4 py-2 text-left">Rolle</th>
+                                                                        <th className="px-4 py-2 text-right text-blue-600">LiS Std.</th>
+                                                                        <th className="px-4 py-2 text-right text-green-600">Kd Std.</th>
+                                                                        <th className="px-4 py-2 text-right text-blue-600" title="Stundensatz LiS (Kosten)">LiS Satz</th>
+                                                                        <th className="px-4 py-2 text-right text-green-600" title="Stundensatz Kunde (Erlöse)">Kd Satz</th>
+                                                                        <th className="px-4 py-2 text-right text-blue-600">Kosten</th>
+                                                                        <th className="px-4 py-2 text-right text-green-600">Erlöse</th>
+                                                                    </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
-                                                                    {adjustedPersonnel.length === 0 ? <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">Keine Zeitpaare</td></tr> : adjustedPersonnel.map((p: any) => {
-                                                                        const rowBasis = getRowBasis(p.pair_id);
-                                                                        return (
-                                                                            <tr key={p.pair_id} className="hover:bg-slate-50">
-                                                                                <td className="px-4 py-2 text-slate-600">{p.datum}</td><td className="px-4 py-2 font-medium">{p.mitarbeiter}</td><td className="px-4 py-2 text-slate-500">{p.role || '—'}</td>
-                                                                                <td className={cn("px-4 py-2 text-right font-mono", rowBasis === 'lis' ? 'font-semibold text-blue-700' : 'text-slate-400')}>{p.lis_stunden.toFixed(2)}</td>
-                                                                                <td className={cn("px-4 py-2 text-right font-mono", rowBasis === 'kd' ? 'font-semibold text-green-700' : 'text-slate-400')}>{p.kunden_stunden.toFixed(2)}</td>
-                                                                                <td className="px-2 py-2 text-center">
-                                                                                    <button onClick={() => toggleRowBasis(p.pair_id)}
-                                                                                        className={cn("text-xs font-semibold px-2 py-0.5 rounded-full transition-colors",
-                                                                                            rowBasis === 'lis' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
-                                                                                        )}>
-                                                                                        {rowBasis === 'lis' ? 'LiS' : 'Kd'}
-                                                                                    </button>
-                                                                                </td>
-                                                                                <td className="px-4 py-2 text-right">{eur(p.satz)}</td><td className="px-4 py-2 text-right font-semibold">{eur(p.kosten)}</td>
-                                                                            </tr>
-                                                                        );
-                                                                    })}
+                                                                    {adjustedPersonnel.length === 0 ? <tr><td colSpan={9} className="px-4 py-6 text-center text-slate-400">Keine Zeitpaare</td></tr> : adjustedPersonnel.map((p: any) => (
+                                                                        <tr key={p.pair_id} className="hover:bg-slate-50">
+                                                                            <td className="px-4 py-2 text-slate-600">{p.datum}</td>
+                                                                            <td className="px-4 py-2 font-medium">{p.mitarbeiter}</td>
+                                                                            <td className="px-4 py-2 text-slate-500">{p.role || '—'}</td>
+                                                                            <td className="px-4 py-2 text-right font-mono font-semibold text-blue-700">{p.lis_stunden.toFixed(2)}</td>
+                                                                            <td className="px-4 py-2 text-right font-mono font-semibold text-green-700">{p.kunden_stunden.toFixed(2)}</td>
+                                                                            {/* LiS Satz — read-only, from employee master */}
+                                                                            <td className="px-4 py-2 text-right text-blue-700 font-mono text-xs">{eur(p.satz)}</td>
+                                                                            {/* Kd Satz — editable inline; shows override indicator if != global */}
+                                                                            <td className="px-2 py-1">
+                                                                                <div className="relative">
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        step="0.01"
+                                                                                        className={cn(
+                                                                                            "w-full border rounded px-2 py-1 text-xs text-right font-mono focus:outline-none transition-colors",
+                                                                                            perRowKundenSatz[p.pair_id] !== undefined
+                                                                                                ? "bg-amber-50 border-amber-300 text-amber-800 focus:ring-1 focus:ring-amber-400"
+                                                                                                : "bg-green-50 border-green-200 hover:border-green-400 text-green-800 focus:ring-1 focus:ring-green-300"
+                                                                                        )}
+                                                                                        value={p.kunden_satz === 0 ? '' : (p.kunden_satz ?? '')}
+                                                                                        onChange={e => setKundenSatz(p.pair_id, e.target.value === '' ? 0 : +e.target.value, p.satz)}
+                                                                                        onFocus={e => e.target.select()}
+                                                                                        title={perRowKundenSatz[p.pair_id] !== undefined ? 'Individuell überschrieben' : globalKdSatz !== null ? 'Globaler Kd Satz aktiv' : 'Standard (LiS Satz)'}
+                                                                                    />
+                                                                                    {perRowKundenSatz[p.pair_id] !== undefined && (
+                                                                                        <span className="absolute -top-1.5 -right-1.5 w-2 h-2 bg-amber-400 rounded-full" title="Individuell überschrieben" />
+                                                                                    )}
+                                                                                </div>
+                                                                            </td>
+                                                                            <td className="px-4 py-2 text-right font-semibold text-blue-700">{eur(p.kosten)}</td>
+                                                                            <td className="px-4 py-2 text-right font-semibold text-green-700">{eur(p.erloes)}</td>
+                                                                        </tr>
+                                                                    ))}
                                                                 </tbody>
                                                             </table>
                                                         </CostSection>

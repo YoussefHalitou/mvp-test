@@ -388,7 +388,7 @@ export default function CalculationPage() {
                 pair_id: `wa-${wa.assignment_id}`, datum: wa.assignment_date, mitarbeiter: wa.employee_name,
                 role: rateMap[wa.employee_name]?.role || wa.work_type || null,
                 lis_von: wa.start_time, lis_bis: wa.end_time, kunde_von: null, kunde_bis: null,
-                pause_min: wa.break_minutes || 0, lis_stunden: lisH, kunden_stunden: 0, satz, kunden_satz: satz, kosten: 0
+                pause_min: wa.break_minutes || 0, lis_stunden: lisH, kunden_stunden: lisH, satz, kunden_satz: satz, kosten: 0
             };
         });
 

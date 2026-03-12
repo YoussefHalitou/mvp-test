@@ -12,7 +12,7 @@ import { formatTimeInput, autoFormatTimeInput } from '@/lib/timeUtils';
 
 import { SearchableSelect } from '@/components/ui/searchable-select';
 
-type Project = { project_id: string; name: string; project_code: string | null; created_at?: string };
+type Project = { project_id: string; name: string; project_code: string | null; project_date?: string | null; created_at?: string };
 type Employee = { employee_id: string; name: string; employee_code: string | null };
 type MorningPlan = { plan_id: string; project_id: string | null; project?: Project };
 type TimePair = Database['public']['Tables']['t_time_pairs']['Row'];
@@ -125,7 +125,7 @@ export default function TrackingPage() {
     }, []);
 
     const fetchProjects = useCallback(async () => {
-        const { data } = await supabase.from('t_projects').select('project_id, name, project_code, created_at').order('created_at', { ascending: false });
+        const { data } = await supabase.from('t_projects').select('project_id, name, project_code, project_date, created_at').order('created_at', { ascending: false });
         setProjects(data || []);
     }, []);
 
@@ -1353,7 +1353,7 @@ export default function TrackingPage() {
                                     <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={waForm.project_id}
                                         onChange={e => setWaForm({ ...waForm, project_id: e.target.value })}>
                                         <option value="">Kein Projekt</option>
-                                        {projects.map(p => <option key={p.project_id} value={p.project_id}>{p.name}{p.project_code ? ` (${p.project_code})` : ''}</option>)}
+                                        {[...projects].sort((a, b) => (b.project_date || '').localeCompare(a.project_date || '')).map(p => <option key={p.project_id} value={p.project_id}>{p.name}{p.project_date ? ` — ${new Date(p.project_date).toLocaleDateString('de-DE')}` : ''}</option>)}
                                     </select>
                                 </div>
                                 <div className="grid grid-cols-3 gap-3">

@@ -11,7 +11,7 @@ import { Database } from '@/types/supabase';
 import { formatTimeInput } from '@/lib/timeUtils';
 import { AnimatePresence, motion } from 'framer-motion';
 
-type Project = { project_id: string; name: string; project_code: string | null; created_at?: string };
+type Project = { project_id: string; name: string; project_code: string | null; project_date?: string | null; created_at?: string };
 type Employee = { employee_id: string; name: string; employee_code: string | null };
 type MorningPlan = { plan_id: string; project_id: string | null; project?: Project };
 type WorkAssignment = Database['public']['Tables']['t_work_assignments']['Row'];
@@ -49,7 +49,7 @@ export default function MobileTrackingPage() {
         setLoading(true);
         const [empRes, projRes] = await Promise.all([
             supabase.from('t_employees').select('employee_id, name, employee_code').eq('is_active', true).order('name'),
-            supabase.from('t_projects').select('project_id, name, project_code, created_at').order('created_at', { ascending: false }),
+            supabase.from('t_projects').select('project_id, name, project_code, project_date, created_at').order('created_at', { ascending: false }),
         ]);
         setEmployees(empRes.data || []);
         setProjects(projRes.data || []);
@@ -324,7 +324,7 @@ export default function MobileTrackingPage() {
                                     <select className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white" value={waForm.project_id}
                                         onChange={e => setWaForm({ ...waForm, project_id: e.target.value })}>
                                         <option value="">Kein Projekt</option>
-                                        {projects.map(p => <option key={p.project_id} value={p.project_id}>{p.name}{p.project_code ? ` (${p.project_code})` : ''}</option>)}
+                                        {[...projects].sort((a, b) => (b.project_date || '').localeCompare(a.project_date || '')).map(p => <option key={p.project_id} value={p.project_id}>{p.name}{p.project_date ? ` — ${new Date(p.project_date).toLocaleDateString('de-DE')}` : ''}</option>)}
                                     </select>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">

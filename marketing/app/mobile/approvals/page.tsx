@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { generateAuftragsnachkalkulationHTML } from '@/lib/generateNachkalkulationHTML';
 import { useToast } from '@/components/ui/toast';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -95,121 +96,9 @@ export default function MobileApprovalsPage() {
         return monthId;
     };
 
-    // ---- Generate PDF from snapshot (same as desktop) ----
+    // ---- Generate PDF from snapshot using shared HTML generator ----
     const generatePdfBlob = async (snapshot: any): Promise<Blob> => {
-        const s = snapshot;
-        const numFormat = (n: number) => n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
-
-        const rateMap = new Map<number, { names: string[], std: number, satz: number, kosten: number }>();
-        let gesamtStd = 0;
-        (s.adjustedPersonnel || []).forEach((p: any) => {
-            const hours = p._basis === 'lis' ? p.lis_stunden : p.kunden_stunden;
-            gesamtStd += hours;
-            const existing = rateMap.get(p.satz) || { names: [] as string[], std: 0, satz: p.satz, kosten: 0 };
-            if (!existing.names.includes(p.mitarbeiter)) existing.names.push(p.mitarbeiter);
-            existing.std += hours;
-            existing.kosten += p.kosten;
-            rateMap.set(p.satz, existing);
-        });
-
-        const materials = s.materials || [];
-        const vehicles = s.vehicles || [];
-        const services = s.services || [];
-        const hvzCosts = s.hvzCosts || [];
-        const bnkCosts = s.bnkCosts || [];
-        const extraCosts = s.extraCosts || [];
-        const discounts = s.discounts || [];
-        const revenue = s.revenue || [];
-        const isKvMode = s.isKvMode || false;
-        const kvValues = s.kvValues || {};
-
-        const materialKosten = materials.reduce((a: number, m: any) => a + (m.total_cost || 0), 0);
-        const materialErloes = materials.reduce((a: number, m: any) => a + (m.total_price || 0), 0);
-        const vehicleErloes = vehicles.reduce((a: number, v: any) => a + (v.total_cost || 0), 0);
-        const serviceKosten = services.reduce((a: number, sv: any) => a + (sv.total_cost || 0), 0);
-        const serviceErloes = services.reduce((a: number, sv: any) => a + (sv.total_price || sv.total_cost || 0), 0);
-        const hvzKosten = hvzCosts.reduce((a: number, h: any) => a + ((h.tage || 0) * (h.ek_preis || 0)), 0);
-        const hvzErloes = hvzCosts.reduce((a: number, h: any) => a + ((h.tage || 0) * (h.vk_preis || 0)), 0);
-        const bnkKosten = bnkCosts.reduce((a: number, b: any) => a + ((b.menge || 0) * (b.ek_preis || 0)), 0);
-        const bnkErloes = bnkCosts.reduce((a: number, b: any) => a + ((b.menge || 0) * (b.vk_preis || 0)), 0);
-        const extraKosten2 = extraCosts.reduce((a: number, e: any) => a + (e.cost || 0), 0);
-        const revenueTotal = revenue.reduce((a: number, r: any) => a + (r.line_total || 0), 0);
-        const personalKosten = (s.adjustedPersonnel || []).reduce((a: number, p: any) => a + p.kosten, 0);
-        const totalCosts = personalKosten + materialKosten + serviceKosten + extraKosten2 + hvzKosten + bnkKosten;
-        const baseRevenue = revenueTotal + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
-        const discountTotal = discounts.reduce((a: number, d: any) => {
-            if ((d.mode || 'flat') === 'percent') return a + (baseRevenue * ((d.value || 0) / 100));
-            return a + (d.value || 0);
-        }, 0);
-        const totalRevenue = baseRevenue - discountTotal;
-        const margin = totalRevenue - totalCosts;
-        const marginPct = totalRevenue > 0 ? (margin / totalRevenue) * 100 : 0;
-        let lkwErloes = 0;
-        vehicles.forEach((v: any) => { lkwErloes += v.total_cost || 0; });
-
-        const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Auftragsnachkalkulation – ${s.project?.name || ''}</title>
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    body { font-family: "Inter", -apple-system, sans-serif; font-size: 11px; margin: 20px; color: #1e293b; background: white; }
-    h1 { font-size: 20px; text-align: center; margin-bottom: 25px; color: #0f172a; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
-    .header-grid { display: flex; gap: 30px; margin-bottom: 25px; }
-    .header-grid > div:first-child { flex: 3; }
-    .header-grid > div:last-child { flex: 2; }
-    .field-row { display: flex; margin-bottom: 12px; align-items: flex-end; }
-    .field-row .label { font-size: 10px; font-weight: 600; width: 130px; color: #475569; }
-    .field-row .value { flex: 1; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; min-height: 18px; font-size: 12px; font-weight: 500; }
-    .box { border: 1px solid #94a3b8; border-radius: 4px; padding: 10px; height: 90px; font-size: 10px; font-weight: 600; color: #475569; background: #f8fafc; }
-    .box-content { font-weight: 400; font-size: 11px; color: #1e293b; margin-top: 5px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 11px; }
-    th, td { border: 1px solid #cbd5e1; padding: 6px 10px; }
-    th { text-align: center; font-weight: 600; color: #334155; background-color: #f1f5f9; text-transform: uppercase; font-size: 10px; }
-    .bg-green { background-color: #86efac; color: #166534; }
-    .right { text-align: right; }
-    .center { text-align: center; }
-    .val-container { display: flex; justify-content: space-between; width: 100%; }
-    .summary-table { width: 320px; margin-left: auto; margin-top: 30px; border-collapse: separate; border-spacing: 0 4px; }
-    .summary-table td { border: none; padding: 6px 10px; background: #f8fafc; }
-    .summary-table td.label { font-weight: 600; width: 60%; color: #475569; border-radius: 4px 0 0 4px; }
-    .summary-table td.val { text-align: right; font-weight: 500; border-radius: 0 4px 4px 0; }
-    .summary-table tr.total td.val { font-weight: 700; border-bottom: 2px solid #334155; background: transparent; }
-</style>
-</head><body>
-    <h1>Auftragsnachkalkulation</h1>
-    <div class="header-grid">
-        <div>
-            <div class="field-row"><div class="label">Rechnungsadresse</div><div class="value" style="border:none;"></div></div>
-            <div class="field-row"><div class="value">${s.project?.anrede || ''} ${s.project?.name || ''}</div></div>
-            <div class="field-row"><div class="value">${s.project?.strasse || ''} ${s.project?.nr || ''}</div></div>
-            <div class="field-row"><div class="value">${s.project?.plz || ''} ${s.project?.ort || ''}</div></div>
-        </div>
-        <div class="box">Sonstige Bemerkungen<div class="box-content">${s.project?.notes || ''}</div></div>
-    </div>
-    <table>
-        <tr><th style="text-align:left;">Kosten:</th><th style="width:28%;">Land in Sicht</th><th style="width:28%;">Kunde</th>${isKvMode ? '<th class="bg-green" style="width:18%;">KV</th>' : ''}</tr>
-        <tr style="background:#fff7ed;"><td style="color:#ea580c;font-weight:600;">Gesamt Std</td><td class="center" style="color:#ea580c;font-weight:600;">${gesamtStd.toFixed(2)}</td><td></td>${isKvMode ? '<td></td>' : ''}</tr>
-        ${Array.from(rateMap.values()).map((data, i) => {
-            const kvCell = isKvMode ? (i > 0 ? '<td></td>' : `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>`) : '';
-            return `<tr><td style="font-weight:600;color:#475569;">Stunden ${data.names.join(', ')} <span style="color:#94a3b8;">(${data.std.toFixed(2)} Std.)</span></td><td class="center"><div class="val-container"><span>${data.std.toFixed(2)} x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td><td></td>${kvCell}</tr>`;
-        }).join('')}
-        <tr><td style="font-weight:600;color:#475569;">Entsorgungen</td><td><div class="val-container"><span></span><span>${numFormat(serviceKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(serviceErloes)}</span></div></td>${isKvMode ? `<td class="right">${kvValues['service_total'] ? numFormat(kvValues['service_total']) : ''}</td>` : ''}</tr>
-        <tr><td style="font-weight:600;color:#475569;">LKW</td><td></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>${isKvMode ? `<td class="right">${kvValues['lkw'] ? numFormat(kvValues['lkw']) : ''}</td>` : ''}</tr>
-        <tr><td style="font-weight:600;color:#475569;">HVZ</td><td><div class="val-container"><span></span><span>${numFormat(hvzKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(hvzErloes)}</span></div></td>${isKvMode ? `<td class="right">${kvValues['hvz'] ? numFormat(kvValues['hvz']) : ''}</td>` : ''}</tr>
-        <tr><td style="font-weight:600;color:#475569;">Diesel / BNK</td><td><div class="val-container"><span></span><span>${numFormat(bnkKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(bnkErloes)}</span></div></td>${isKvMode ? `<td class="right">${kvValues['diesel'] ? numFormat(kvValues['diesel']) : ''}</td>` : ''}</tr>
-        <tr><td style="font-weight:600;color:#475569;">Sonstige Kosten</td><td><div class="val-container"><span></span><span>${numFormat(extraKosten2)}</span></div></td><td></td>${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}</tr>
-        <tr><td style="font-weight:600;color:#475569;">Material</td><td><div class="val-container"><span></span><span>${numFormat(materialKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(materialErloes)}</span></div></td>${isKvMode ? `<td class="right">${kvValues['material'] ? numFormat(kvValues['material']) : ''}</td>` : ''}</tr>
-        <tr><td style="font-weight:600;color:#475569;">Erlöse</td><td></td><td><div class="val-container"><span></span><span>${numFormat(revenueTotal)}</span></div></td>${isKvMode ? '<td></td>' : ''}</tr>
-        <tr><td style="font-weight:600;color:#475569;">Rabatt / Nachlässe</td><td></td><td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>${isKvMode ? '<td></td>' : ''}</tr>
-        <tr style="border-top:3px double #334155;background:#f1f5f9;"><td style="font-weight:700;color:#0f172a;">Summe</td><td style="font-weight:700;text-align:right;">${numFormat(totalCosts)}</td><td style="font-weight:700;text-align:right;">${numFormat(totalRevenue)}</td>${isKvMode ? `<td style="font-weight:700;text-align:right;color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a: number, b: number) => a + b, 0))}</td>` : ''}</tr>
-    </table>
-    <table class="summary-table">
-        <tr><td class="label">KV vorher</td><td class="val">${isKvMode ? numFormat((Object.values(kvValues) as number[]).reduce((a: number, b: number) => a + b, 0)) : '- €'}</td></tr>
-        <tr><td class="label">Nettoumsatz</td><td class="val">${numFormat(totalRevenue)}</td></tr>
-        <tr class="total"><td class="label">Bruttoumsatz</td><td class="val">${numFormat(totalRevenue * 1.19)}</td></tr>
-        <tr><td class="label">Gesamtkosten netto</td><td class="val">${numFormat(totalCosts)}</td></tr>
-        <tr class="total"><td class="label">Nettoeinnahme</td><td class="val">${numFormat(margin)}</td></tr>
-        <tr><td class="label">Prozent</td><td class="val" style="padding-top:12px;"><span style="background-color:#86efac;color:#166534;padding:6px 12px;border-radius:4px;font-weight:700;font-size:14px;border:1px solid #4ade80;">${marginPct.toFixed(1)}%</span></td></tr>
-    </table>
-</body></html>`;
+        const html = generateAuftragsnachkalkulationHTML(snapshot);
 
         const html2pdf = (await import('html2pdf.js')).default;
         const container = document.createElement('div');

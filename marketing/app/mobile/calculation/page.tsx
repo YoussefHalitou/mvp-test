@@ -92,10 +92,18 @@ export default function MobileCalculationPage() {
     // Collapsed groups in personnel tab
     const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
 
+    // Morningplan per-date entries
+    const [morningPlanEntries, setMorningPlanEntries] = useState<{ plan_id: string; project_id: string; plan_date: string }[]>([]);
+    const [selectedPlanDate, setSelectedPlanDate] = useState<string | null>(null);
+
     useEffect(() => {
         (async () => {
-            const { data } = await supabase.from('t_projects').select('*').order('created_at', { ascending: false });
-            setProjects(data || []);
+            const [projRes, mpRes] = await Promise.all([
+                supabase.from('t_projects').select('*').order('created_at', { ascending: false }),
+                supabase.from('t_morningplan').select('plan_id, project_id, plan_date').order('plan_date', { ascending: false }),
+            ]);
+            setProjects(projRes.data || []);
+            setMorningPlanEntries(mpRes.data || []);
             setLoading(false);
         })();
     }, []);
@@ -110,7 +118,7 @@ export default function MobileCalculationPage() {
         (employees || []).forEach(e => { rateMap[e.name] = { rate: e.hourly_rate || 0, role: e.role }; });
 
         // Load all 9 tables — same as desktop
-        const [tpRes, matRes, vehRes, svcRes, revRes, extRes, discRes, hvzRes, bnkRes] = await Promise.all([
+        const [tpRes, matRes, vehRes, svcRes, revRes, extRes, discRes, hvzRes, bnkRes, waRes] = await Promise.all([
             supabase.from('t_time_pairs').select('*').eq('project_id', projectId).order('datum'),
             supabase.from('t_project_material_usage').select('*, material:t_materials(name, unit, prices:t_material_prices(cost_per_unit, price_per_unit))').eq('project_id', projectId),
             supabase.from('t_project_vehicle_costs').select('*, vehicle:t_vehicles(nickname)').eq('project_id', projectId),
@@ -120,10 +128,12 @@ export default function MobileCalculationPage() {
             supabase.from('t_project_discounts').select('*').eq('project_id', projectId),
             supabase.from('t_project_hvz_costs').select('*').eq('project_id', projectId),
             supabase.from('t_project_bnk_costs').select('*').eq('project_id', projectId),
+            supabase.from('t_work_assignments').select('*').eq('project_id', projectId).order('assignment_date'),
         ]);
 
-        // Transform — same logic as desktop
-        setPersonnel((tpRes.data || []).filter((tp: any) => tp.pause !== 'deleted').map((tp: any) => {
+        // Map time pairs to personnel rows — optionally filter by planDate
+        const filteredTpData = selectedPlanDate ? (tpRes.data || []).filter((tp: any) => tp.datum === selectedPlanDate) : (tpRes.data || []);
+        const tpPersonnel: TimePairWithRate[] = filteredTpData.filter((tp: any) => tp.pause !== 'deleted').map((tp: any) => {
             const lisH = calcHours(tp.lis_von, tp.lis_bis, tp.pause_min || 0);
             const kdH = calcHours(tp.kunde_von, tp.kunde_bis);
             const satz = rateMap[tp.mitarbeiter]?.rate || 0;
@@ -132,7 +142,22 @@ export default function MobileCalculationPage() {
                 lis_von: tp.lis_von, lis_bis: tp.lis_bis, kunde_von: tp.kunde_von, kunde_bis: tp.kunde_bis,
                 pause_min: tp.pause_min || 0, lis_stunden: lisH, kunden_stunden: kdH, satz, kosten: +(lisH * satz).toFixed(2),
             };
-        }));
+        });
+
+        // Map work assignments to personnel rows — optionally filter by planDate
+        const filteredWaData = selectedPlanDate ? (waRes.data || []).filter((wa: any) => wa.assignment_date === selectedPlanDate) : (waRes.data || []);
+        const waPersonnel: TimePairWithRate[] = (filteredWaData as any[]).map((wa: any) => {
+            const lisH = calcHours(wa.start_time, wa.end_time, wa.break_minutes || 0);
+            const satz = rateMap[wa.employee_name]?.rate || 0;
+            return {
+                pair_id: `wa-${wa.assignment_id}`, datum: wa.assignment_date, mitarbeiter: wa.employee_name,
+                role: rateMap[wa.employee_name]?.role || wa.work_type || null,
+                lis_von: wa.start_time, lis_bis: wa.end_time, kunde_von: null, kunde_bis: null,
+                pause_min: wa.break_minutes || 0, lis_stunden: lisH, kunden_stunden: lisH, satz, kosten: +(lisH * satz).toFixed(2),
+            };
+        });
+
+        setPersonnel([...tpPersonnel, ...waPersonnel]);
 
         setMaterials((matRes.data as any || []).map((m: any) => {
             const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;
@@ -180,7 +205,7 @@ export default function MobileCalculationPage() {
             return;
         }
         loadProjectData(selectedProjectId);
-    }, [selectedProjectId, loadProjectData]);
+    }, [selectedProjectId, selectedPlanDate, loadProjectData]);
 
     // ---- Calculations (matching desktop) ----
     const personalKosten = useMemo(() => personnel.reduce((s, p) => s + p.kosten, 0), [personnel]);
@@ -244,10 +269,34 @@ export default function MobileCalculationPage() {
             {/* Project selector */}
             <div className="sticky top-[calc(64px+env(safe-area-inset-top,0px))] z-30 bg-white border-b border-slate-200 shadow-sm px-4 sm:px-6 py-3">
                 <select className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-white"
-                    value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}>
+                    value={selectedProjectId} onChange={e => { setSelectedProjectId(e.target.value); setSelectedPlanDate(null); }}>
                     <option value="">Projekt auswählen...</option>
                     {projects.map(p => <option key={p.project_id} value={p.project_id}>{p.project_code} — {p.name}</option>)}
                 </select>
+                {/* Per-date filter for multiday projects */}
+                {selectedProjectId && (() => {
+                    const projectPlanDates = Array.from(new Set(
+                        morningPlanEntries
+                            .filter(mp => mp.project_id === selectedProjectId)
+                            .map(mp => mp.plan_date)
+                    )).sort();
+                    if (projectPlanDates.length <= 1) return null;
+                    return (
+                        <div className="flex overflow-x-auto gap-1 mt-2 -mx-1 px-1 pb-1 scrollbar-hide">
+                            <button
+                                onClick={() => setSelectedPlanDate(null)}
+                                className={cn('px-2.5 py-1.5 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-colors shrink-0',
+                                    !selectedPlanDate ? 'bg-violet-100 text-violet-700' : 'text-slate-500 bg-slate-50')}
+                            >Alle Tage</button>
+                            {projectPlanDates.map(pd => (
+                                <button key={pd} onClick={() => setSelectedPlanDate(pd)}
+                                    className={cn('px-2.5 py-1.5 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-colors shrink-0',
+                                        selectedPlanDate === pd ? 'bg-violet-100 text-violet-700' : 'text-slate-500 bg-slate-50')}
+                                >{formatDate(pd)}</button>
+                            ))}
+                        </div>
+                    );
+                })()}
                 {/* Cost tabs */}
                 {selectedProjectId && (
                     <div className="flex overflow-x-auto gap-1 mt-2 -mx-1 px-1 pb-1 scrollbar-hide">

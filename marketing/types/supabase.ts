@@ -426,6 +426,7 @@ export interface Database {
                     status: string | null
                     notes: string | null
                     break_minutes: number | null
+                    project_id: string | null
                     created_at: string | null
                     updated_at: string | null
                 }
@@ -441,6 +442,7 @@ export interface Database {
                     status?: string | null
                     notes?: string | null
                     break_minutes?: number | null
+                    project_id?: string | null
                 }
                 Update: {
                     work_type?: string
@@ -453,6 +455,7 @@ export interface Database {
                     status?: string | null
                     notes?: string | null
                     break_minutes?: number | null
+                    project_id?: string | null
                 }
             }
             t_project_service_usage: {

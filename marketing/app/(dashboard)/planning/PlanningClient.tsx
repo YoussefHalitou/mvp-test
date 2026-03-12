@@ -263,11 +263,32 @@ export function PlanningClient() {
             try {
                 const { error } = await supabase.from('t_morningplan').update({ plan_date: newDate }).eq('plan_id', planId);
                 if (error) throw error;
+                // Sync project_date to earliest calendar date
+                if (plan.project_id) await syncProjectDate(plan.project_id);
                 toast(`Verschoben auf ${format(new Date(newDate), 'dd.MM.')}`);
             } catch {
                 toast('Fehler beim Verschieben', 'error');
                 fetchData();
             }
+        }
+    };
+
+    // ---- SYNC PROJECT DATE ----
+    const syncProjectDate = async (projectId: string) => {
+        try {
+            // Get earliest plan_date for this project
+            const { data: planDates } = await supabase
+                .from('t_morningplan')
+                .select('plan_date')
+                .eq('project_id', projectId)
+                .order('plan_date', { ascending: true })
+                .limit(1);
+            const earliest = planDates?.[0]?.plan_date;
+            if (earliest) {
+                await supabase.from('t_projects').update({ project_date: earliest }).eq('project_id', projectId);
+            }
+        } catch (err) {
+            console.error('Error syncing project date:', err);
         }
     };
 
@@ -308,6 +329,10 @@ export function PlanningClient() {
                 const { error } = await supabase.from('t_morningplan').update(payload).eq('plan_id', planModal.plan.plan_id);
                 if (error) throw error;
                 toast(planForm.is_besichtigung ? 'Besichtigung aktualisiert' : 'Einsatz aktualisiert');
+            }
+            // Sync project_date to earliest calendar date
+            if (planForm.project_id) {
+                await syncProjectDate(planForm.project_id);
             }
             setPlanModal(null);
             fetchData();
@@ -362,6 +387,8 @@ export function PlanningClient() {
         try {
             const { error } = await supabase.from('t_morningplan').update({ plan_date: tomorrow }).eq('plan_id', plan.plan_id);
             if (error) throw error;
+            // Sync project_date to earliest calendar date
+            if (plan.project_id) await syncProjectDate(plan.project_id);
             toast(`Auf morgen (${format(new Date(tomorrow), 'dd.MM.')}) verschoben`);
             fetchData();
         } catch { toast('Fehler beim Verschieben', 'error'); }

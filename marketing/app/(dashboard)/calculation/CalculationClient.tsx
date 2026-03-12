@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { format } from 'date-fns';
+import { de } from 'date-fns/locale';
 import {
     Calculator, ChevronDown, Users, Truck, Package, Wrench,
     TrendingUp, DollarSign, Loader2, Plus, Trash2, Save, FileText, X, Pencil,
@@ -95,6 +96,10 @@ export default function CalculationPage() {
     const [multiSelectMode, setMultiSelectMode] = useState(false);
     const [checkedProjectIds, setCheckedProjectIds] = useState<Set<string>>(new Set());
     const [mergedProjectNames, setMergedProjectNames] = useState<string[]>([]);
+
+    // Morningplan per-date entries
+    const [morningPlanEntries, setMorningPlanEntries] = useState<{ plan_id: string; project_id: string; plan_date: string }[]>([]);
+    const [selectedPlanDate, setSelectedPlanDate] = useState<string | null>(null);
 
     const [personnel, setPersonnel] = useState<TimePairWithRate[]>([]);
     const [materials, setMaterials] = useState<MaterialRow[]>([]);
@@ -229,16 +234,18 @@ export default function CalculationPage() {
 
     useEffect(() => {
         (async () => {
-            const [projRes, matRes, vehRes, svcRes] = await Promise.all([
+            const [projRes, matRes, vehRes, svcRes, mpRes] = await Promise.all([
                 supabase.from('t_projects').select('*').order('created_at', { ascending: false }),
                 supabase.from('t_materials').select('*, prices:t_material_prices(cost_per_unit, price_per_unit)').eq('is_active', true).order('name'),
                 supabase.from('t_vehicles').select('*').eq('is_deleted', false).order('nickname'),
                 supabase.from('t_services').select('*, prices:t_service_prices(*)').eq('is_active', true).order('name'),
+                supabase.from('t_morningplan').select('plan_id, project_id, plan_date').order('plan_date', { ascending: false }),
             ]);
             setProjects(projRes.data || []);
             setMaterialCatalog(matRes.data || []);
             setVehicleCatalog(vehRes.data || []);
             setServiceCatalog(svcRes.data || []);
+            setMorningPlanEntries(mpRes.data || []);
         })();
     }, []);
 
@@ -304,9 +311,9 @@ export default function CalculationPage() {
         setMergedProjectNames([]);
         setPerRowKundenSatz({});
         setGlobalKdSatz(null);
-        loadProjectData([selectedProjectId]);
+        loadProjectData([selectedProjectId], selectedPlanDate);
         checkSubmissionStatus(selectedProjectId);
-    }, [selectedProjectId]);
+    }, [selectedProjectId, selectedPlanDate]);
 
     const toggleChecked = (pid: string) => {
         setCheckedProjectIds(prev => {
@@ -328,7 +335,7 @@ export default function CalculationPage() {
         loadProjectData(ids);
     };
 
-    const loadProjectData = async (pids: string[]) => {
+    const loadProjectData = async (pids: string[], planDate?: string | null) => {
         setLoading(true);
         const proj = projects.find(p => p.project_id === pids[0]) || null;
         if (proj) {
@@ -368,8 +375,9 @@ export default function CalculationPage() {
         const bnkData = allResults.flatMap(r => r[8].data || []);
         const waData = allResults.flatMap(r => r[9].data || []);
 
-        // Map time pairs to personnel rows
-        const tpPersonnel: TimePairWithRate[] = tpData.filter(tp => tp.pause !== 'deleted').map(tp => {
+        // Map time pairs to personnel rows — optionally filter by planDate
+        const filteredTpData = planDate ? tpData.filter(tp => tp.datum === planDate) : tpData;
+        const tpPersonnel: TimePairWithRate[] = filteredTpData.filter(tp => tp.pause !== 'deleted').map(tp => {
             const lisH = calcHours(tp.lis_von, tp.lis_bis, tp.pause_min || 0);
             const kdH = calcHours(tp.kunde_von, tp.kunde_bis);
             const satz = rateMap[tp.mitarbeiter]?.rate || 0;
@@ -380,8 +388,9 @@ export default function CalculationPage() {
             };
         });
 
-        // Map work assignments to personnel rows
-        const waPersonnel: TimePairWithRate[] = (waData as any[]).map((wa: any) => {
+        // Map work assignments to personnel rows — optionally filter by planDate
+        const filteredWaData = planDate ? waData.filter((wa: any) => wa.assignment_date === planDate) : waData;
+        const waPersonnel: TimePairWithRate[] = (filteredWaData as any[]).map((wa: any) => {
             const lisH = calcHours(wa.start_time, wa.end_time, wa.break_minutes || 0);
             const satz = rateMap[wa.employee_name]?.rate || 0;
             return {
@@ -1089,70 +1098,127 @@ export default function CalculationPage() {
                                                 const isPast = p.project_date ? new Date(p.project_date).getTime() < new Date().setHours(0, 0, 0, 0) : true;
                                                 const isUnassigned = (!p.project_date && !p.ort);
 
-                                                return (
-                                                    <button
-                                                        key={p.project_id}
-                                                        onClick={() => multiSelectMode ? toggleChecked(p.project_id) : setSelectedProjectId(p.project_id)}
-                                                        className={cn(
-                                                            "w-full text-left p-3 hover:bg-white transition-all border-l-[3px] group focus:outline-none bg-slate-50/50",
-                                                            !multiSelectMode && selectedProjectId === p.project_id
-                                                                ? "bg-blue-50/60 border-l-blue-600 shadow-inner"
-                                                                : multiSelectMode && checkedProjectIds.has(p.project_id)
-                                                                    ? "bg-blue-50/60 border-l-blue-600 shadow-inner"
-                                                                    : "border-l-transparent"
-                                                        )}
-                                                    >
-                                                        <div className="flex items-start gap-3">
-                                                            {multiSelectMode && (
-                                                                <div className={cn(
-                                                                    "w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors mt-0.5",
-                                                                    checkedProjectIds.has(p.project_id)
-                                                                        ? "bg-blue-600 border-blue-600"
-                                                                        : "border-slate-300 bg-white"
-                                                                )}>
-                                                                    {checkedProjectIds.has(p.project_id) && (
-                                                                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex items-center gap-2 mb-1">
-                                                                    {/* Status Indicator Dot */}
-                                                                    <div className={cn(
-                                                                        "w-2 h-2 rounded-full flex-shrink-0",
-                                                                        isUnassigned ? "bg-slate-300" : isPast ? "bg-amber-400" : "bg-emerald-400"
-                                                                    )} title={isUnassigned ? "Unvollständig" : isPast ? "Abgeschlossen/Vergangen" : "Zukünftig"} />
+                                                // Get unique plan dates for this project from morningplan
+                                                const projectPlanDates = Array.from(new Set(
+                                                    morningPlanEntries
+                                                        .filter(mp => mp.project_id === p.project_id)
+                                                        .map(mp => mp.plan_date)
+                                                )).sort();
+                                                const hasMultipleDates = projectPlanDates.length > 1;
+                                                const isThisProjectSelected = !multiSelectMode && selectedProjectId === p.project_id;
 
+                                                return (
+                                                    <div key={p.project_id}>
+                                                        <button
+                                                            onClick={() => {
+                                                                if (multiSelectMode) {
+                                                                    toggleChecked(p.project_id);
+                                                                } else {
+                                                                    setSelectedProjectId(p.project_id);
+                                                                    setSelectedPlanDate(null); // Show all dates by default
+                                                                }
+                                                            }}
+                                                            className={cn(
+                                                                "w-full text-left p-3 hover:bg-white transition-all border-l-[3px] group focus:outline-none bg-slate-50/50",
+                                                                isThisProjectSelected && !selectedPlanDate
+                                                                    ? "bg-blue-50/60 border-l-blue-600 shadow-inner"
+                                                                    : isThisProjectSelected && selectedPlanDate
+                                                                        ? "bg-blue-50/30 border-l-blue-300"
+                                                                        : multiSelectMode && checkedProjectIds.has(p.project_id)
+                                                                            ? "bg-blue-50/60 border-l-blue-600 shadow-inner"
+                                                                            : "border-l-transparent"
+                                                            )}
+                                                        >
+                                                            <div className="flex items-start gap-3">
+                                                                {multiSelectMode && (
                                                                     <div className={cn(
-                                                                        "text-sm font-medium truncate",
-                                                                        (!multiSelectMode && selectedProjectId === p.project_id) || (multiSelectMode && checkedProjectIds.has(p.project_id))
-                                                                            ? "text-blue-700" : "text-slate-700"
+                                                                        "w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors mt-0.5",
+                                                                        checkedProjectIds.has(p.project_id)
+                                                                            ? "bg-blue-600 border-blue-600"
+                                                                            : "border-slate-300 bg-white"
                                                                     )}>
-                                                                        {p.name || 'Unbenanntes Projekt'}
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex items-center justify-between gap-2 pl-4">
-                                                                    <div className="flex items-center gap-1.5 min-w-0">
-                                                                        {p.project_code && (
-                                                                            <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                                                                                {p.project_code}
-                                                                            </span>
-                                                                        )}
-                                                                        {p.ort && (
-                                                                            <span className="text-xs text-slate-400 truncate flex-1 block" title={p.ort}>
-                                                                                {p.ort}
-                                                                            </span>
+                                                                        {checkedProjectIds.has(p.project_id) && (
+                                                                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                                                                         )}
                                                                     </div>
-                                                                    {p.project_date && (
-                                                                        <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono">
-                                                                            {format(new Date(p.project_date), 'dd.MM.yy')}
-                                                                        </span>
-                                                                    )}
+                                                                )}
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        {/* Status Indicator Dot */}
+                                                                        <div className={cn(
+                                                                            "w-2 h-2 rounded-full flex-shrink-0",
+                                                                            isUnassigned ? "bg-slate-300" : isPast ? "bg-amber-400" : "bg-emerald-400"
+                                                                        )} title={isUnassigned ? "Unvollständig" : isPast ? "Abgeschlossen/Vergangen" : "Zukünftig"} />
+
+                                                                        <div className={cn(
+                                                                            "text-sm font-medium truncate",
+                                                                            isThisProjectSelected || (multiSelectMode && checkedProjectIds.has(p.project_id))
+                                                                                ? "text-blue-700" : "text-slate-700"
+                                                                        )}>
+                                                                            {p.name || 'Unbenanntes Projekt'}
+                                                                        </div>
+                                                                        {hasMultipleDates && (
+                                                                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 font-semibold flex-shrink-0">
+                                                                                {projectPlanDates.length} Tage
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between gap-2 pl-4">
+                                                                        <div className="flex items-center gap-1.5 min-w-0">
+                                                                            {p.project_code && (
+                                                                                <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                                                                    {p.project_code}
+                                                                                </span>
+                                                                            )}
+                                                                            {p.ort && (
+                                                                                <span className="text-xs text-slate-400 truncate flex-1 block" title={p.ort}>
+                                                                                    {p.ort}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        {p.project_date && (
+                                                                            <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono">
+                                                                                {format(new Date(p.project_date), 'dd.MM.yy')}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                             </div>
-                                                        </div>
-                                                    </button>
+                                                        </button>
+
+                                                        {/* Per-date sub-entries for multiday projects */}
+                                                        {isThisProjectSelected && hasMultipleDates && (
+                                                            <div className="bg-slate-50/80 border-l-[3px] border-l-blue-200 pl-6 pr-3 py-1 space-y-0.5">
+                                                                <button
+                                                                    onClick={() => setSelectedPlanDate(null)}
+                                                                    className={cn(
+                                                                        "w-full text-left px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors flex items-center gap-2",
+                                                                        !selectedPlanDate
+                                                                            ? "bg-blue-100 text-blue-700"
+                                                                            : "text-slate-500 hover:bg-slate-100"
+                                                                    )}
+                                                                >
+                                                                    <Calendar className="h-3 w-3" />
+                                                                    Alle Tage
+                                                                </button>
+                                                                {projectPlanDates.map(pd => (
+                                                                    <button
+                                                                        key={pd}
+                                                                        onClick={() => setSelectedPlanDate(pd)}
+                                                                        className={cn(
+                                                                            "w-full text-left px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors flex items-center gap-2",
+                                                                            selectedPlanDate === pd
+                                                                                ? "bg-blue-100 text-blue-700"
+                                                                                : "text-slate-500 hover:bg-slate-100"
+                                                                        )}
+                                                                    >
+                                                                        <Calendar className="h-3 w-3" />
+                                                                        {format(new Date(pd), 'EEE dd.MM.yy', { locale: de })}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 );
                                             })}
                                         </div>
@@ -1708,9 +1774,10 @@ export default function CalculationPage() {
                                     onChange={e => setAddSvcForm({ ...addSvcForm, supplier: e.target.value, service_id: '' })}>
                                     <option value="">Alle Lieferanten...</option>
                                     {Array.from(new Set(
-                                        serviceCatalog.flatMap((svc: any) =>
-                                            (svc.prices || []).map((p: any) => p.supplier).filter(Boolean)
-                                        )
+                                        serviceCatalog.flatMap((svc: any) => {
+                                            const prices = Array.isArray(svc.prices) ? svc.prices : svc.prices ? [svc.prices] : [];
+                                            return prices.map((p: any) => p.supplier).filter(Boolean);
+                                        })
                                     )).sort().map((s: any) => <option key={s as string} value={s as string}>{s as React.ReactNode}</option>)}
                                 </select>
                             </div>
@@ -1719,14 +1786,17 @@ export default function CalculationPage() {
                                     <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.service_id} onChange={e => {
                                         const newServiceId = e.target.value;
                                         const svc = serviceCatalog.find((x: any) => x.service_id === newServiceId);
-                                        const prices = svc?.prices || [];
+                                        const prices = Array.isArray(svc?.prices) ? svc.prices : svc?.prices ? [svc.prices] : [];
                                         const existingSupplierValid = prices.some((x: any) => x.supplier === addSvcForm.supplier);
                                         const chosenSupplier = existingSupplierValid ? addSvcForm.supplier : (prices[0]?.supplier || '');
                                         setAddSvcForm({ ...addSvcForm, service_id: newServiceId, supplier: chosenSupplier });
                                     }}>
                                         <option value="">Wählen...</option>
                                         {serviceCatalog
-                                            .filter((svc: any) => !addSvcForm.supplier || (svc.prices || []).some((p: any) => p.supplier === addSvcForm.supplier))
+                                            .filter((svc: any) => {
+                                                const prices = Array.isArray(svc.prices) ? svc.prices : svc.prices ? [svc.prices] : [];
+                                                return !addSvcForm.supplier || prices.some((p: any) => p.supplier === addSvcForm.supplier);
+                                            })
                                             .map((s: any) => <option key={s.service_id} value={s.service_id}>{s.name}</option>)}
                                     </select>
                                 </div>

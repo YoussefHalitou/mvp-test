@@ -419,7 +419,8 @@ export default function CalculationPage() {
         })));
 
         setServices((svcData as any || []).map((s: any) => {
-            const p = Array.isArray(s.service?.prices) ? s.service.prices[0] : s.service?.prices;
+            const prices: any[] = Array.isArray(s.service?.prices) ? s.service.prices : s.service?.prices ? [s.service.prices] : [];
+            const p = s.supplier ? prices.find((x: any) => x.supplier === s.supplier) || prices[0] : prices[0];
             return {
                 id: s.id, service_id: s.service_id, service_name: s.service?.name || s.service_id, supplier: s.supplier || p?.supplier || '',
                 quantity: s.quantity || 1, unit: s.service?.default_unit || 'Std', cost_per_unit: p?.cost_per_unit || 0,
@@ -1767,37 +1768,32 @@ export default function CalculationPage() {
                     {/* ======= ADD SERVICE MODAL ======= */}
                     {addSvcModal && <Modal title="Dienstleistung hinzufügen" onClose={() => setAddSvcModal(false)} onSave={addServiceCost} disabled={!addSvcForm.service_id}>
                         <div className="space-y-3">
-                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Lieferant</label>
-                                <select
-                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                    value={addSvcForm.supplier || ''}
-                                    onChange={e => setAddSvcForm({ ...addSvcForm, supplier: e.target.value, service_id: '' })}>
-                                    <option value="">Alle Lieferanten...</option>
-                                    {Array.from(new Set(
-                                        serviceCatalog.flatMap((svc: any) => {
-                                            const prices = Array.isArray(svc.prices) ? svc.prices : svc.prices ? [svc.prices] : [];
-                                            return prices.map((p: any) => p.supplier).filter(Boolean);
-                                        })
-                                    )).sort().map((s: any) => <option key={s as string} value={s as string}>{s as React.ReactNode}</option>)}
+                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Leistung</label>
+                                <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.service_id} onChange={e => {
+                                    const newServiceId = e.target.value;
+                                    const svc = serviceCatalog.find((x: any) => x.service_id === newServiceId);
+                                    const prices = Array.isArray(svc?.prices) ? svc.prices : svc?.prices ? [svc.prices] : [];
+                                    const chosenSupplier = prices[0]?.supplier || '';
+                                    setAddSvcForm({ ...addSvcForm, service_id: newServiceId, supplier: chosenSupplier });
+                                }}>
+                                    <option value="">Wählen...</option>
+                                    {serviceCatalog.map((s: any) => <option key={s.service_id} value={s.service_id}>{s.name}</option>)}
                                 </select>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
-                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Leistung</label>
-                                    <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.service_id} onChange={e => {
-                                        const newServiceId = e.target.value;
-                                        const svc = serviceCatalog.find((x: any) => x.service_id === newServiceId);
-                                        const prices = Array.isArray(svc?.prices) ? svc.prices : svc?.prices ? [svc.prices] : [];
-                                        const existingSupplierValid = prices.some((x: any) => x.supplier === addSvcForm.supplier);
-                                        const chosenSupplier = existingSupplierValid ? addSvcForm.supplier : (prices[0]?.supplier || '');
-                                        setAddSvcForm({ ...addSvcForm, service_id: newServiceId, supplier: chosenSupplier });
-                                    }}>
-                                        <option value="">Wählen...</option>
-                                        {serviceCatalog
-                                            .filter((svc: any) => {
-                                                const prices = Array.isArray(svc.prices) ? svc.prices : svc.prices ? [svc.prices] : [];
-                                                return !addSvcForm.supplier || prices.some((p: any) => p.supplier === addSvcForm.supplier);
-                                            })
-                                            .map((s: any) => <option key={s.service_id} value={s.service_id}>{s.name}</option>)}
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Lieferant</label>
+                                    <select
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                        value={addSvcForm.supplier || ''}
+                                        onChange={e => setAddSvcForm({ ...addSvcForm, supplier: e.target.value })}>
+                                        <option value="">Lieferant...</option>
+                                        {(() => {
+                                            const svc = serviceCatalog.find((x: any) => x.service_id === addSvcForm.service_id);
+                                            const prices = Array.isArray(svc?.prices) ? svc.prices : svc?.prices ? [svc.prices] : [];
+                                            return Array.from(new Set(prices.map((p: any) => p.supplier).filter(Boolean)))
+                                                .sort()
+                                                .map((s: any) => <option key={s as string} value={s as string}>{s as React.ReactNode}</option>);
+                                        })()}
                                     </select>
                                 </div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>

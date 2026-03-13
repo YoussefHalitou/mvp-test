@@ -120,7 +120,7 @@ export default function TrackingPage() {
     const [activeTab, setActiveTab] = useState<'timepairs' | 'workassignments'>('timepairs');
 
     const fetchEmployees = useCallback(async () => {
-        const { data } = await supabase.from('t_employees').select('employee_id, name, employee_code').eq('is_active', true).order('name');
+        const { data } = await supabase.from('t_employees').select('employee_id, name, employee_code, contract_type').eq('is_active', true).order('name');
         setEmployees(data || []);
     }, []);
 
@@ -1091,8 +1091,8 @@ export default function TrackingPage() {
                                                         <table className="w-full text-xs">
                                                             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
                                                                 <tr>
-                                                                    <th className="px-3 py-2 text-left w-36">Lieferant</th>
                                                                     <th className="px-3 py-2 text-left">Leistung</th>
+                                                                    <th className="px-3 py-2 text-left w-36">Lieferant</th>
                                                                     <th className="px-3 py-2 text-right w-14">Menge</th>
 
                                                                     <th className="w-8"></th>
@@ -1105,39 +1105,37 @@ export default function TrackingPage() {
                                                                     <tr key={row._localId} className="hover:bg-slate-50 group">
                                                                         <td className="px-2 py-1.5">
                                                                             {row.isNew ? (
-                                                                                <select
-                                                                                    className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
-                                                                                    value={row.supplier || ''}
-                                                                                    onChange={e => {
-                                                                                        updateServiceRow(projectId, row._localId, 'supplier', e.target.value);
-                                                                                        // reset service if they change supplier manually to avoid stale references
-                                                                                        updateServiceRow(projectId, row._localId, 'service_id', '');
-                                                                                    }}
-                                                                                >
-                                                                                    <option value="">Alle Lieferanten...</option>
-                                                                                    {Array.from(new Set(
-                                                                                        serviceCatalog.flatMap((svc: any) =>
-                                                                                            (svc.prices || []).map((p: any) => p.supplier).filter(Boolean)
-                                                                                        )
-                                                                                    )).sort().map((s: any) => <option key={s} value={s}>{s}</option>)}
-                                                                                </select>
-                                                                            ) : (
-                                                                                <span className="font-medium text-slate-800">{row.supplier || '—'}</span>
-                                                                            )}
-                                                                        </td>
-                                                                        <td className="px-2 py-1.5">
-                                                                            {row.isNew ? (
                                                                                 <select className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
                                                                                     value={row.service_id}
                                                                                     onChange={e => updateServiceRow(projectId, row._localId, 'service_id', e.target.value)}>
                                                                                     <option value="">Wählen...</option>
                                                                                     {serviceCatalog
-                                                                                        .filter((svc: any) => !row.supplier || (svc.prices || []).some((p: any) => p.supplier === row.supplier))
                                                                                         .map((s: any) => <option key={s.service_id} value={s.service_id}>{s.name}</option>)
                                                                                     }
                                                                                 </select>
                                                                             ) : (
                                                                                 <span className="font-medium text-slate-800">{row.service_name}</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-2 py-1.5">
+                                                                            {row.isNew ? (
+                                                                                <select
+                                                                                    className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                                                    value={row.supplier || ''}
+                                                                                    onChange={e => updateServiceRow(projectId, row._localId, 'supplier', e.target.value)}
+                                                                                >
+                                                                                    <option value="">Lieferant...</option>
+                                                                                    {(() => {
+                                                                                        const svc = serviceCatalog.find((s: any) => s.service_id === row.service_id);
+                                                                                        const prices: any[] = svc?.prices || [];
+                                                                                        return prices.map((p: any) => p.supplier).filter(Boolean)
+                                                                                            .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i)
+                                                                                            .sort()
+                                                                                            .map((s: string) => <option key={s} value={s}>{s}</option>);
+                                                                                    })()}
+                                                                                </select>
+                                                                            ) : (
+                                                                                <span className="font-medium text-slate-800">{row.supplier || '—'}</span>
                                                                             )}
                                                                         </td>
                                                                         <td className="px-2 py-1.5">
@@ -1265,6 +1263,189 @@ export default function TrackingPage() {
                                     </div>
                                 );
                             })
+                        )}
+
+                        {/* ===== GESAMTÜBERSICHT (All Employees Summary) ===== */}
+                        {rows.length > 0 && (
+                            <div className="mt-4">
+                                <div className="flex items-center gap-2 mb-3 px-1">
+                                    <Clock className="h-5 w-5 text-slate-400" />
+                                    <h3 className="text-lg font-bold text-slate-800">Gesamtübersicht</h3>
+                                    <span className="text-xs text-slate-400 ml-1">Alle Mitarbeiter</span>
+                                </div>
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 text-slate-500 font-medium">
+                                            <tr>
+                                                <th className="px-4 py-3">Mitarbeiter</th>
+                                                {viewMode === 'day' && <th className="px-4 py-3">Projekt(e)</th>}
+                                                <th className="px-3 py-3 text-center border-l border-blue-100 bg-blue-50/50 text-blue-700 w-[80px]">LiS Von</th>
+                                                <th className="px-3 py-3 text-center bg-blue-50/50 text-blue-700 w-[80px]">LiS Bis</th>
+                                                <th className="px-3 py-3 text-center bg-blue-50/50 text-blue-700 w-[90px]">Σ LiS Std.</th>
+                                                <th className="px-3 py-3 text-center border-l border-green-100 bg-green-50/50 text-green-700 w-[80px]">Kd Von</th>
+                                                <th className="px-3 py-3 text-center bg-green-50/50 text-green-700 w-[80px]">Kd Bis</th>
+                                                <th className="px-3 py-3 text-center bg-green-50/50 text-green-700 w-[90px]">Σ Kd Std.</th>
+                                                <th className="px-3 py-3 text-center w-[80px]">Σ Pause</th>
+                                                <th className="px-3 py-3 text-center w-[80px]">Einträge</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {(() => {
+                                                // Build contract type lookup
+                                                const contractMap: Record<string, string> = {};
+                                                employees.forEach((emp: any) => {
+                                                    if (emp.name) contractMap[emp.name] = emp.contract_type || 'Intern';
+                                                });
+
+                                                // Group by employee
+                                                const empMap: Record<string, { lisTotal: number; kdTotal: number; pauseTotal: number; count: number; projects: Set<string>; lisVonMin: string; lisBisMax: string; kdVonMin: string; kdBisMax: string; contractType: string }> = {};
+                                                rows.forEach(row => {
+                                                    const key = row.mitarbeiter || '(Unbekannt)';
+                                                    if (!empMap[key]) empMap[key] = { lisTotal: 0, kdTotal: 0, pauseTotal: 0, count: 0, projects: new Set(), lisVonMin: '', lisBisMax: '', kdVonMin: '', kdBisMax: '', contractType: contractMap[key] || 'Intern' };
+                                                    const lisH = calculateHours(row.lis_von, row.lis_bis, row.pause_min);
+                                                    const kdH = calculateHours(row.kunde_von, row.kunde_bis);
+                                                    empMap[key].lisTotal += lisH === '—' ? 0 : parseFloat(lisH);
+                                                    empMap[key].kdTotal += kdH === '—' ? 0 : parseFloat(kdH);
+                                                    empMap[key].pauseTotal += row.pause_min || 0;
+                                                    empMap[key].count += 1;
+                                                    if (row.project_name) empMap[key].projects.add(row.project_name);
+                                                    // Track earliest start / latest end
+                                                    if (row.lis_von && (!empMap[key].lisVonMin || row.lis_von < empMap[key].lisVonMin)) empMap[key].lisVonMin = row.lis_von;
+                                                    if (row.lis_bis && (!empMap[key].lisBisMax || row.lis_bis > empMap[key].lisBisMax)) empMap[key].lisBisMax = row.lis_bis;
+                                                    if (row.kunde_von && (!empMap[key].kdVonMin || row.kunde_von < empMap[key].kdVonMin)) empMap[key].kdVonMin = row.kunde_von;
+                                                    if (row.kunde_bis && (!empMap[key].kdBisMax || row.kunde_bis > empMap[key].kdBisMax)) empMap[key].kdBisMax = row.kunde_bis;
+                                                });
+
+                                                const allEmployees = Object.entries(empMap).sort((a, b) => a[0].localeCompare(b[0]));
+                                                const internEmployees = allEmployees.filter(([, d]) => d.contractType !== 'Extern');
+                                                const externEmployees = allEmployees.filter(([, d]) => d.contractType === 'Extern');
+
+                                                const calcGroupTotals = (group: typeof allEmployees) => ({
+                                                    lis: group.reduce((s, [, v]) => s + v.lisTotal, 0),
+                                                    kd: group.reduce((s, [, v]) => s + v.kdTotal, 0),
+                                                    pause: group.reduce((s, [, v]) => s + v.pauseTotal, 0),
+                                                    count: group.reduce((s, [, v]) => s + v.count, 0),
+                                                });
+
+                                                const renderEmployeeRow = ([name, data]: [string, typeof empMap[string]]) => (
+                                                    <tr key={name} className="hover:bg-slate-50">
+                                                        <td className="px-4 py-2.5 font-medium text-slate-800">{name}</td>
+                                                        {viewMode === 'day' && (
+                                                            <td className="px-4 py-2.5 text-slate-500 text-xs">
+                                                                {Array.from(data.projects).join(', ') || '—'}
+                                                            </td>
+                                                        )}
+                                                        <td className="px-3 py-2.5 text-center font-mono text-blue-600 bg-blue-50/20 border-l border-blue-100">
+                                                            {data.lisVonMin || '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-mono text-blue-600 bg-blue-50/20">
+                                                            {data.lisBisMax || '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-semibold text-blue-700 bg-blue-50/20">
+                                                            {data.lisTotal > 0 ? data.lisTotal.toFixed(2) : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-mono text-green-600 bg-green-50/20 border-l border-green-100">
+                                                            {data.kdVonMin || '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-mono text-green-600 bg-green-50/20">
+                                                            {data.kdBisMax || '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-semibold text-green-700 bg-green-50/20">
+                                                            {data.kdTotal > 0 ? data.kdTotal.toFixed(2) : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center text-slate-500">
+                                                            {data.pauseTotal > 0 ? `${data.pauseTotal} min` : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center">
+                                                            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{data.count}</span>
+                                                        </td>
+                                                    </tr>
+                                                );
+
+                                                const renderSubtotalRow = (label: string, totals: ReturnType<typeof calcGroupTotals>, count: number, color: string) => (
+                                                    <tr className="border-t border-slate-200 bg-slate-50/70 font-semibold text-xs">
+                                                        <td className="px-4 py-2 text-slate-600">
+                                                            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${color}`}>
+                                                                {label}
+                                                            </span>
+                                                            <span className="text-slate-400 ml-2">{count} Mitarbeiter</span>
+                                                        </td>
+                                                        {viewMode === 'day' && <td />}
+                                                        <td className="bg-blue-50/30 border-l border-blue-100" />
+                                                        <td className="bg-blue-50/30" />
+                                                        <td className="px-3 py-2 text-center text-blue-700 bg-blue-50/30">
+                                                            {totals.lis > 0 ? totals.lis.toFixed(2) : '—'}
+                                                        </td>
+                                                        <td className="bg-green-50/30 border-l border-green-100" />
+                                                        <td className="bg-green-50/30" />
+                                                        <td className="px-3 py-2 text-center text-green-700 bg-green-50/30">
+                                                            {totals.kd > 0 ? totals.kd.toFixed(2) : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-center text-slate-500">
+                                                            {totals.pause > 0 ? `${totals.pause} min` : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-center">
+                                                            <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">{totals.count}</span>
+                                                        </td>
+                                                    </tr>
+                                                );
+
+                                                const grandTotals = calcGroupTotals(allEmployees);
+
+                                                return (
+                                                    <>
+                                                        {/* Intern employees */}
+                                                        {internEmployees.length > 0 && (
+                                                            <>
+                                                                <tr className="bg-blue-50/30">
+                                                                    <td colSpan={viewMode === 'day' ? 10 : 9} className="px-4 py-2 text-xs font-bold text-blue-800 uppercase tracking-wider border-b border-blue-100">
+                                                                        <span className="inline-flex items-center gap-1.5">👷 Interne Mitarbeiter</span>
+                                                                    </td>
+                                                                </tr>
+                                                                {internEmployees.map(renderEmployeeRow)}
+                                                                {renderSubtotalRow('Intern', calcGroupTotals(internEmployees), internEmployees.length, 'bg-blue-100 text-blue-700')}
+                                                            </>
+                                                        )}
+                                                        {/* Extern employees */}
+                                                        {externEmployees.length > 0 && (
+                                                            <>
+                                                                <tr className="bg-orange-50/30">
+                                                                    <td colSpan={viewMode === 'day' ? 10 : 9} className="px-4 py-2 text-xs font-bold text-orange-800 uppercase tracking-wider border-b border-orange-100">
+                                                                        <span className="inline-flex items-center gap-1.5">🤝 Externe Mitarbeiter</span>
+                                                                    </td>
+                                                                </tr>
+                                                                {externEmployees.map(renderEmployeeRow)}
+                                                                {renderSubtotalRow('Extern', calcGroupTotals(externEmployees), externEmployees.length, 'bg-orange-100 text-orange-700')}
+                                                            </>
+                                                        )}
+                                                        {/* Grand total */}
+                                                        <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold text-sm">
+                                                            <td className="px-4 py-3 text-slate-700 uppercase text-xs tracking-wide">Gesamt</td>
+                                                            {viewMode === 'day' && <td className="px-4 py-3 text-slate-400 text-xs">{allEmployees.length} Mitarbeiter</td>}
+                                                            <td className="bg-blue-50/40 border-l border-blue-100" />
+                                                            <td className="bg-blue-50/40" />
+                                                            <td className="px-3 py-3 text-center text-blue-800 bg-blue-50/40">
+                                                                {grandTotals.lis > 0 ? grandTotals.lis.toFixed(2) : '—'}
+                                                            </td>
+                                                            <td className="bg-green-50/40 border-l border-green-100" />
+                                                            <td className="bg-green-50/40" />
+                                                            <td className="px-3 py-3 text-center text-green-800 bg-green-50/40">
+                                                                {grandTotals.kd > 0 ? grandTotals.kd.toFixed(2) : '—'}
+                                                            </td>
+                                                            <td className="px-3 py-3 text-center text-slate-600">
+                                                                {grandTotals.pause > 0 ? `${grandTotals.pause} min` : '—'}
+                                                            </td>
+                                                            <td className="px-3 py-3 text-center">
+                                                                <span className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">{grandTotals.count}</span>
+                                                            </td>
+                                                        </tr>
+                                                    </>
+                                                );
+                                            })()}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         )}
                     </div>
                 ) : (

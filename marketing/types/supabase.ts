@@ -369,6 +369,8 @@ export interface Database {
                     ges_lis: string | null
                     ges_kd: string | null
                     notes: string | null
+                    replaced_by: string | null
+                    is_replacement: boolean | null
                     created_at: string | null
                     updated_at: string | null
                 }
@@ -391,6 +393,8 @@ export interface Database {
                     ges_lis?: string | null
                     ges_kd?: string | null
                     notes?: string | null
+                    replaced_by?: string | null
+                    is_replacement?: boolean | null
                 }
                 Update: {
                     pair_id?: string
@@ -411,6 +415,8 @@ export interface Database {
                     ges_lis?: string | null
                     ges_kd?: string | null
                     notes?: string | null
+                    replaced_by?: string | null
+                    is_replacement?: boolean | null
                 }
             }
             t_work_assignments: {

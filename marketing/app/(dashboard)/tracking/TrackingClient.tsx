@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { format, addDays } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Save, Copy, Loader2, Trash2, Plus, X, Pencil, Briefcase, Clock, Calendar, Package, Wrench, AlertCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Copy, Loader2, Trash2, Plus, X, Pencil, Briefcase, Clock, Calendar, Package, Wrench, AlertCircle, ArrowLeftRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/supabase';
@@ -36,6 +36,8 @@ interface TrackingRow {
     notes: string;
     datum?: string; // Added for project view
     isNew: boolean;
+    replaced_by: string | null;
+    is_replacement: boolean;
 }
 
 interface ProjectMatRow {
@@ -120,7 +122,7 @@ export default function TrackingPage() {
     const [activeTab, setActiveTab] = useState<'timepairs' | 'workassignments'>('timepairs');
 
     const fetchEmployees = useCallback(async () => {
-        const { data } = await supabase.from('t_employees').select('employee_id, name, employee_code').eq('is_active', true).order('name');
+        const { data } = await supabase.from('t_employees').select('employee_id, name, employee_code, contract_type').eq('is_active', true).order('name');
         setEmployees(data || []);
     }, []);
 
@@ -161,9 +163,11 @@ export default function TrackingPage() {
                     kunde_von: tp.kunde_von?.substring(0, 5) || '',
                     kunde_bis: tp.kunde_bis?.substring(0, 5) || '',
                     pause_min: tp.pause_min || 0,
-                    notes: tp.notes || '', // added notes mapping
-                    datum: tp.datum, // Important for project view
+                    notes: tp.notes || '',
+                    datum: tp.datum,
                     isNew: false,
+                    replaced_by: tp.replaced_by || null,
+                    is_replacement: tp.is_replacement || false,
                 }));
 
             setRows(trackingRows);
@@ -203,6 +207,8 @@ export default function TrackingPage() {
                     pause_min: tp.pause_min || 0,
                     notes: tp.notes || '',
                     isNew: false,
+                    replaced_by: tp.replaced_by || null,
+                    is_replacement: tp.is_replacement || false,
                 };
             });
 
@@ -231,7 +237,7 @@ export default function TrackingPage() {
                     employee_id: s.employee.employee_id,
                     lis_von: s.individual_start_time?.substring(0, 5) || s.plan?.start_time?.substring(0, 5) || '07:00',
                     lis_bis: '', kunde_von: '', kunde_bis: '', pause_min: 0, notes: '',
-                    isNew: true,
+                    isNew: true, replaced_by: null, is_replacement: false,
                 });
             }
         });
@@ -597,6 +603,8 @@ export default function TrackingPage() {
                     kunde_von: row.kunde_von ? `${row.kunde_von}:00` : null,
                     kunde_bis: row.kunde_bis ? `${row.kunde_bis}:00` : null,
                     pause_min: row.pause_min,
+                    replaced_by: row.replaced_by,
+                    is_replacement: row.is_replacement,
                     updated_at: new Date().toISOString(),
                 };
                 return supabase.from('t_time_pairs').upsert(record, { onConflict: 'pair_id' });
@@ -614,6 +622,44 @@ export default function TrackingPage() {
             const { error } = await supabase.from('t_time_pairs').update({ pause: 'deleted' }).eq('pair_id', row.pair_id);
             if (error) { toast('Fehler beim Löschen', 'error'); fetchData(); }
         }
+    };
+
+    // Replace employee: mark original as replaced + create new row
+    const [replaceDropdown, setReplaceDropdown] = useState<string | null>(null);
+
+    const handleReplace = async (row: TrackingRow, replacementEmployeeId: string) => {
+        const emp = employees.find(e => e.employee_id === replacementEmployeeId);
+        if (!emp) return;
+        setReplaceDropdown(null);
+
+        const dateStr = row.datum || format(currentDate, 'yyyy-MM-dd');
+        const newPairId = `replace-${row.pair_id}-${Date.now()}`;
+
+        // Update original row in DB
+        if (row.pair_id) {
+            await supabase.from('t_time_pairs').update({ replaced_by: newPairId }).eq('pair_id', row.pair_id);
+        }
+
+        // Insert replacement row in DB
+        await supabase.from('t_time_pairs').upsert({
+            pair_id: newPairId,
+            project_id: row.project_id,
+            plan_id: row.plan_id,
+            datum: dateStr,
+            mitarbeiter: emp.name,
+            employee_id: emp.employee_id,
+            lis_von: row.lis_von ? `${row.lis_von}:00` : null,
+            lis_bis: row.lis_bis ? `${row.lis_bis}:00` : null,
+            kunde_von: row.kunde_von ? `${row.kunde_von}:00` : null,
+            kunde_bis: row.kunde_bis ? `${row.kunde_bis}:00` : null,
+            pause_min: row.pause_min,
+            is_replacement: true,
+            updated_at: new Date().toISOString(),
+        }, { onConflict: 'pair_id' });
+
+        // Refresh data
+        fetchData();
+        toast(`${row.mitarbeiter} ersetzt durch ${emp.name}`);
     };
 
     const addRowToProject = (projectId: string, projectName: string, projectCode: string) => {
@@ -635,6 +681,8 @@ export default function TrackingPage() {
             notes: '',
             datum: defaultDate,
             isNew: true,
+            replaced_by: null,
+            is_replacement: false,
         }]);
     };
 
@@ -874,82 +922,133 @@ export default function TrackingPage() {
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
-                                                    {projectRows.map((row) => (
-                                                        <tr key={row._tempId} className="hover:bg-slate-50 group">
+                                                    {projectRows.map((row) => {
+                                                        const isReplaced = !!row.replaced_by;
+                                                        return (
+                                                        <tr key={row._tempId} className={cn("group", isReplaced ? "bg-red-50/30 opacity-60" : "hover:bg-slate-50")}>
                                                             <td className="px-4 py-3 hidden"></td>
                                                             {viewMode === 'project' && (
-                                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                                <td className={cn("px-4 py-3 text-sm text-slate-600", isReplaced && "line-through")}>
                                                                     {row.isNew ? (
-                                                                        <input type="date" className="bg-transparent border border-slate-200 rounded px-2 py-1 text-sm bg-white" value={row.datum || ''} onChange={e => updateRow(row._tempId, 'datum', e.target.value)} />
+                                                                        <input type="date" className="bg-transparent border border-slate-200 rounded px-2 py-1 text-sm bg-white" value={row.datum || ''} onChange={e => updateRow(row._tempId, 'datum', e.target.value)} disabled={isReplaced} />
                                                                     ) : (
                                                                         row.datum ? format(new Date(row.datum), 'dd.MM.yyyy') : '—'
                                                                     )}
                                                                 </td>
                                                             )}
-                                                            <td className="px-4 py-3">
-                                                                <select className="w-full bg-transparent border-none focus:ring-0 text-slate-900 text-sm"
-                                                                    value={row.employee_id || ''}
-                                                                    onChange={(e) => {
-                                                                        const emp = employees.find(em => em.employee_id === e.target.value);
-                                                                        updateRow(row._tempId, 'employee_id', e.target.value);
-                                                                        if (emp) updateRow(row._tempId, 'mitarbeiter', emp.name);
-                                                                    }}>
-                                                                    <option value="">{row.mitarbeiter || 'Wählen...'}</option>
-                                                                    {employees.map(emp => <option key={emp.employee_id} value={emp.employee_id}>{emp.name}</option>)}
-                                                                </select>
+                                                            <td className={cn("px-4 py-3", isReplaced && "line-through text-red-400")}>
+                                                                {isReplaced ? (
+                                                                    <span className="text-sm">{row.mitarbeiter}</span>
+                                                                ) : (
+                                                                    <select className="w-full bg-transparent border-none focus:ring-0 text-slate-900 text-sm"
+                                                                        value={row.employee_id || ''}
+                                                                        onChange={(e) => {
+                                                                            const emp = employees.find(em => em.employee_id === e.target.value);
+                                                                            updateRow(row._tempId, 'employee_id', e.target.value);
+                                                                            if (emp) updateRow(row._tempId, 'mitarbeiter', emp.name);
+                                                                        }}>
+                                                                        <option value="">{row.mitarbeiter || 'Wählen...'}</option>
+                                                                        {employees.map(emp => <option key={emp.employee_id} value={emp.employee_id}>{emp.name}</option>)}
+                                                                    </select>
+                                                                )}
                                                             </td>
-                                                            <td className="px-2 py-2 border-l border-blue-100 bg-blue-50/20">
-                                                                <input type="text" maxLength={5} placeholder="00:00" className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                    value={row.lis_von}
+                                                            <td className={cn("px-2 py-2 border-l border-blue-100 bg-blue-50/20", isReplaced && "line-through")}>
+                                                                <input type="text" maxLength={5} placeholder="00:00" className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                                                                    value={row.lis_von} disabled={isReplaced}
                                                                     onChange={(e) => updateRow(row._tempId, 'lis_von', autoFormatTimeInput(e.target.value))}
                                                                     onBlur={(e) => updateRow(row._tempId, 'lis_von', formatTimeInput(e.target.value))}
                                                                 />
                                                             </td>
-                                                            <td className="px-2 py-2 bg-blue-50/20">
-                                                                <input type="text" maxLength={5} placeholder="00:00" className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                    value={row.lis_bis}
+                                                            <td className={cn("px-2 py-2 bg-blue-50/20", isReplaced && "line-through")}>
+                                                                <input type="text" maxLength={5} placeholder="00:00" className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                                                                    value={row.lis_bis} disabled={isReplaced}
                                                                     onChange={(e) => updateRow(row._tempId, 'lis_bis', autoFormatTimeInput(e.target.value))}
                                                                     onBlur={(e) => updateRow(row._tempId, 'lis_bis', formatTimeInput(e.target.value))}
                                                                 />
                                                             </td>
-                                                            <td className="px-2 py-2 text-center text-sm font-semibold text-blue-700 bg-blue-50/20">{calculateHours(row.lis_von, row.lis_bis, row.pause_min)}</td>
-                                                            <td className="px-2 py-2 border-l border-green-100 bg-green-50/20">
-                                                                <input type="text" maxLength={5} placeholder="00:00" className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                                                                    value={row.kunde_von}
+                                                            <td className={cn("px-2 py-2 text-center text-sm font-semibold text-blue-700 bg-blue-50/20", isReplaced && "line-through text-slate-400")}>{calculateHours(row.lis_von, row.lis_bis, row.pause_min)}</td>
+                                                            <td className={cn("px-2 py-2 border-l border-green-100 bg-green-50/20", isReplaced && "line-through")}>
+                                                                <input type="text" maxLength={5} placeholder="00:00" className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-slate-50 disabled:text-slate-400"
+                                                                    value={row.kunde_von} disabled={isReplaced}
                                                                     onChange={(e) => updateRow(row._tempId, 'kunde_von', autoFormatTimeInput(e.target.value))}
                                                                     onBlur={(e) => updateRow(row._tempId, 'kunde_von', formatTimeInput(e.target.value))}
                                                                 />
                                                             </td>
-                                                            <td className="px-2 py-2 bg-green-50/20">
-                                                                <input type="text" maxLength={5} placeholder="00:00" className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                                                                    value={row.kunde_bis}
+                                                            <td className={cn("px-2 py-2 bg-green-50/20", isReplaced && "line-through")}>
+                                                                <input type="text" maxLength={5} placeholder="00:00" className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-slate-50 disabled:text-slate-400"
+                                                                    value={row.kunde_bis} disabled={isReplaced}
                                                                     onChange={(e) => updateRow(row._tempId, 'kunde_bis', autoFormatTimeInput(e.target.value))}
                                                                     onBlur={(e) => updateRow(row._tempId, 'kunde_bis', formatTimeInput(e.target.value))}
                                                                 />
                                                             </td>
-                                                            <td className="px-2 py-2 text-center text-sm font-semibold text-green-700 bg-green-50/20">{calculateHours(row.kunde_von, row.kunde_bis)}</td>
-                                                            <td className="px-2 py-2">
-                                                                <input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-1 text-center text-sm"
-                                                                    value={row.pause_min === 0 ? '' : (row.pause_min ?? '')}
+                                                            <td className={cn("px-2 py-2 text-center text-sm font-semibold text-green-700 bg-green-50/20", isReplaced && "line-through text-slate-400")}>{calculateHours(row.kunde_von, row.kunde_bis)}</td>
+                                                            <td className={cn("px-2 py-2", isReplaced && "line-through")}>
+                                                                <input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-1 text-center text-sm disabled:text-slate-400"
+                                                                    value={row.pause_min === 0 ? '' : (row.pause_min ?? '')} disabled={isReplaced}
                                                                     onChange={(e) => updateRow(row._tempId, 'pause_min', e.target.value === '' ? 0 : parseInt(e.target.value))}
                                                                     onFocus={(e) => e.target.select()} />
                                                             </td>
-                                                            <td className="px-2 py-2">
-                                                                <input type="text" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm"
-                                                                    value={row.notes} onChange={(e) => updateRow(row._tempId, 'notes', e.target.value)} placeholder="Notiz..." />
+                                                            <td className={cn("px-2 py-2", isReplaced && "line-through")}>
+                                                                <input type="text" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm disabled:text-slate-400"
+                                                                    value={row.notes} onChange={(e) => updateRow(row._tempId, 'notes', e.target.value)} placeholder="Notiz..." disabled={isReplaced} />
                                                             </td>
                                                             <td className="px-2 text-center">
-                                                                <button onClick={() => handleDelete(row)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-4 w-4" /></button>
+                                                                <div className="flex items-center gap-1 justify-center relative">
+                                                                    {!isReplaced && !row.isNew && (
+                                                                        <div className="relative">
+                                                                            <button
+                                                                                onClick={() => setReplaceDropdown(replaceDropdown === row._tempId ? null : row._tempId)}
+                                                                                className="text-slate-400 hover:text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                                                title="Mitarbeiter ersetzen"
+                                                                            >
+                                                                                <ArrowLeftRight className="h-4 w-4" />
+                                                                            </button>
+                                                                            {replaceDropdown === row._tempId && (
+                                                                                <div className="absolute right-0 top-6 z-50 bg-white border border-slate-200 rounded-lg shadow-xl py-1 w-48 max-h-48 overflow-y-auto">
+                                                                                    <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wide">Ersetzen durch:</div>
+                                                                                    {employees
+                                                                                        .filter(emp => emp.name !== row.mitarbeiter)
+                                                                                        .map(emp => (
+                                                                                            <button
+                                                                                                key={emp.employee_id}
+                                                                                                className="w-full text-left px-3 py-1.5 text-sm hover:bg-orange-50 hover:text-orange-700 transition-colors"
+                                                                                                onClick={() => handleReplace(row, emp.employee_id)}
+                                                                                            >
+                                                                                                {emp.name}
+                                                                                            </button>
+                                                                                        ))}
+                                                                                    <button
+                                                                                        className="w-full text-left px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-50 border-t border-slate-100"
+                                                                                        onClick={() => setReplaceDropdown(null)}
+                                                                                    >
+                                                                                        Abbrechen
+                                                                                    </button>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                    {!isReplaced && (
+                                                                        <button onClick={() => handleDelete(row)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-4 w-4" /></button>
+                                                                    )}
+                                                                    {isReplaced && (
+                                                                        <button onClick={() => handleDelete(row)} className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1" title="Ersetzten Eintrag löschen">
+                                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                                            <span className="text-[10px] font-medium">Ersetzt</span>
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         </tr>
-                                                    ))}
+                                                        );
+                                                    })}
                                                     {/* ===== SUMMARY ROW ===== */}
                                                     {(() => {
-                                                        const totalLiS = projectRows.reduce((sum, row) => {
+                                                        const activeRows = projectRows.filter(r => !r.replaced_by);
+                                                        const totalLiS = activeRows.reduce((sum, row) => {
                                                             const h = calculateHours(row.lis_von, row.lis_bis, row.pause_min);
                                                             return sum + (h === '—' ? 0 : parseFloat(h));
                                                         }, 0);
-                                                        const totalKd = projectRows.reduce((sum, row) => {
+                                                        const totalKd = activeRows.reduce((sum, row) => {
                                                             const h = calculateHours(row.kunde_von, row.kunde_bis);
                                                             return sum + (h === '—' ? 0 : parseFloat(h));
                                                         }, 0);
@@ -1091,8 +1190,8 @@ export default function TrackingPage() {
                                                         <table className="w-full text-xs">
                                                             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
                                                                 <tr>
-                                                                    <th className="px-3 py-2 text-left w-36">Lieferant</th>
                                                                     <th className="px-3 py-2 text-left">Leistung</th>
+                                                                    <th className="px-3 py-2 text-left w-36">Lieferant</th>
                                                                     <th className="px-3 py-2 text-right w-14">Menge</th>
 
                                                                     <th className="w-8"></th>
@@ -1105,39 +1204,37 @@ export default function TrackingPage() {
                                                                     <tr key={row._localId} className="hover:bg-slate-50 group">
                                                                         <td className="px-2 py-1.5">
                                                                             {row.isNew ? (
-                                                                                <select
-                                                                                    className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
-                                                                                    value={row.supplier || ''}
-                                                                                    onChange={e => {
-                                                                                        updateServiceRow(projectId, row._localId, 'supplier', e.target.value);
-                                                                                        // reset service if they change supplier manually to avoid stale references
-                                                                                        updateServiceRow(projectId, row._localId, 'service_id', '');
-                                                                                    }}
-                                                                                >
-                                                                                    <option value="">Alle Lieferanten...</option>
-                                                                                    {Array.from(new Set(
-                                                                                        serviceCatalog.flatMap((svc: any) =>
-                                                                                            (svc.prices || []).map((p: any) => p.supplier).filter(Boolean)
-                                                                                        )
-                                                                                    )).sort().map((s: any) => <option key={s} value={s}>{s}</option>)}
-                                                                                </select>
-                                                                            ) : (
-                                                                                <span className="font-medium text-slate-800">{row.supplier || '—'}</span>
-                                                                            )}
-                                                                        </td>
-                                                                        <td className="px-2 py-1.5">
-                                                                            {row.isNew ? (
                                                                                 <select className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
                                                                                     value={row.service_id}
                                                                                     onChange={e => updateServiceRow(projectId, row._localId, 'service_id', e.target.value)}>
                                                                                     <option value="">Wählen...</option>
                                                                                     {serviceCatalog
-                                                                                        .filter((svc: any) => !row.supplier || (svc.prices || []).some((p: any) => p.supplier === row.supplier))
                                                                                         .map((s: any) => <option key={s.service_id} value={s.service_id}>{s.name}</option>)
                                                                                     }
                                                                                 </select>
                                                                             ) : (
                                                                                 <span className="font-medium text-slate-800">{row.service_name}</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-2 py-1.5">
+                                                                            {row.isNew ? (
+                                                                                <select
+                                                                                    className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                                                    value={row.supplier || ''}
+                                                                                    onChange={e => updateServiceRow(projectId, row._localId, 'supplier', e.target.value)}
+                                                                                >
+                                                                                    <option value="">Lieferant...</option>
+                                                                                    {(() => {
+                                                                                        const svc = serviceCatalog.find((s: any) => s.service_id === row.service_id);
+                                                                                        const prices: any[] = svc?.prices || [];
+                                                                                        return prices.map((p: any) => p.supplier).filter(Boolean)
+                                                                                            .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i)
+                                                                                            .sort()
+                                                                                            .map((s: string) => <option key={s} value={s}>{s}</option>);
+                                                                                    })()}
+                                                                                </select>
+                                                                            ) : (
+                                                                                <span className="font-medium text-slate-800">{row.supplier || '—'}</span>
                                                                             )}
                                                                         </td>
                                                                         <td className="px-2 py-1.5">
@@ -1265,6 +1362,262 @@ export default function TrackingPage() {
                                     </div>
                                 );
                             })
+                        )}
+
+                        {/* ===== GESAMTÜBERSICHT (All Employees Summary) ===== */}
+                        {rows.length > 0 && (
+                            <div className="mt-4">
+                                <div className="flex items-center gap-2 mb-3 px-1">
+                                    <Clock className="h-5 w-5 text-slate-400" />
+                                    <h3 className="text-lg font-bold text-slate-800">Gesamtübersicht</h3>
+                                    <span className="text-xs text-slate-400 ml-1">Alle Mitarbeiter</span>
+                                </div>
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 text-slate-500 font-medium">
+                                            <tr>
+                                                <th className="px-4 py-3">Mitarbeiter</th>
+                                                {viewMode === 'day' && <th className="px-4 py-3">Projekt(e)</th>}
+                                                <th className="px-3 py-3 text-center border-l border-blue-100 bg-blue-50/50 text-blue-700 w-[80px]">LiS Von</th>
+                                                <th className="px-3 py-3 text-center bg-blue-50/50 text-blue-700 w-[80px]">LiS Bis</th>
+                                                <th className="px-3 py-3 text-center bg-blue-50/50 text-blue-700 w-[90px]">Σ LiS Std.</th>
+                                                <th className="px-3 py-3 text-center border-l border-green-100 bg-green-50/50 text-green-700 w-[80px]">Kd Von</th>
+                                                <th className="px-3 py-3 text-center bg-green-50/50 text-green-700 w-[80px]">Kd Bis</th>
+                                                <th className="px-3 py-3 text-center bg-green-50/50 text-green-700 w-[90px]">Σ Kd Std.</th>
+                                                <th className="px-3 py-3 text-center w-[80px]">Σ Pause</th>
+                                                <th className="px-3 py-3 text-center w-[80px]">Einträge</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {(() => {
+                                                // Build contract type lookup
+                                                const contractMap: Record<string, string> = {};
+                                                employees.forEach((emp: any) => {
+                                                    if (emp.name) contractMap[emp.name] = emp.contract_type || 'Intern';
+                                                });
+
+                                                // Group by employee (exclude replaced rows)
+                                                const activeRows = rows.filter(r => !r.replaced_by);
+                                                const empMap: Record<string, { lisTotal: number; kdTotal: number; pauseTotal: number; count: number; projects: Set<string>; lisVonMin: string; lisBisMax: string; kdVonMin: string; kdBisMax: string; contractType: string }> = {};
+                                                activeRows.forEach(row => {
+                                                    const key = row.mitarbeiter || '(Unbekannt)';
+                                                    if (!empMap[key]) empMap[key] = { lisTotal: 0, kdTotal: 0, pauseTotal: 0, count: 0, projects: new Set(), lisVonMin: '', lisBisMax: '', kdVonMin: '', kdBisMax: '', contractType: contractMap[key] || 'Intern' };
+                                                    const lisH = calculateHours(row.lis_von, row.lis_bis, row.pause_min);
+                                                    const kdH = calculateHours(row.kunde_von, row.kunde_bis);
+                                                    empMap[key].lisTotal += lisH === '—' ? 0 : parseFloat(lisH);
+                                                    empMap[key].kdTotal += kdH === '—' ? 0 : parseFloat(kdH);
+                                                    empMap[key].pauseTotal += row.pause_min || 0;
+                                                    empMap[key].count += 1;
+                                                    if (row.project_name) empMap[key].projects.add(row.project_name);
+                                                    // Track earliest start / latest end
+                                                    if (row.lis_von && (!empMap[key].lisVonMin || row.lis_von < empMap[key].lisVonMin)) empMap[key].lisVonMin = row.lis_von;
+                                                    if (row.lis_bis && (!empMap[key].lisBisMax || row.lis_bis > empMap[key].lisBisMax)) empMap[key].lisBisMax = row.lis_bis;
+                                                    if (row.kunde_von && (!empMap[key].kdVonMin || row.kunde_von < empMap[key].kdVonMin)) empMap[key].kdVonMin = row.kunde_von;
+                                                    if (row.kunde_bis && (!empMap[key].kdBisMax || row.kunde_bis > empMap[key].kdBisMax)) empMap[key].kdBisMax = row.kunde_bis;
+                                                });
+
+                                                const allEmployees = Object.entries(empMap).sort((a, b) => a[0].localeCompare(b[0]));
+                                                const internEmployees = allEmployees.filter(([, d]) => d.contractType !== 'Extern');
+                                                const externEmployees = allEmployees.filter(([, d]) => d.contractType === 'Extern');
+
+                                                const calcGroupTotals = (group: typeof allEmployees) => ({
+                                                    lis: group.reduce((s, [, v]) => s + v.lisTotal, 0),
+                                                    kd: group.reduce((s, [, v]) => s + v.kdTotal, 0),
+                                                    pause: group.reduce((s, [, v]) => s + v.pauseTotal, 0),
+                                                    count: group.reduce((s, [, v]) => s + v.count, 0),
+                                                });
+
+                                                const renderEmployeeRow = ([name, data]: [string, typeof empMap[string]]) => (
+                                                    <tr key={name} className="hover:bg-slate-50">
+                                                        <td className="px-4 py-2.5 font-medium text-slate-800">{name}</td>
+                                                        {viewMode === 'day' && (
+                                                            <td className="px-4 py-2.5 text-slate-500 text-xs">
+                                                                {Array.from(data.projects).join(', ') || '—'}
+                                                            </td>
+                                                        )}
+                                                        <td className="px-3 py-2.5 text-center font-mono text-blue-600 bg-blue-50/20 border-l border-blue-100">
+                                                            {data.lisVonMin || '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-mono text-blue-600 bg-blue-50/20">
+                                                            {data.lisBisMax || '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-semibold text-blue-700 bg-blue-50/20">
+                                                            {data.lisTotal > 0 ? data.lisTotal.toFixed(2) : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-mono text-green-600 bg-green-50/20 border-l border-green-100">
+                                                            {data.kdVonMin || '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-mono text-green-600 bg-green-50/20">
+                                                            {data.kdBisMax || '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center font-semibold text-green-700 bg-green-50/20">
+                                                            {data.kdTotal > 0 ? data.kdTotal.toFixed(2) : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center text-slate-500">
+                                                            {data.pauseTotal > 0 ? `${data.pauseTotal} min` : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center">
+                                                            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{data.count}</span>
+                                                        </td>
+                                                    </tr>
+                                                );
+
+                                                const renderSubtotalRow = (label: string, totals: ReturnType<typeof calcGroupTotals>, count: number, color: string) => (
+                                                    <tr className="border-t border-slate-200 bg-slate-50/70 font-semibold text-xs">
+                                                        <td className="px-4 py-2 text-slate-600">
+                                                            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${color}`}>
+                                                                {label}
+                                                            </span>
+                                                            <span className="text-slate-400 ml-2">{count} Mitarbeiter</span>
+                                                        </td>
+                                                        {viewMode === 'day' && <td />}
+                                                        <td className="bg-blue-50/30 border-l border-blue-100" />
+                                                        <td className="bg-blue-50/30" />
+                                                        <td className="px-3 py-2 text-center text-blue-700 bg-blue-50/30">
+                                                            {totals.lis > 0 ? totals.lis.toFixed(2) : '—'}
+                                                        </td>
+                                                        <td className="bg-green-50/30 border-l border-green-100" />
+                                                        <td className="bg-green-50/30" />
+                                                        <td className="px-3 py-2 text-center text-green-700 bg-green-50/30">
+                                                            {totals.kd > 0 ? totals.kd.toFixed(2) : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-center text-slate-500">
+                                                            {totals.pause > 0 ? `${totals.pause} min` : '—'}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-center">
+                                                            <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">{totals.count}</span>
+                                                        </td>
+                                                    </tr>
+                                                );
+
+                                                const grandTotals = calcGroupTotals(allEmployees);
+
+                                                return (
+                                                    <>
+                                                        {/* Intern employees */}
+                                                        {internEmployees.length > 0 && (
+                                                            <>
+                                                                <tr className="bg-blue-50/30">
+                                                                    <td colSpan={viewMode === 'day' ? 10 : 9} className="px-4 py-2 text-xs font-bold text-blue-800 uppercase tracking-wider border-b border-blue-100">
+                                                                        <span className="inline-flex items-center gap-1.5">👷 Interne Mitarbeiter</span>
+                                                                    </td>
+                                                                </tr>
+                                                                {internEmployees.map(renderEmployeeRow)}
+                                                                {renderSubtotalRow('Intern', calcGroupTotals(internEmployees), internEmployees.length, 'bg-blue-100 text-blue-700')}
+                                                            </>
+                                                        )}
+                                                        {/* Extern employees */}
+                                                        {externEmployees.length > 0 && (
+                                                            <>
+                                                                <tr className="bg-orange-50/30">
+                                                                    <td colSpan={viewMode === 'day' ? 10 : 9} className="px-4 py-2 text-xs font-bold text-orange-800 uppercase tracking-wider border-b border-orange-100">
+                                                                        <span className="inline-flex items-center gap-1.5">🤝 Externe Mitarbeiter</span>
+                                                                    </td>
+                                                                </tr>
+                                                                {externEmployees.map(renderEmployeeRow)}
+                                                                {renderSubtotalRow('Extern', calcGroupTotals(externEmployees), externEmployees.length, 'bg-orange-100 text-orange-700')}
+                                                            </>
+                                                        )}
+                                                        {/* Grand total */}
+                                                        <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold text-sm">
+                                                            <td className="px-4 py-3 text-slate-700 uppercase text-xs tracking-wide">Gesamt</td>
+                                                            {viewMode === 'day' && <td className="px-4 py-3 text-slate-400 text-xs">{allEmployees.length} Mitarbeiter</td>}
+                                                            <td className="bg-blue-50/40 border-l border-blue-100" />
+                                                            <td className="bg-blue-50/40" />
+                                                            <td className="px-3 py-3 text-center text-blue-800 bg-blue-50/40">
+                                                                {grandTotals.lis > 0 ? grandTotals.lis.toFixed(2) : '—'}
+                                                            </td>
+                                                            <td className="bg-green-50/40 border-l border-green-100" />
+                                                            <td className="bg-green-50/40" />
+                                                            <td className="px-3 py-3 text-center text-green-800 bg-green-50/40">
+                                                                {grandTotals.kd > 0 ? grandTotals.kd.toFixed(2) : '—'}
+                                                            </td>
+                                                            <td className="px-3 py-3 text-center text-slate-600">
+                                                                {grandTotals.pause > 0 ? `${grandTotals.pause} min` : '—'}
+                                                            </td>
+                                                            <td className="px-3 py-3 text-center">
+                                                                <span className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">{grandTotals.count}</span>
+                                                            </td>
+                                                        </tr>
+                                                    </>
+                                                );
+                                            })()}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ===== ERSETZTE MITARBEITER TABLE ===== */}
+                        {rows.filter(r => !!r.replaced_by).length > 0 && (
+                            <div className="mt-4">
+                                <div className="flex items-center gap-2 mb-3 px-1">
+                                    <ArrowLeftRight className="h-5 w-5 text-red-400" />
+                                    <h3 className="text-lg font-bold text-slate-800">Ersetzte Mitarbeiter</h3>
+                                    <span className="text-xs text-red-400 ml-1">{rows.filter(r => !!r.replaced_by).length} Ersetzungen</span>
+                                </div>
+                                <div className="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-gradient-to-r from-red-50/60 to-red-50/30 border-b border-red-100 text-red-400 font-medium text-xs uppercase tracking-wide">
+                                            <tr>
+                                                <th className="px-4 py-3">Original Mitarbeiter</th>
+                                                <th className="px-4 py-3">Projekt</th>
+                                                {viewMode === 'project' && <th className="px-4 py-3">Datum</th>}
+                                                <th className="px-3 py-3 text-center border-l border-red-100">LiS Von</th>
+                                                <th className="px-3 py-3 text-center">LiS Bis</th>
+                                                <th className="px-3 py-3 text-center">Σ LiS</th>
+                                                <th className="px-3 py-3 text-center border-l border-red-100">Kd Von</th>
+                                                <th className="px-3 py-3 text-center">Kd Bis</th>
+                                                <th className="px-3 py-3 text-center">Σ Kd</th>
+                                                <th className="px-3 py-3 text-center">Pause</th>
+                                                <th className="px-3 py-3 text-center">Ersetzt durch</th>
+                                                <th className="w-10"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-red-50">
+                                            {rows.filter(r => !!r.replaced_by).map(row => {
+                                                const replacementRow = rows.find(r => r.pair_id === row.replaced_by);
+                                                return (
+                                                    <tr key={`replaced-${row._tempId}`} className="bg-red-50/10 hover:bg-red-50/30">
+                                                        <td className="px-4 py-2.5 text-slate-700 font-medium">{row.mitarbeiter}</td>
+                                                        <td className="px-4 py-2.5 text-slate-500 text-xs">{row.project_name || '—'}</td>
+                                                        {viewMode === 'project' && (
+                                                            <td className="px-4 py-2.5 text-slate-500 text-xs">
+                                                                {row.datum ? format(new Date(row.datum), 'dd.MM.yyyy') : '—'}
+                                                            </td>
+                                                        )}
+                                                        <td className="px-3 py-2.5 text-center font-mono text-slate-500 border-l border-red-50">{row.lis_von || '—'}</td>
+                                                        <td className="px-3 py-2.5 text-center font-mono text-slate-500">{row.lis_bis || '—'}</td>
+                                                        <td className="px-3 py-2.5 text-center font-semibold text-blue-700">{calculateHours(row.lis_von, row.lis_bis, row.pause_min)}</td>
+                                                        <td className="px-3 py-2.5 text-center font-mono text-slate-500 border-l border-red-50">{row.kunde_von || '—'}</td>
+                                                        <td className="px-3 py-2.5 text-center font-mono text-slate-500">{row.kunde_bis || '—'}</td>
+                                                        <td className="px-3 py-2.5 text-center font-semibold text-green-700">{calculateHours(row.kunde_von, row.kunde_bis)}</td>
+                                                        <td className="px-3 py-2.5 text-center text-slate-500">{row.pause_min > 0 ? `${row.pause_min} min` : '—'}</td>
+                                                        <td className="px-3 py-2.5 text-center">
+                                                            {replacementRow ? (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-semibold">
+                                                                    → {replacementRow.mitarbeiter}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-400 text-xs">—</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-2 py-2.5 text-center">
+                                                            <button
+                                                                onClick={() => handleDelete(row)}
+                                                                className="text-red-300 hover:text-red-600 transition-colors"
+                                                                title="Eintrag löschen"
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         )}
                     </div>
                 ) : (

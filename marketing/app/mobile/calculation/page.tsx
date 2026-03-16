@@ -175,7 +175,8 @@ export default function MobileCalculationPage() {
         })));
 
         setServices((svcRes.data as any || []).map((s: any) => {
-            const p = Array.isArray(s.service?.prices) ? s.service.prices[0] : s.service?.prices;
+            const prices: any[] = Array.isArray(s.service?.prices) ? s.service.prices : s.service?.prices ? [s.service.prices] : [];
+            const p = s.supplier ? prices.find((x: any) => x.supplier === s.supplier) || prices[0] : prices[0];
             return {
                 id: s.id, service_id: s.service_id, service_name: s.service?.name || s.service_id, supplier: s.supplier || p?.supplier || '',
                 quantity: s.quantity || 1, unit: s.service?.default_unit || 'Std', cost_per_unit: p?.cost_per_unit || 0,

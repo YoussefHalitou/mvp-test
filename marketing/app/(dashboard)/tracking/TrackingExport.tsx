@@ -41,6 +41,11 @@ interface ProjectExtraRow {
     cost: number;
 }
 
+interface EmployeeInfo {
+    name: string;
+    contract_type?: string;
+}
+
 interface TrackingExportProps {
     rows: TrackingRow[];
     projectMaterials: Record<string, ProjectMatRow[]>;
@@ -49,6 +54,7 @@ interface TrackingExportProps {
     currentDate: Date;
     viewMode: 'day' | 'project';
     selectedProjectId: string;
+    employees: EmployeeInfo[];
 }
 
 export function TrackingExport({
@@ -59,6 +65,7 @@ export function TrackingExport({
     currentDate,
     viewMode,
     selectedProjectId,
+    employees,
 }: TrackingExportProps) {
     const { toast } = useToast();
     const [open, setOpen] = useState(false);
@@ -141,10 +148,27 @@ export function TrackingExport({
         .empty { color: var(--color-muted); font-style: italic; padding: 8px; }
         .footer { margin-top: 20px; font-size: 10px; color: var(--color-muted); text-align: right; border-top: 1px solid var(--color-border); padding-top: 6px; }
         .divider { border: 0; border-top: 1px dashed #e2e5ea; margin: 18px 0; }
+        .summary-block { margin-top: 28px; page-break-inside: avoid; }
+        .summary-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #111827; display: flex; align-items: center; gap: 8px; }
+        .summary-sub { font-size: 11px; color: var(--color-muted); margin-bottom: 10px; }
+        .group-header td { font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px; }
+        .group-header-intern td { background: #eff6ff; color: #1e40af; border-bottom: 1px solid #bfdbfe; }
+        .group-header-extern td { background: #fff7ed; color: #9a3412; border-bottom: 1px solid #fed7aa; }
+        .subtotal-row td { font-weight: 600; font-size: 10px; background: #f8fafc; }
+        .grand-total td { font-weight: 700; background: #f1f5f9; border-top: 2px solid #cbd5e1; }
+        .badge { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+        .badge-intern { background: #dbeafe; color: #1d4ed8; }
+        .badge-extern { background: #ffedd5; color: #c2410c; }
+        .badge-green { background: #dcfce7; color: #15803d; }
+        .replaced-block { margin-top: 28px; page-break-inside: avoid; }
+        .replaced-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #111827; display: flex; align-items: center; gap: 8px; }
+        .replaced-sub { font-size: 11px; color: #ef4444; margin-bottom: 10px; }
         @media print {
             body { background: #fff; }
             .page { margin: 0; border-radius: 0; box-shadow: none; }
             .project-block { page-break-inside: avoid; }
+            .summary-block { page-break-inside: avoid; }
+            .replaced-block { page-break-inside: avoid; }
         }
         `;
 
@@ -241,6 +265,154 @@ export function TrackingExport({
             <hr class="divider" />`;
         });
 
+        // ===== GESAMTÜBERSICHT (All Employees Summary) =====
+        const buildGesamtuebersichtHtml = (): string => {
+            const activeRows = rows.filter(r => !r.replaced_by);
+            if (activeRows.length === 0) return '';
+
+            // Build contract type lookup
+            const contractMap: Record<string, string> = {};
+            employees.forEach(emp => {
+                if (emp.name) contractMap[emp.name] = emp.contract_type || 'Intern';
+            });
+
+            // Group by employee
+            const empMap: Record<string, { lisTotal: number; kdTotal: number; pauseTotal: number; count: number; projects: Set<string>; lisVonMin: string; lisBisMax: string; kdVonMin: string; kdBisMax: string; contractType: string }> = {};
+            activeRows.forEach(row => {
+                const key = row.mitarbeiter || '(Unbekannt)';
+                if (!empMap[key]) empMap[key] = { lisTotal: 0, kdTotal: 0, pauseTotal: 0, count: 0, projects: new Set(), lisVonMin: '', lisBisMax: '', kdVonMin: '', kdBisMax: '', contractType: contractMap[key] || 'Intern' };
+                const lisH = calculateHours(row.lis_von, row.lis_bis, row.pause_min);
+                const kdH = calculateHours(row.kunde_von, row.kunde_bis);
+                empMap[key].lisTotal += lisH === '—' ? 0 : parseFloat(lisH);
+                empMap[key].kdTotal += kdH === '—' ? 0 : parseFloat(kdH);
+                empMap[key].pauseTotal += row.pause_min || 0;
+                empMap[key].count += 1;
+                if (row.project_name) empMap[key].projects.add(row.project_name);
+                if (row.lis_von && (!empMap[key].lisVonMin || row.lis_von < empMap[key].lisVonMin)) empMap[key].lisVonMin = row.lis_von;
+                if (row.lis_bis && (!empMap[key].lisBisMax || row.lis_bis > empMap[key].lisBisMax)) empMap[key].lisBisMax = row.lis_bis;
+                if (row.kunde_von && (!empMap[key].kdVonMin || row.kunde_von < empMap[key].kdVonMin)) empMap[key].kdVonMin = row.kunde_von;
+                if (row.kunde_bis && (!empMap[key].kdBisMax || row.kunde_bis > empMap[key].kdBisMax)) empMap[key].kdBisMax = row.kunde_bis;
+            });
+
+            const allEntries = Object.entries(empMap).sort((a, b) => a[0].localeCompare(b[0]));
+            const internEntries = allEntries.filter(([, d]) => d.contractType !== 'Extern');
+            const externEntries = allEntries.filter(([, d]) => d.contractType === 'Extern');
+
+            const colCount = viewMode === 'day' ? 10 : 9;
+
+            const renderRow = ([name, data]: [string, typeof empMap[string]]) => `<tr>
+                <td>${escapeHtml(name)}</td>
+                ${viewMode === 'day' ? `<td style="font-size:10px;color:#64748b">${escapeHtml(Array.from(data.projects).join(', ') || '—')}</td>` : ''}
+                <td class="text-center">${data.lisVonMin || '—'}</td>
+                <td class="text-center">${data.lisBisMax || '—'}</td>
+                <td class="text-center" style="font-weight:600">${data.lisTotal > 0 ? data.lisTotal.toFixed(2) : '—'}</td>
+                <td class="text-center">${data.kdVonMin || '—'}</td>
+                <td class="text-center">${data.kdBisMax || '—'}</td>
+                <td class="text-center" style="font-weight:600">${data.kdTotal > 0 ? data.kdTotal.toFixed(2) : '—'}</td>
+                <td class="text-center">${data.pauseTotal > 0 ? `${data.pauseTotal} min` : '—'}</td>
+                <td class="text-center">${data.count}</td>
+            </tr>`;
+
+            const calcTotals = (group: typeof allEntries) => ({
+                lis: group.reduce((s, [, v]) => s + v.lisTotal, 0),
+                kd: group.reduce((s, [, v]) => s + v.kdTotal, 0),
+                pause: group.reduce((s, [, v]) => s + v.pauseTotal, 0),
+                count: group.reduce((s, [, v]) => s + v.count, 0),
+            });
+
+            const renderSubtotal = (label: string, badgeClass: string, totals: ReturnType<typeof calcTotals>, empCount: number) => `<tr class="subtotal-row">
+                <td><span class="badge ${badgeClass}">${label}</span> <span style="color:#94a3b8;margin-left:4px">${empCount} Mitarbeiter</span></td>
+                ${viewMode === 'day' ? '<td></td>' : ''}
+                <td></td><td></td>
+                <td class="text-center">${totals.lis > 0 ? totals.lis.toFixed(2) : '—'}</td>
+                <td></td><td></td>
+                <td class="text-center">${totals.kd > 0 ? totals.kd.toFixed(2) : '—'}</td>
+                <td class="text-center">${totals.pause > 0 ? `${totals.pause} min` : '—'}</td>
+                <td class="text-center">${totals.count}</td>
+            </tr>`;
+
+            const grandTotals = calcTotals(allEntries);
+
+            const headers = [
+                'Mitarbeiter',
+                ...(viewMode === 'day' ? ['Projekt(e)'] : []),
+                'LiS Von', 'LiS Bis', 'Σ LiS Std.', 'Kd Von', 'Kd Bis', 'Σ Kd Std.', 'Σ Pause', 'Einträge'
+            ];
+
+            let body = '';
+            if (internEntries.length > 0) {
+                body += `<tr class="group-header group-header-intern"><td colspan="${colCount}">👷 Interne Mitarbeiter</td></tr>`;
+                body += internEntries.map(renderRow).join('');
+                body += renderSubtotal('Intern', 'badge-intern', calcTotals(internEntries), internEntries.length);
+            }
+            if (externEntries.length > 0) {
+                body += `<tr class="group-header group-header-extern"><td colspan="${colCount}">🤝 Externe Mitarbeiter</td></tr>`;
+                body += externEntries.map(renderRow).join('');
+                body += renderSubtotal('Extern', 'badge-extern', calcTotals(externEntries), externEntries.length);
+            }
+            body += `<tr class="grand-total">
+                <td>Gesamt</td>
+                ${viewMode === 'day' ? `<td style="font-size:10px;color:#64748b">${allEntries.length} Mitarbeiter</td>` : ''}
+                <td></td><td></td>
+                <td class="text-center">${grandTotals.lis > 0 ? grandTotals.lis.toFixed(2) : '—'}</td>
+                <td></td><td></td>
+                <td class="text-center">${grandTotals.kd > 0 ? grandTotals.kd.toFixed(2) : '—'}</td>
+                <td class="text-center">${grandTotals.pause > 0 ? `${grandTotals.pause} min` : '—'}</td>
+                <td class="text-center">${grandTotals.count}</td>
+            </tr>`;
+
+            return `
+            <div class="summary-block">
+                <div class="summary-title">⏱ Gesamtübersicht</div>
+                <div class="summary-sub">Alle Mitarbeiter</div>
+                <table>
+                    <thead><tr>${headers.map(h => `<th class="${h.startsWith('Σ') || h === 'Einträge' ? 'text-center' : ''}">${h}</th>`).join('')}</tr></thead>
+                    <tbody>${body}</tbody>
+                </table>
+            </div>`;
+        };
+
+        // ===== ERSETZTE MITARBEITER =====
+        const buildErsetzteHtml = (): string => {
+            const replacedRows = rows.filter(r => !!r.replaced_by);
+            if (replacedRows.length === 0) return '';
+
+            const headers = [
+                'Original Mitarbeiter', 'Projekt',
+                ...(viewMode === 'project' ? ['Datum'] : []),
+                'LiS Von', 'LiS Bis', 'Σ LiS', 'Kd Von', 'Kd Bis', 'Σ Kd', 'Pause', 'Ersetzt durch'
+            ];
+
+            const body = replacedRows.map(row => {
+                const replacementRow = rows.find(r => r.pair_id === row.replaced_by);
+                const lisH = calculateHours(row.lis_von, row.lis_bis, row.pause_min);
+                const kdH = calculateHours(row.kunde_von, row.kunde_bis);
+                return `<tr>
+                    <td>${escapeHtml(row.mitarbeiter)}</td>
+                    <td style="font-size:10px">${escapeHtml(row.project_name || '—')}</td>
+                    ${viewMode === 'project' ? `<td>${row.datum ? format(new Date(row.datum), 'dd.MM.yyyy') : '—'}</td>` : ''}
+                    <td class="text-center">${escapeHtml(row.lis_von) || '—'}</td>
+                    <td class="text-center">${escapeHtml(row.lis_bis) || '—'}</td>
+                    <td class="text-center" style="font-weight:600">${lisH}</td>
+                    <td class="text-center">${escapeHtml(row.kunde_von) || '—'}</td>
+                    <td class="text-center">${escapeHtml(row.kunde_bis) || '—'}</td>
+                    <td class="text-center" style="font-weight:600">${kdH}</td>
+                    <td class="text-center">${row.pause_min > 0 ? `${row.pause_min} min` : '—'}</td>
+                    <td>${replacementRow ? `<span class="badge badge-green">→ ${escapeHtml(replacementRow.mitarbeiter)}</span>` : '—'}</td>
+                </tr>`;
+            }).join('');
+
+            return `
+            <div class="replaced-block">
+                <div class="replaced-title">🔄 Ersetzte Mitarbeiter</div>
+                <div class="replaced-sub">${replacedRows.length} Ersetzungen</div>
+                <table>
+                    <thead><tr>${headers.map(h => `<th class="${h.startsWith('Σ') || h === 'Pause' ? 'text-center' : ''}">${h}</th>`).join('')}</tr></thead>
+                    <tbody>${body}</tbody>
+                </table>
+            </div>`;
+        };
+
         const subtitle = viewMode === 'day'
             ? `Tagesübersicht · ${format(currentDate, 'dd.MM.yyyy')}`
             : `Projektansicht · ${rows[0]?.project_name || ''}`;
@@ -262,6 +434,8 @@ export function TrackingExport({
         <div class="chip">${escapeHtml(dateLabel)}</div>
     </div>
     ${projectsHtml}
+    ${buildGesamtuebersichtHtml()}
+    ${buildErsetzteHtml()}
     <div class="footer">Erstellt am: ${new Date().toLocaleString('de-DE')} · Land in Sicht GmbH</div>
 </div>
 </body></html>`;

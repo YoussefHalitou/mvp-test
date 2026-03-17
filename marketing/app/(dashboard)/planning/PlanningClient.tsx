@@ -344,27 +344,39 @@ export function PlanningClient() {
                 notes: planForm.notes || null,
                 is_besichtigung: planForm.is_besichtigung,
             };
+            let savedPlanIds: string[] = [];
             if (planModal.mode === 'create') {
                 // Multi-day: create one plan per day in the range
                 if (planForm.is_multiday && planForm.multiday_end && planForm.multiday_end >= planModal.date) {
                     const days = eachDayOfInterval({ start: new Date(planModal.date + 'T00:00:00'), end: new Date(planForm.multiday_end + 'T00:00:00') });
                     const payloads = days.map(d => ({ ...basePayload, plan_date: format(d, 'yyyy-MM-dd') }));
-                    const { error } = await supabase.from('t_morningplan').insert(payloads);
+                    const { error, data } = await supabase.from('t_morningplan').insert(payloads).select('plan_id');
                     if (error) throw error;
+                    savedPlanIds = (data || []).map((d: any) => d.plan_id);
                     toast(`${days.length} Einsätze erstellt (${format(days[0], 'dd.MM.')} – ${format(days[days.length - 1], 'dd.MM.')})`);
                 } else {
-                    const { error } = await supabase.from('t_morningplan').insert({ ...basePayload, plan_date: planModal.date });
+                    const { error, data } = await supabase.from('t_morningplan').insert({ ...basePayload, plan_date: planModal.date }).select('plan_id');
                     if (error) throw error;
+                    savedPlanIds = (data || []).map((d: any) => d.plan_id);
                     toast(planForm.is_besichtigung ? 'Besichtigung erstellt' : 'Einsatz erstellt');
                 }
             } else if (planModal.plan) {
-                const { error } = await supabase.from('t_morningplan').update({ ...basePayload, plan_date: planModal.date }).eq('plan_id', planModal.plan.plan_id);
+                const updatePayload = { ...basePayload, plan_date: planModal.date };
+                const { error } = await supabase.from('t_morningplan').update(updatePayload).eq('plan_id', planModal.plan.plan_id);
                 if (error) throw error;
+                savedPlanIds = [planModal.plan.plan_id];
                 toast(planForm.is_besichtigung ? 'Besichtigung aktualisiert' : 'Einsatz aktualisiert');
             }
             // Sync project_date to earliest calendar date
             if (planForm.project_id) {
                 await syncProjectDate(planForm.project_id);
+            }
+            // Re-apply start_time after syncProjectDate — a DB trigger on t_projects
+            // may overwrite plan start_time when project_date is updated
+            if (savedPlanIds.length > 0 && basePayload.start_time) {
+                await supabase.from('t_morningplan')
+                    .update({ start_time: basePayload.start_time })
+                    .in('plan_id', savedPlanIds);
             }
             setPlanModal(null);
             fetchData();

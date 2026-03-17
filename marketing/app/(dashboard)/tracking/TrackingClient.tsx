@@ -11,6 +11,7 @@ import { Database } from '@/types/supabase';
 import { formatTimeInput, autoFormatTimeInput } from '@/lib/timeUtils';
 
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { TrackingExport } from './TrackingExport';
 
 type Project = { project_id: string; name: string; project_code: string | null; project_date?: string | null; created_at?: string };
 type Employee = { employee_id: string; name: string; employee_code: string | null };
@@ -854,7 +855,15 @@ export default function TrackingPage() {
                 <div className="ml-auto flex items-center gap-2">
                     {activeTab === 'timepairs' && (
                         <>
-
+                            <TrackingExport
+                                rows={rows}
+                                projectMaterials={projectMaterials}
+                                projectServices={projectServices}
+                                projectExtraCosts={projectExtraCosts}
+                                currentDate={currentDate}
+                                viewMode={viewMode}
+                                selectedProjectId={selectedProjectId}
+                            />
                             <button onClick={handleSave} disabled={saving}
                                 className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow-sm disabled:opacity-50">
                                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Speichern

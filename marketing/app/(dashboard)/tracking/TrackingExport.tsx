@@ -41,6 +41,21 @@ interface ProjectExtraRow {
     cost: number;
 }
 
+interface WorkAssignmentRow {
+    assignment_id: string;
+    work_type: string;
+    employee_name: string;
+    employee_code: string | null;
+    assignment_date: string;
+    start_time: string | null;
+    end_time: string | null;
+    hours_estimated: number | null;
+    status: string | null;
+    notes: string | null;
+    break_minutes: number | null;
+    project_id: string | null;
+}
+
 interface EmployeeInfo {
     name: string;
     contract_type?: string;
@@ -55,6 +70,8 @@ interface TrackingExportProps {
     viewMode: 'day' | 'project';
     selectedProjectId: string;
     employees: EmployeeInfo[];
+    workAssignments: WorkAssignmentRow[];
+    projectNames: Record<string, string>;
 }
 
 export function TrackingExport({
@@ -66,6 +83,8 @@ export function TrackingExport({
     viewMode,
     selectedProjectId,
     employees,
+    workAssignments,
+    projectNames,
 }: TrackingExportProps) {
     const { toast } = useToast();
     const [open, setOpen] = useState(false);
@@ -163,12 +182,19 @@ export function TrackingExport({
         .replaced-block { margin-top: 28px; page-break-inside: avoid; }
         .replaced-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #111827; display: flex; align-items: center; gap: 8px; }
         .replaced-sub { font-size: 11px; color: #ef4444; margin-bottom: 10px; }
+        .wa-block { margin-top: 28px; page-break-inside: avoid; }
+        .wa-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #111827; display: flex; align-items: center; gap: 8px; }
+        .wa-sub { font-size: 11px; color: var(--color-muted); margin-bottom: 10px; }
+        .badge-status-open { background: #fef3c7; color: #92400e; }
+        .badge-status-progress { background: #dbeafe; color: #1e40af; }
+        .badge-status-done { background: #dcfce7; color: #15803d; }
         @media print {
             body { background: #fff; }
             .page { margin: 0; border-radius: 0; box-shadow: none; }
             .project-block { page-break-inside: avoid; }
             .summary-block { page-break-inside: avoid; }
             .replaced-block { page-break-inside: avoid; }
+            .wa-block { page-break-inside: avoid; }
         }
         `;
 
@@ -413,6 +439,63 @@ export function TrackingExport({
             </div>`;
         };
 
+        // ===== ARBEITSEINSÄTZE =====
+        const buildArbeitseinsaetzeHtml = (): string => {
+            if (workAssignments.length === 0) return '';
+
+            const calcWaHours = (st: string | null, et: string | null, brk: number | null): string => {
+                if (!st || !et) return '—';
+                const [sh, sm] = st.split(':').map(Number);
+                const [eh, em] = et.split(':').map(Number);
+                const totalMin = (eh * 60 + em) - (sh * 60 + sm) - (brk || 0);
+                if (totalMin <= 0) return '—';
+                return (totalMin / 60).toFixed(2);
+            };
+
+            const statusBadge = (status: string | null) => {
+                const s = status || 'Offen';
+                if (s === 'Erledigt') return `<span class="badge badge-status-done">${escapeHtml(s)}</span>`;
+                if (s === 'In Bearbeitung') return `<span class="badge badge-status-progress">${escapeHtml(s)}</span>`;
+                return `<span class="badge badge-status-open">${escapeHtml(s)}</span>`;
+            };
+
+            const headers = ['Typ', 'Mitarbeiter', 'Projekt', 'Start', 'Ende', 'Pause', 'Stunden', 'Status', 'Notizen'];
+
+            let totalHours = 0;
+            const body = workAssignments.map(wa => {
+                const hours = calcWaHours(wa.start_time, wa.end_time, wa.break_minutes);
+                if (hours !== '—') totalHours += parseFloat(hours);
+                const projName = wa.project_id ? (projectNames[wa.project_id] || '—') : '—';
+                return `<tr>
+                    <td><span class="badge" style="background:#fff7ed;color:#c2410c">${escapeHtml(wa.work_type)}</span></td>
+                    <td>${escapeHtml(wa.employee_name)}</td>
+                    <td style="font-size:10px;color:#64748b">${escapeHtml(projName)}</td>
+                    <td class="text-center">${wa.start_time ? escapeHtml(wa.start_time.substring(0, 5)) : '—'}</td>
+                    <td class="text-center">${wa.end_time ? escapeHtml(wa.end_time.substring(0, 5)) : '—'}</td>
+                    <td class="text-center">${wa.break_minutes ? `${wa.break_minutes} min` : '—'}</td>
+                    <td class="text-center" style="font-weight:600">${hours}</td>
+                    <td>${statusBadge(wa.status)}</td>
+                    <td style="font-size:10px;color:#64748b">${escapeHtml(wa.notes || '') || '—'}</td>
+                </tr>`;
+            }).join('');
+
+            const totalRow = `<tr class="total-row">
+                <td colspan="6">Gesamt</td>
+                <td class="text-center">${totalHours > 0 ? totalHours.toFixed(2) : '—'}</td>
+                <td colspan="2"></td>
+            </tr>`;
+
+            return `
+            <div class="wa-block">
+                <div class="wa-title">📋 Arbeitseinsätze</div>
+                <div class="wa-sub">${workAssignments.length} Einsätze</div>
+                <table>
+                    <thead><tr>${headers.map(h => `<th class="${h === 'Start' || h === 'Ende' || h === 'Pause' || h === 'Stunden' ? 'text-center' : ''}">${h}</th>`).join('')}</tr></thead>
+                    <tbody>${body}${totalRow}</tbody>
+                </table>
+            </div>`;
+        };
+
         const subtitle = viewMode === 'day'
             ? `Tagesübersicht · ${format(currentDate, 'dd.MM.yyyy')}`
             : `Projektansicht · ${rows[0]?.project_name || ''}`;
@@ -435,6 +518,7 @@ export function TrackingExport({
     </div>
     ${projectsHtml}
     ${buildGesamtuebersichtHtml()}
+    ${buildArbeitseinsaetzeHtml()}
     ${buildErsetzteHtml()}
     <div class="footer">Erstellt am: ${new Date().toLocaleString('de-DE')} · Land in Sicht GmbH</div>
 </div>

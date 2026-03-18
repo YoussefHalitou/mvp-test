@@ -374,7 +374,7 @@ export function TrackingExport({
 
         // ===== ERSETZTE MITARBEITER =====
         const buildErsetzteHtml = (): string => {
-            const replacedRows = rows.filter(r => !!r.replaced_by && r.replaced_by !== 'crossed_out');
+            const replacedRows = rows.filter(r => !!r.replaced_by);
             if (replacedRows.length === 0) return '';
 
             const headers = [
@@ -404,8 +404,8 @@ export function TrackingExport({
 
             return `
             <div class="replaced-block">
-                <div class="replaced-title">🔄 Ersetzte Mitarbeiter</div>
-                <div class="replaced-sub">${replacedRows.length} Ersetzungen</div>
+                <div class="replaced-title">🔄 Ersetzte / Gestrichene Mitarbeiter</div>
+                <div class="replaced-sub">${replacedRows.filter(r => r.replaced_by !== 'crossed_out').length} Ersetzungen, ${replacedRows.filter(r => r.replaced_by === 'crossed_out').length} Streichungen</div>
                 <table>
                     <thead><tr>${headers.map(h => `<th class="${h.startsWith('Σ') || h === 'Pause' ? 'text-center' : ''}">${h}</th>`).join('')}</tr></thead>
                     <tbody>${body}</tbody>

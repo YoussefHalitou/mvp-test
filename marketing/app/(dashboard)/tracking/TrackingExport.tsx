@@ -374,7 +374,7 @@ export function TrackingExport({
 
         // ===== ERSETZTE MITARBEITER =====
         const buildErsetzteHtml = (): string => {
-            const replacedRows = rows.filter(r => !!r.replaced_by);
+            const replacedRows = rows.filter(r => !!r.replaced_by && r.replaced_by !== 'crossed_out');
             if (replacedRows.length === 0) return '';
 
             const headers = [
@@ -398,7 +398,7 @@ export function TrackingExport({
                     <td class="text-center">${escapeHtml(row.kunde_bis) || '—'}</td>
                     <td class="text-center" style="font-weight:600">${kdH}</td>
                     <td class="text-center">${row.pause_min > 0 ? `${row.pause_min} min` : '—'}</td>
-                    <td>${replacementRow ? `<span class="badge badge-green">→ ${escapeHtml(replacementRow.mitarbeiter)}</span>` : '—'}</td>
+                    <td>${row.replaced_by === 'crossed_out' ? '<span class="badge" style="background:#fef3c7;color:#92400e">✕ Gestrichen</span>' : (replacementRow ? `<span class="badge badge-green">→ ${escapeHtml(replacementRow.mitarbeiter)}</span>` : '—')}</td>
                 </tr>`;
             }).join('');
 

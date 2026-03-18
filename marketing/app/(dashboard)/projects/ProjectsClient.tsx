@@ -191,6 +191,11 @@ export default function ProjectsPage() {
                 const { error } = await supabase.from('t_projects').update(updateData).eq('project_id', project_id);
                 if (error) throw error;
                 toast('Projekt aktualisiert');
+                // Refresh selectedProject if we just edited it
+                if (selectedProject?.project_id === project_id) {
+                    const { data: refreshed } = await supabase.from('t_projects').select('*').eq('project_id', project_id).single();
+                    if (refreshed) setSelectedProject(refreshed);
+                }
             } else {
                 const { project_id, project_code, ...insertData } = cleanData;
                 const { error } = await supabase.from('t_projects').insert(insertData);

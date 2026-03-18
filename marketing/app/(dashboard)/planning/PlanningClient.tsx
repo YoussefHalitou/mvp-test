@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useDroppable } from '@dnd-kit/core';
 import { useToast } from '@/components/ui/toast';
 import { format, addDays, addMonths, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -51,10 +52,11 @@ export function PlanningClient() {
     const [selectedDay, setSelectedDay] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
     const [isCompact, setIsCompact] = useState(false);
     const [employeeEvents, setEmployeeEvents] = useState<EmployeeEvent[]>([]);
+    const wasDraggingRef = useRef(false);
 
     // Plan modal
     const [planModal, setPlanModal] = useState<{ mode: 'create' | 'edit'; plan?: MorningPlan; date: string } | null>(null);
-    const [planForm, setPlanForm] = useState({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '', is_besichtigung: false });
+    const [planForm, setPlanForm] = useState({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '', is_besichtigung: false, is_multiday: false, multiday_end: '' });
     const [savingPlan, setSavingPlan] = useState(false);
 
     // Templates
@@ -167,17 +169,38 @@ export function PlanningClient() {
     const handleDragEnd = async (e: DragEndEvent) => {
         const { active, over } = e;
         setActiveDragItem(null);
+        wasDraggingRef.current = true;
+        setTimeout(() => { wasDraggingRef.current = false; }, 200);
 
         if (!over) return;
 
-        // 1. PROJECT DRAG (to a Day)
+        // 1. PROJECT DRAG (to a Day) — directly create a morning plan entry
         if (active.data.current?.type === 'project') {
+            const overId = over.id.toString();
+            if (!overId.startsWith('day-')) return; // Only drop onto day targets
             const projectId = active.id.toString().replace('project-', '');
-            const dateStr = over.id.toString().replace('day-', '');
+            const dateStr = overId.replace('day-', '');
             const project = projects.find(p => p.project_id === projectId);
             if (!project) return;
-            setPlanForm({ project_id: projectId, start_time: '', vehicle_id: '', vehicle_names: '', service_type: project.dienstleistungen || '', notes: '', is_besichtigung: false });
-            setPlanModal({ mode: 'create', date: dateStr });
+
+            try {
+                const { error } = await supabase.from('t_morningplan').insert({
+                    plan_date: dateStr,
+                    project_id: projectId,
+                    service_type: project.dienstleistungen || null,
+                    start_time: null,
+                    vehicle_id: null,
+                    vehicle_names: null,
+                    notes: null,
+                });
+                if (error) throw error;
+                // Sync project_date to earliest calendar date
+                await syncProjectDate(projectId);
+                toast(`${project.name} → ${format(new Date(dateStr + 'T00:00:00'), 'dd.MM. (EEEE)', { locale: de })}`);
+                fetchData();
+            } catch {
+                toast('Fehler beim Erstellen des Einsatzes', 'error');
+            }
             return;
         }
 
@@ -294,7 +317,7 @@ export function PlanningClient() {
 
     // ---- PLAN CRUD ----
     const openCreatePlan = (dateStr: string) => {
-        setPlanForm({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '', is_besichtigung: false });
+        setPlanForm({ project_id: '', start_time: '', vehicle_id: '', vehicle_names: '', service_type: '', notes: '', is_besichtigung: false, is_multiday: false, multiday_end: '' });
         setPlanModal({ mode: 'create', date: dateStr });
     };
 
@@ -304,6 +327,7 @@ export function PlanningClient() {
             vehicle_id: plan.vehicle_id || '', vehicle_names: plan.vehicle_names || '',
             service_type: plan.service_type || '', notes: plan.notes || '',
             is_besichtigung: !!(plan as any).is_besichtigung,
+            is_multiday: false, multiday_end: '',
         });
         setPlanModal({ mode: 'edit', plan, date: plan.plan_date });
     };
@@ -312,8 +336,7 @@ export function PlanningClient() {
         if (!planModal || !planForm.project_id) return;
         setSavingPlan(true);
         try {
-            const payload: any = {
-                plan_date: planModal.date,
+            const basePayload: any = {
                 project_id: planForm.project_id || null,
                 start_time: planForm.start_time || null,
                 vehicle_id: planForm.vehicle_id || null, vehicle_names: planForm.vehicle_names || null,
@@ -321,18 +344,39 @@ export function PlanningClient() {
                 notes: planForm.notes || null,
                 is_besichtigung: planForm.is_besichtigung,
             };
+            let savedPlanIds: string[] = [];
             if (planModal.mode === 'create') {
-                const { error } = await supabase.from('t_morningplan').insert(payload);
-                if (error) throw error;
-                toast(planForm.is_besichtigung ? 'Besichtigung erstellt' : 'Einsatz erstellt');
+                // Multi-day: create one plan per day in the range
+                if (planForm.is_multiday && planForm.multiday_end && planForm.multiday_end >= planModal.date) {
+                    const days = eachDayOfInterval({ start: new Date(planModal.date + 'T00:00:00'), end: new Date(planForm.multiday_end + 'T00:00:00') });
+                    const payloads = days.map(d => ({ ...basePayload, plan_date: format(d, 'yyyy-MM-dd') }));
+                    const { error, data } = await supabase.from('t_morningplan').insert(payloads).select('plan_id');
+                    if (error) throw error;
+                    savedPlanIds = (data || []).map((d: any) => d.plan_id);
+                    toast(`${days.length} Einsätze erstellt (${format(days[0], 'dd.MM.')} – ${format(days[days.length - 1], 'dd.MM.')})`);
+                } else {
+                    const { error, data } = await supabase.from('t_morningplan').insert({ ...basePayload, plan_date: planModal.date }).select('plan_id');
+                    if (error) throw error;
+                    savedPlanIds = (data || []).map((d: any) => d.plan_id);
+                    toast(planForm.is_besichtigung ? 'Besichtigung erstellt' : 'Einsatz erstellt');
+                }
             } else if (planModal.plan) {
-                const { error } = await supabase.from('t_morningplan').update(payload).eq('plan_id', planModal.plan.plan_id);
+                const updatePayload = { ...basePayload, plan_date: planModal.date };
+                const { error } = await supabase.from('t_morningplan').update(updatePayload).eq('plan_id', planModal.plan.plan_id);
                 if (error) throw error;
+                savedPlanIds = [planModal.plan.plan_id];
                 toast(planForm.is_besichtigung ? 'Besichtigung aktualisiert' : 'Einsatz aktualisiert');
             }
             // Sync project_date to earliest calendar date
             if (planForm.project_id) {
                 await syncProjectDate(planForm.project_id);
+            }
+            // Re-apply start_time after syncProjectDate — a DB trigger on t_projects
+            // may overwrite plan start_time when project_date is updated
+            if (savedPlanIds.length > 0 && basePayload.start_time) {
+                await supabase.from('t_morningplan')
+                    .update({ start_time: basePayload.start_time })
+                    .in('plan_id', savedPlanIds);
             }
             setPlanModal(null);
             fetchData();
@@ -686,8 +730,8 @@ export function PlanningClient() {
 
                 {/* Main Content */}
                 <div className="flex flex-1 overflow-hidden">
-                    {/* Sidebar: Projects (Visible in Week and 3-Day View) */}
-                    {(viewMode === 'week' || viewMode === '3day') && (
+                    {/* Sidebar: Projects (Visible in Week, 3-Day and Day View) */}
+                    {(viewMode === 'week' || viewMode === '3day' || viewMode === 'day') && (
                         <div className={cn("border-r bg-white flex flex-col transition-all duration-300", sidebarOpen ? "w-80" : "w-10")}>
                             <div className="p-3 border-b bg-slate-50/50 flex items-center justify-between">
                                 {sidebarOpen ? (
@@ -767,7 +811,7 @@ export function PlanningClient() {
                                     {weekDays.map(day => {
                                         const dateStr = format(day, 'yyyy-MM-dd');
                                         return (
-                                            <div key={dateStr} onClick={() => { setSelectedDay(dateStr); setViewMode('day'); }}
+                                            <div key={dateStr} onClick={() => { if (wasDraggingRef.current) return; setSelectedDay(dateStr); setViewMode('day'); }}
                                                 className={cn("cursor-pointer hover:ring-2 hover:ring-blue-200 rounded-xl transition-all", dateStr === selectedDay && "ring-2 ring-blue-400")}>
                                                 <DroppableDay day={day} plans={plans.filter(p => p.plan_date === dateStr)}
                                                     employeeEvents={employeeEvents} employees={employees}
@@ -780,6 +824,7 @@ export function PlanningClient() {
                         </div>
                     ) : viewMode === 'day' ? (
                         /* ============ DAY VIEW ============ */
+                        <DayViewDropZone selectedDay={selectedDay}>
                         <div className="flex-1 overflow-auto p-6 space-y-8 max-w-5xl mx-auto w-full">
                             {/* 1. Vehicles (Top) */}
                             <VehicleList
@@ -833,6 +878,7 @@ export function PlanningClient() {
                                 fetchDayPanels={fetchDayPanels}
                             />
                         </div>
+                        </DayViewDropZone>
                     ) : (
                         /* ============ TIMELINE VIEW ============ */
                         <div className="flex-1 overflow-auto p-6">
@@ -940,6 +986,41 @@ export function PlanningClient() {
                                 <textarea className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm resize-none" rows={2} value={planForm.notes}
                                     onChange={e => setPlanForm({ ...planForm, notes: e.target.value })} />
                             </div>
+
+                            {/* Multi-day toggle (only in create mode) */}
+                            {planModal.mode === 'create' && (
+                                <div className="space-y-2">
+                                    <label className={cn(
+                                        "flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all",
+                                        planForm.is_multiday
+                                            ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                                            : "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300"
+                                    )}>
+                                        <input
+                                            type="checkbox"
+                                            className="w-4 h-4 rounded accent-emerald-600"
+                                            checked={planForm.is_multiday}
+                                            onChange={e => setPlanForm({ ...planForm, is_multiday: e.target.checked, multiday_end: e.target.checked ? '' : '' })}
+                                        />
+                                        <span className="text-sm font-medium">📅 Mehrtägig (mehrere Tage belegen)</span>
+                                    </label>
+                                    {planForm.is_multiday && (
+                                        <div className="grid grid-cols-2 gap-3 pl-2">
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-500 mb-1">Von</label>
+                                                <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50" value={planModal.date} disabled />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-500 mb-1">Bis (inkl.)</label>
+                                                <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                                                    value={planForm.multiday_end}
+                                                    min={planModal.date}
+                                                    onChange={e => setPlanForm({ ...planForm, multiday_end: e.target.value })} />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         <div className="flex justify-end gap-3 border-t px-6 py-4">
                             <button onClick={() => setPlanModal(null)} className="px-4 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-300 hover:bg-slate-50">Abbrechen</button>
@@ -992,5 +1073,15 @@ export function PlanningClient() {
             )}
 
         </DndContext>
+    );
+}
+
+/** Small wrapper that makes the Day View area a drop target for project drags */
+function DayViewDropZone({ selectedDay, children }: { selectedDay: string; children: React.ReactNode }) {
+    const { setNodeRef, isOver } = useDroppable({ id: `day-${selectedDay}`, data: { date: selectedDay } });
+    return (
+        <div ref={setNodeRef} className={cn("flex-1 flex flex-col overflow-hidden transition-colors", isOver && "ring-2 ring-blue-400 ring-inset bg-blue-50/30 rounded-xl")}>
+            {children}
+        </div>
     );
 }

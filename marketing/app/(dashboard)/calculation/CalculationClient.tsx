@@ -377,7 +377,7 @@ export default function CalculationPage() {
 
         // Map time pairs to personnel rows — optionally filter by planDate
         const filteredTpData = planDate ? tpData.filter(tp => tp.datum === planDate) : tpData;
-        const tpPersonnel: TimePairWithRate[] = filteredTpData.filter(tp => tp.pause !== 'deleted').map(tp => {
+        const tpPersonnel: TimePairWithRate[] = filteredTpData.filter(tp => tp.pause !== 'deleted' && !tp.replaced_by).map(tp => {
             const lisH = calcHours(tp.lis_von, tp.lis_bis, tp.pause_min || 0);
             const kdH = calcHours(tp.kunde_von, tp.kunde_bis);
             const satz = rateMap[tp.mitarbeiter]?.rate || 0;

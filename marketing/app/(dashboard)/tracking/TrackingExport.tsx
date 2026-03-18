@@ -179,7 +179,7 @@ export function TrackingExport({
         .badge-intern { background: #dbeafe; color: #1d4ed8; }
         .badge-extern { background: #ffedd5; color: #c2410c; }
         .badge-green { background: #dcfce7; color: #15803d; }
-        .replaced-block { margin-top: 28px; page-break-inside: avoid; }
+        .replaced-block { margin-top: 28px; page-break-inside: avoid; page-break-before: always; }
         .replaced-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #111827; display: flex; align-items: center; gap: 8px; }
         .replaced-sub { font-size: 11px; color: #ef4444; margin-bottom: 10px; }
         .wa-block { margin-top: 28px; page-break-inside: avoid; }

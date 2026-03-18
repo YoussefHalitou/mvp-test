@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { useToast } from '@/components/ui/toast';
 import { format, addDays } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -627,6 +628,7 @@ export default function TrackingPage() {
 
     // Replace employee: mark original as replaced + create new row
     const [replaceDropdown, setReplaceDropdown] = useState<string | null>(null);
+    const [replaceDropdownPos, setReplaceDropdownPos] = useState<{ top: number; left: number; openUp: boolean } | null>(null);
 
     const handleReplace = async (row: TrackingRow, replacementEmployeeId: string) => {
         const emp = employees.find(e => e.employee_id === replacementEmployeeId);
@@ -1028,41 +1030,68 @@ export default function TrackingPage() {
                                                                     {!isReplaced && !row.isNew && (
                                                                         <div className="relative">
                                                                             <button
-                                                                                onClick={() => setReplaceDropdown(replaceDropdown === row._tempId ? null : row._tempId)}
+                                                                                onClick={(e) => {
+                                                                                    if (replaceDropdown === row._tempId) {
+                                                                                        setReplaceDropdown(null);
+                                                                                        setReplaceDropdownPos(null);
+                                                                                    } else {
+                                                                                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                                                                        const spaceBelow = window.innerHeight - rect.bottom;
+                                                                                        const openUp = spaceBelow < 220;
+                                                                                        setReplaceDropdownPos({
+                                                                                            top: openUp ? rect.top : rect.bottom + 4,
+                                                                                            left: Math.min(rect.right - 192, window.innerWidth - 200),
+                                                                                            openUp,
+                                                                                        });
+                                                                                        setReplaceDropdown(row._tempId);
+                                                                                    }
+                                                                                }}
                                                                                 className="text-slate-400 hover:text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                                                title="Mitarbeiter ersetzen"
+                                                                                title="Mitarbeiter ersetzen / streichen"
                                                                             >
                                                                                 <ArrowLeftRight className="h-4 w-4" />
                                                                             </button>
-                                                                            {replaceDropdown === row._tempId && (
-                                                                                <div className="absolute right-0 top-6 z-50 bg-white border border-slate-200 rounded-lg shadow-xl py-1 w-48 max-h-48 overflow-y-auto">
-                                                                                    <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wide">Ersetzen durch:</div>
-                                                                                    {employees
-                                                                                        .filter(emp => emp.name !== row.mitarbeiter)
-                                                                                        .map(emp => (
-                                                                                            <button
-                                                                                                key={emp.employee_id}
-                                                                                                className="w-full text-left px-3 py-1.5 text-sm hover:bg-orange-50 hover:text-orange-700 transition-colors"
-                                                                                                onClick={() => handleReplace(row, emp.employee_id)}
-                                                                                            >
-                                                                                                {emp.name}
-                                                                                            </button>
-                                                                                        ))}
-                                                                                    <button
-                                                                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-amber-50 hover:text-amber-700 transition-colors border-t border-slate-100 flex items-center gap-2"
-                                                                                        onClick={() => handleCrossOut(row)}
-                                                                                    >
-                                                                                        <UserX className="h-3.5 w-3.5" /> Streichen
-                                                                                    </button>
-                                                                                    <button
-                                                                                        className="w-full text-left px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-50 border-t border-slate-100"
-                                                                                        onClick={() => setReplaceDropdown(null)}
-                                                                                    >
-                                                                                        Abbrechen
-                                                                                    </button>
-                                                                                </div>
-                                                                            )}
                                                                         </div>
+                                                                    )}
+                                                                    {replaceDropdown === row._tempId && replaceDropdownPos && typeof document !== 'undefined' && ReactDOM.createPortal(
+                                                                        <>
+                                                                            <div className="fixed inset-0 z-[99]" onClick={() => { setReplaceDropdown(null); setReplaceDropdownPos(null); }} />
+                                                                            <div
+                                                                                className="fixed z-[100] bg-white border border-slate-200 rounded-lg shadow-2xl py-1 w-48 max-h-56 overflow-y-auto"
+                                                                                style={{
+                                                                                    left: replaceDropdownPos.left,
+                                                                                    ...(replaceDropdownPos.openUp
+                                                                                        ? { bottom: window.innerHeight - replaceDropdownPos.top + 4 }
+                                                                                        : { top: replaceDropdownPos.top }),
+                                                                                }}
+                                                                            >
+                                                                                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wide">Ersetzen durch:</div>
+                                                                                {employees
+                                                                                    .filter(emp => emp.name !== row.mitarbeiter)
+                                                                                    .map(emp => (
+                                                                                        <button
+                                                                                            key={emp.employee_id}
+                                                                                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-orange-50 hover:text-orange-700 transition-colors"
+                                                                                            onClick={() => handleReplace(row, emp.employee_id)}
+                                                                                        >
+                                                                                            {emp.name}
+                                                                                        </button>
+                                                                                    ))}
+                                                                                <button
+                                                                                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-amber-50 hover:text-amber-700 transition-colors border-t border-slate-100 flex items-center gap-2"
+                                                                                    onClick={() => handleCrossOut(row)}
+                                                                                >
+                                                                                    <UserX className="h-3.5 w-3.5" /> Streichen
+                                                                                </button>
+                                                                                <button
+                                                                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-50 border-t border-slate-100"
+                                                                                    onClick={() => { setReplaceDropdown(null); setReplaceDropdownPos(null); }}
+                                                                                >
+                                                                                    Abbrechen
+                                                                                </button>
+                                                                            </div>
+                                                                        </>,
+                                                                        document.body
                                                                     )}
                                                                     {!isReplaced && (
                                                                         <button onClick={() => handleDelete(row)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-4 w-4" /></button>

@@ -177,9 +177,23 @@ export function PlanningClient() {
         // 1. PROJECT DRAG (to a Day) — directly create a morning plan entry
         if (active.data.current?.type === 'project') {
             const overId = over.id.toString();
-            if (!overId.startsWith('day-')) return; // Only drop onto day targets
+            let dateStr: string | null = null;
+
+            // Resolve the target day — collision detection may match a plan card
+            // or staff row inside a day instead of the day droppable itself
+            if (overId.startsWith('day-')) {
+                dateStr = overId.replace('day-', '');
+            } else if (overId.startsWith('plan-')) {
+                const targetPlan = plans.find(p => p.plan_id === overId.replace('plan-', ''));
+                dateStr = targetPlan?.plan_date || null;
+            } else if (overId.startsWith('staff-')) {
+                const staffId = parseInt(overId.replace('staff-', ''));
+                const targetPlan = plans.find(p => p.staff?.some(s => s.id === staffId));
+                dateStr = targetPlan?.plan_date || null;
+            }
+
+            if (!dateStr) return;
             const projectId = active.id.toString().replace('project-', '');
-            const dateStr = overId.replace('day-', '');
             const project = projects.find(p => p.project_id === projectId);
             if (!project) return;
 
@@ -194,8 +208,6 @@ export function PlanningClient() {
                     notes: null,
                 });
                 if (error) throw error;
-                // Sync project_date to earliest calendar date
-                await syncProjectDate(projectId);
                 toast(`${project.name} → ${format(new Date(dateStr + 'T00:00:00'), 'dd.MM. (EEEE)', { locale: de })}`);
                 fetchData();
             } catch {
@@ -286,8 +298,6 @@ export function PlanningClient() {
             try {
                 const { error } = await supabase.from('t_morningplan').update({ plan_date: newDate }).eq('plan_id', planId);
                 if (error) throw error;
-                // Sync project_date to earliest calendar date
-                if (plan.project_id) await syncProjectDate(plan.project_id);
                 toast(`Verschoben auf ${format(new Date(newDate), 'dd.MM.')}`);
             } catch {
                 toast('Fehler beim Verschieben', 'error');
@@ -367,17 +377,9 @@ export function PlanningClient() {
                 savedPlanIds = [planModal.plan.plan_id];
                 toast(planForm.is_besichtigung ? 'Besichtigung aktualisiert' : 'Einsatz aktualisiert');
             }
-            // Sync project_date to earliest calendar date
-            if (planForm.project_id) {
-                await syncProjectDate(planForm.project_id);
-            }
-            // Re-apply start_time after syncProjectDate — a DB trigger on t_projects
-            // may overwrite plan start_time when project_date is updated
-            if (savedPlanIds.length > 0 && basePayload.start_time) {
-                await supabase.from('t_morningplan')
-                    .update({ start_time: basePayload.start_time })
-                    .in('plan_id', savedPlanIds);
-            }
+            // NOTE: syncProjectDate removed — a DB trigger on t_projects overwrites
+            // all plan_date values when project_date changes, which would undo the
+            // intended plan date assignments.
             setPlanModal(null);
             fetchData();
         } catch { toast('Fehler beim Speichern', 'error'); }
@@ -431,8 +433,6 @@ export function PlanningClient() {
         try {
             const { error } = await supabase.from('t_morningplan').update({ plan_date: tomorrow }).eq('plan_id', plan.plan_id);
             if (error) throw error;
-            // Sync project_date to earliest calendar date
-            if (plan.project_id) await syncProjectDate(plan.project_id);
             toast(`Auf morgen (${format(new Date(tomorrow), 'dd.MM.')}) verschoben`);
             fetchData();
         } catch { toast('Fehler beim Verschieben', 'error'); }

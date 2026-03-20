@@ -1,8 +1,8 @@
 import React from 'react';
-import { useDroppable } from '@dnd-kit/core';
+import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { format, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { Clock, Pencil, Truck, Users } from 'lucide-react';
+import { Clock, GripVertical, Pencil, Truck, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MorningPlan, EmployeeEvent, Employee } from './types';
 
@@ -21,6 +21,73 @@ interface DroppableDayProps {
     employees?: Employee[];
     onDelete: (id: string, e: React.MouseEvent) => void;
     onEditPlan: (plan: MorningPlan) => void;
+}
+
+/** A single draggable plan card inside the week/month calendar */
+function DraggablePlanCard({ plan, onDelete, onEditPlan }: { plan: MorningPlan; onDelete: (id: string, e: React.MouseEvent) => void; onEditPlan: (plan: MorningPlan) => void }) {
+    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+        id: `plan-${plan.plan_id}`,
+        data: { type: 'plan', plan },
+    });
+    const isBesichtigung = plan.is_besichtigung;
+
+    return (
+        <div ref={setNodeRef}
+            className={cn(
+                "relative rounded-md border p-2 shadow-sm group hover:border-opacity-100 transition-colors",
+                isBesichtigung
+                    ? "bg-violet-50 border-violet-200 hover:border-violet-400"
+                    : "bg-white border-slate-200 hover:border-blue-200",
+                isDragging && "opacity-50 z-20"
+            )}
+            onClick={e => e.stopPropagation()}>
+            {/* Drag handle */}
+            <div {...listeners} {...attributes}
+                className="absolute top-1 left-1 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 p-0.5 touch-none">
+                <GripVertical className="h-3 w-3" />
+            </div>
+            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                <button onClick={() => onEditPlan(plan)} className="text-slate-400 hover:text-blue-600 text-xs p-0.5"><Pencil className="h-3 w-3" /></button>
+                <button onClick={(e) => onDelete(plan.plan_id, e)} type="button" className="text-slate-400 hover:text-red-500 text-xs p-0.5">×</button>
+            </div>
+
+            <div className="pl-4">
+                {isBesichtigung ? (
+                    <>
+                        <div className="text-xs font-semibold text-violet-700 truncate mb-0.5 flex items-center gap-1">
+                            <span>🔍</span>
+                            <span>{plan.project?.name || 'Besichtigung'}</span>
+                        </div>
+                        <div className="text-[10px] text-violet-600 flex items-center gap-1.5">
+                            <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{plan.start_time?.substring(0, 5) || '–'}</span>
+                        </div>
+                        {plan.notes && <div className="text-[9px] text-violet-500 mt-0.5 truncate italic">{plan.notes}</div>}
+                    </>
+                ) : (
+                    <>
+                        <div className="text-xs font-semibold text-blue-700 truncate mb-0.5 flex items-center gap-1">
+                            <span>{plan.project?.name || 'Unbekannt'}</span>
+                            {plan.project?.mannanzahl != null && (
+                                <span className="text-[9px] bg-slate-100 text-slate-500 px-1 py-0.5 rounded-full ml-auto shrink-0 flex items-center gap-0.5">
+                                    <Users className="h-2 w-2" />{plan.project.mannanzahl}
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-[10px] text-slate-500 flex items-center gap-2 mb-1">
+                            <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{plan.start_time?.substring(0, 5) || '–'}</span>
+                            {plan.vehicle_names && <span className="flex items-center gap-0.5"><Truck className="h-2.5 w-2.5" />{plan.vehicle_names}</span>}
+                        </div>
+                        {plan.service_type && <div className="text-[9px] text-slate-400 mb-0.5">{plan.service_type}</div>}
+                        <div className="flex items-center gap-1 flex-wrap">
+                            {(plan.staff || []).map(s => (
+                                <span key={s.id} className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full truncate max-w-[60px]">{s.employee?.name?.split(' ')[0] || '?'}</span>
+                            ))}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
 }
 
 export function DroppableDay({ day, plans, employeeEvents = [], employees = [], onDelete, onEditPlan }: DroppableDayProps) {
@@ -61,58 +128,9 @@ export function DroppableDay({ day, plans, employeeEvents = [], employees = [], 
             )}
 
             <div className="flex-1 p-1.5 bg-slate-50/30 space-y-1.5 overflow-y-auto">
-                {plans.map(plan => {
-                    const isBesichtigung = plan.is_besichtigung;
-                    return (
-                        <div key={plan.plan_id}
-                            className={cn(
-                                "relative rounded-md border p-2 shadow-sm group hover:border-opacity-100 transition-colors cursor-default",
-                                isBesichtigung
-                                    ? "bg-violet-50 border-violet-200 hover:border-violet-400"
-                                    : "bg-white border-slate-200 hover:border-blue-200"
-                            )}
-                            onClick={e => e.stopPropagation()}>
-                            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                                <button onClick={() => onEditPlan(plan)} className="text-slate-400 hover:text-blue-600 text-xs p-0.5"><Pencil className="h-3 w-3" /></button>
-                                <button onClick={(e) => onDelete(plan.plan_id, e)} type="button" className="text-slate-400 hover:text-red-500 text-xs p-0.5">×</button>
-                            </div>
-
-                            {isBesichtigung ? (
-                                <>
-                                    <div className="text-xs font-semibold text-violet-700 truncate mb-0.5 flex items-center gap-1">
-                                        <span>🔍</span>
-                                        <span>{plan.project?.name || 'Besichtigung'}</span>
-                                    </div>
-                                    <div className="text-[10px] text-violet-600 flex items-center gap-1.5">
-                                        <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{plan.start_time?.substring(0, 5) || '–'}</span>
-                                    </div>
-                                    {plan.notes && <div className="text-[9px] text-violet-500 mt-0.5 truncate italic">{plan.notes}</div>}
-                                </>
-                            ) : (
-                                <>
-                                    <div className="text-xs font-semibold text-blue-700 truncate mb-0.5 flex items-center gap-1">
-                                        <span>{plan.project?.name || 'Unbekannt'}</span>
-                                        {plan.project?.mannanzahl != null && (
-                                            <span className="text-[9px] bg-slate-100 text-slate-500 px-1 py-0.5 rounded-full ml-auto shrink-0 flex items-center gap-0.5">
-                                                <Users className="h-2 w-2" />{plan.project.mannanzahl}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="text-[10px] text-slate-500 flex items-center gap-2 mb-1">
-                                        <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{plan.start_time?.substring(0, 5) || '–'}</span>
-                                        {plan.vehicle_names && <span className="flex items-center gap-0.5"><Truck className="h-2.5 w-2.5" />{plan.vehicle_names}</span>}
-                                    </div>
-                                    {plan.service_type && <div className="text-[9px] text-slate-400 mb-0.5">{plan.service_type}</div>}
-                                    <div className="flex items-center gap-1 flex-wrap">
-                                        {(plan.staff || []).map(s => (
-                                            <span key={s.id} className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full truncate max-w-[60px]">{s.employee?.name?.split(' ')[0] || '?'}</span>
-                                        ))}
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    );
-                })}
+                {plans.map(plan => (
+                    <DraggablePlanCard key={plan.plan_id} plan={plan} onDelete={onDelete} onEditPlan={onEditPlan} />
+                ))}
                 {plans.length === 0 && dayEvents.length === 0 && !isOver && (
                     <div className="h-full min-h-[80px] border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center text-slate-300 text-[10px]">Frei</div>
                 )}

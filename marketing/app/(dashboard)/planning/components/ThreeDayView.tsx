@@ -1,8 +1,8 @@
 import React from 'react';
 import { format, addDays, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { useDroppable } from '@dnd-kit/core';
-import { Clock, Pencil, Truck, Users } from 'lucide-react';
+import { useDroppable, useDraggable } from '@dnd-kit/core';
+import { Clock, GripVertical, Pencil, Truck, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MorningPlan, EmployeeEvent, Employee } from './types';
 
@@ -18,6 +18,41 @@ interface ThreeDayViewProps {
     onDayClick: (dateStr: string) => void;
     onDelete: (id: string, e?: React.MouseEvent) => void;
     onEditPlan: (plan: MorningPlan) => void;
+}
+
+/** Draggable plan card for the 3-day view */
+function DraggablePlanCard3Day({ plan, onDelete, onEditPlan }: { plan: MorningPlan; onDelete: (id: string, e?: React.MouseEvent) => void; onEditPlan: (plan: MorningPlan) => void }) {
+    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+        id: `plan-${plan.plan_id}`,
+        data: { type: 'plan', plan },
+    });
+
+    return (
+        <div ref={setNodeRef} className={cn("relative rounded-lg border border-slate-200 bg-white p-3 shadow-sm group hover:border-blue-200 hover:shadow-md transition-all", isDragging && "opacity-50 z-20")}>
+            <div {...listeners} {...attributes}
+                className="absolute top-2 left-1.5 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 p-0.5 touch-none">
+                <GripVertical className="h-3.5 w-3.5" />
+            </div>
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                <button onClick={() => onEditPlan(plan)} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
+                <button onClick={(e) => onDelete(plan.plan_id, e)} type="button" className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500">×</button>
+            </div>
+            <div className="pl-4">
+                <div className="text-sm font-semibold text-blue-700 mb-1 pr-12 truncate">{plan.project?.name || 'Unbekannt'}</div>
+                <div className="flex items-center gap-3 text-xs text-slate-500 mb-2">
+                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{plan.start_time?.substring(0, 5) || '–'}</span>
+                    {plan.vehicle_names && <span className="flex items-center gap-1"><Truck className="h-3 w-3" />{plan.vehicle_names}</span>}
+                    {plan.service_type && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{plan.service_type}</span>}
+                </div>
+                {plan.staff && plan.staff.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                        <Users className="h-3 w-3 text-slate-400 mr-0.5" />
+                        {plan.staff.map(s => <span key={s.id} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">{s.employee?.name?.split(' ')[0] || '?'}</span>)}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
 
 function ThreeDayColumn({ day, plans, employeeEvents = [], employees = [], onDayClick, onDelete, onEditPlan }: {
@@ -66,24 +101,7 @@ function ThreeDayColumn({ day, plans, employeeEvents = [], employees = [], onDay
 
             <div className="flex-1 p-3 space-y-2 overflow-y-auto bg-slate-50/30">
                 {dayPlans.map(plan => (
-                    <div key={plan.plan_id} className="relative rounded-lg border border-slate-200 bg-white p-3 shadow-sm group hover:border-blue-200 hover:shadow-md transition-all">
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                            <button onClick={() => onEditPlan(plan)} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
-                            <button onClick={(e) => onDelete(plan.plan_id, e)} type="button" className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500">×</button>
-                        </div>
-                        <div className="text-sm font-semibold text-blue-700 mb-1 pr-12 truncate">{plan.project?.name || 'Unbekannt'}</div>
-                        <div className="flex items-center gap-3 text-xs text-slate-500 mb-2">
-                            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{plan.start_time?.substring(0, 5) || '–'}</span>
-                            {plan.vehicle_names && <span className="flex items-center gap-1"><Truck className="h-3 w-3" />{plan.vehicle_names}</span>}
-                            {plan.service_type && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{plan.service_type}</span>}
-                        </div>
-                        {plan.staff && plan.staff.length > 0 && (
-                            <div className="flex items-center gap-1 flex-wrap">
-                                <Users className="h-3 w-3 text-slate-400 mr-0.5" />
-                                {plan.staff.map(s => <span key={s.id} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">{s.employee?.name?.split(' ')[0] || '?'}</span>)}
-                            </div>
-                        )}
-                    </div>
+                    <DraggablePlanCard3Day key={plan.plan_id} plan={plan} onDelete={onDelete} onEditPlan={onEditPlan} />
                 ))}
                 {dayPlans.length === 0 && !isOver && (
                     <div className="h-full min-h-[120px] border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-300 text-xs">Keine Einsätze</div>

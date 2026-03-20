@@ -48,6 +48,7 @@ export function PlanningClient() {
     const [vehicleStatuses, setVehicleStatuses] = useState<VehicleDailyStatus[]>([]);
     const [employeeNotes, setEmployeeNotes] = useState<EmployeeDailyNote[]>([]);
     const [activeDragItem, setActiveDragItem] = useState<Project | null>(null);
+    const [activeDragPlan, setActiveDragPlan] = useState<MorningPlan | null>(null);
     const [loading, setLoading] = useState(true);
     const [selectedDay, setSelectedDay] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
     const [isCompact, setIsCompact] = useState(false);
@@ -163,12 +164,15 @@ export function PlanningClient() {
     const handleDragStart = (e: DragStartEvent) => {
         if (e.active.data.current?.type === 'project') {
             setActiveDragItem(e.active.data.current.project);
+        } else if (e.active.data.current?.type === 'plan') {
+            setActiveDragPlan(e.active.data.current.plan);
         }
     };
 
     const handleDragEnd = async (e: DragEndEvent) => {
         const { active, over } = e;
         setActiveDragItem(null);
+        setActiveDragPlan(null);
         wasDraggingRef.current = true;
         setTimeout(() => { wasDraggingRef.current = false; }, 200);
 
@@ -287,18 +291,34 @@ export function PlanningClient() {
         }
 
         // 4. PROJECT CARD TO DIFFERENT DAY (Move plan)
-        if (active.id.toString().startsWith('plan-') && over.id.toString().startsWith('day-')) {
+        if (active.id.toString().startsWith('plan-')) {
+            const overId = over.id.toString();
+            let newDate: string | null = null;
+
+            // Resolve target day — drop may land on a day or on a plan card within a day
+            if (overId.startsWith('day-')) {
+                newDate = overId.replace('day-', '');
+            } else if (overId.startsWith('plan-')) {
+                const targetPlan = plans.find(p => p.plan_id === overId.replace('plan-', ''));
+                newDate = targetPlan?.plan_date || null;
+            } else if (overId.startsWith('staff-')) {
+                const staffId = parseInt(overId.replace('staff-', ''));
+                const targetPlan = plans.find(p => p.staff?.some(s => s.id === staffId));
+                newDate = targetPlan?.plan_date || null;
+            }
+
+            if (!newDate) return;
             const planId = active.id.toString().replace('plan-', '');
-            const newDate = over.id.toString().replace('day-', '');
             const plan = plans.find(p => p.plan_id === planId);
             if (!plan || plan.plan_date === newDate) return;
 
-            setPlans(prev => prev.map(p => p.plan_id === planId ? { ...p, plan_date: newDate } : p));
+            setPlans(prev => prev.map(p => p.plan_id === planId ? { ...p, plan_date: newDate! } : p));
 
             try {
                 const { error } = await supabase.from('t_morningplan').update({ plan_date: newDate }).eq('plan_id', planId);
                 if (error) throw error;
-                toast(`Verschoben auf ${format(new Date(newDate), 'dd.MM.')}`);
+                toast(`Verschoben auf ${format(new Date(newDate + 'T00:00:00'), 'dd.MM. (EEEE)', { locale: de })}`);
+                fetchData();
             } catch {
                 toast('Fehler beim Verschieben', 'error');
                 fetchData();
@@ -898,6 +918,12 @@ export function PlanningClient() {
                     <div className="w-56 rounded-lg border border-blue-400 bg-white p-3 shadow-xl opacity-90 rotate-2 cursor-grabbing">
                         <h4 className="font-medium text-sm text-slate-800">{activeDragItem.name}</h4>
                         <div className="text-[10px] text-slate-500">{activeDragItem.project_code}</div>
+                    </div>
+                )}
+                {activeDragPlan && (
+                    <div className="w-48 rounded-lg border border-blue-400 bg-white p-2.5 shadow-xl opacity-90 rotate-1 cursor-grabbing">
+                        <div className="text-xs font-semibold text-blue-700 truncate">{activeDragPlan.project?.name || 'Einsatz'}</div>
+                        <div className="text-[10px] text-slate-500">{activeDragPlan.start_time?.substring(0, 5) || '–'} • {activeDragPlan.plan_date}</div>
                     </div>
                 )}
             </DragOverlay>

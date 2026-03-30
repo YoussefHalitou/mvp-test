@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -310,6 +310,9 @@ export default function CalculationPage() {
 
     useEffect(() => {
         if (multiSelectMode) return; // don't auto-load in multi-select mode
+        // Reset auto-save guards so loading new project data doesn't trigger spurious saves
+        isFirstMetadataRender.current = true;
+        isFirstKvRender.current = true;
         if (!selectedProjectId) {
             setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setKvValues({}); setPerRowKundenSatz({}); setPerRowKundenStd({}); setGlobalKdSatz(null); setSubmissionStatus('none'); setKundennummer(''); setAngebotsnummer('');
             return;
@@ -675,12 +678,17 @@ export default function CalculationPage() {
     const saveKvValues = async () => {
         if (!selectedProjectId) return;
         try {
-            const entries = Object.entries(kvValues).filter(([, v]) => v !== 0);
-            for (const [key, value] of entries) {
-                await supabase.from('t_project_kv_values').upsert(
-                    { project_id: selectedProjectId, kv_key: key, kv_value: value, updated_at: new Date().toISOString() },
-                    { onConflict: 'project_id,kv_key' }
-                );
+            const entries = Object.entries(kvValues);
+            const toUpsert = entries.filter(([, v]) => v !== 0).map(([k, v]) => ({
+                project_id: selectedProjectId, kv_key: k, kv_value: v, updated_at: new Date().toISOString()
+            }));
+            const toDelete = entries.filter(([, v]) => v === 0).map(([k]) => k);
+
+            if (toUpsert.length > 0) {
+                await supabase.from('t_project_kv_values').upsert(toUpsert, { onConflict: 'project_id,kv_key' });
+            }
+            if (toDelete.length > 0) {
+                await supabase.from('t_project_kv_values').delete().eq('project_id', selectedProjectId).in('kv_key', toDelete);
             }
             toast('KV-Werte gespeichert', 'success');
         } catch { toast('Fehler beim Speichern der KV-Werte', 'error'); }
@@ -699,7 +707,47 @@ export default function CalculationPage() {
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
 
-    // ---- HVZ CRUD ----
+    // ---- AUTO-SAVE: Kundennummer & Angebotsnummer (debounced 800ms) ----
+    const metadataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isFirstMetadataRender = useRef(true);
+    useEffect(() => {
+        if (isFirstMetadataRender.current) { isFirstMetadataRender.current = false; return; }
+        if (!selectedProjectId) return;
+        if (metadataTimerRef.current) clearTimeout(metadataTimerRef.current);
+        metadataTimerRef.current = setTimeout(async () => {
+            await supabase.from('t_projects').update({
+                kundennummer: kundennummer || null,
+                angebotsnummer: angebotsnummer || null,
+            } as any).eq('project_id', selectedProjectId);
+        }, 800);
+        return () => { if (metadataTimerRef.current) clearTimeout(metadataTimerRef.current); };
+    }, [kundennummer, angebotsnummer, selectedProjectId]);
+
+    // ---- AUTO-SAVE: KV Values (debounced 1000ms) ----
+    const kvTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isFirstKvRender = useRef(true);
+    useEffect(() => {
+        if (isFirstKvRender.current) { isFirstKvRender.current = false; return; }
+        if (!selectedProjectId) return;
+        if (kvTimerRef.current) clearTimeout(kvTimerRef.current);
+        kvTimerRef.current = setTimeout(async () => {
+            const entries = Object.entries(kvValues);
+            const toUpsert = entries.filter(([, v]) => v !== 0).map(([k, v]) => ({
+                project_id: selectedProjectId, kv_key: k, kv_value: v, updated_at: new Date().toISOString()
+            }));
+            const toDelete = entries.filter(([, v]) => v === 0).map(([k]) => k);
+
+            if (toUpsert.length > 0) {
+                await supabase.from('t_project_kv_values').upsert(toUpsert, { onConflict: 'project_id,kv_key' });
+            }
+            if (toDelete.length > 0) {
+                await supabase.from('t_project_kv_values').delete().eq('project_id', selectedProjectId).in('kv_key', toDelete);
+            }
+        }, 1000);
+        return () => { if (kvTimerRef.current) clearTimeout(kvTimerRef.current); };
+    }, [kvValues, selectedProjectId]);
+
+
     const addHvzCost = async () => {
         if (!selectedProjectId) return;
         try {

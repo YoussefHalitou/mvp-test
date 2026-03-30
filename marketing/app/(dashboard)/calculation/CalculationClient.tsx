@@ -512,12 +512,15 @@ export default function CalculationPage() {
     const updateMaterialQty = (id: string, qty: number) => {
         setMaterials(prev => prev.map(m => m.id === id ? { ...m, quantity: qty, total_cost: +(qty * m.cost_per_unit).toFixed(2), total_price: +(qty * m.price_per_unit).toFixed(2) } : m));
     };
+    const updateMaterialVkPrice = (id: string, price: number) => {
+        setMaterials(prev => prev.map(m => m.id === id ? { ...m, price_per_unit: price, total_price: +(m.quantity * price).toFixed(2) } : m));
+    };
     const saveMaterials = async () => {
         try {
             await Promise.all(materials.filter(m => !m.isNew).map(m =>
-                supabase.from('t_project_material_usage').update({ quantity: m.quantity }).eq('id', m.id)
+                supabase.from('t_project_material_usage').update({ quantity: m.quantity, price_per_unit: m.price_per_unit }).eq('id', m.id)
             ));
-            toast('Materialmengen gespeichert');
+            toast('Materialien gespeichert');
             loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
@@ -1629,7 +1632,8 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 font-medium">{m.material_name}</td>
                                                                             <td className="px-4 py-1.5"><input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={m.quantity === 0 ? '' : (m.quantity ?? '')} onChange={e => updateMaterialQty(m.id, e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-slate-500">{m.unit}</td>
-                                                                            <td className="px-4 py-2 text-right">{eur(m.cost_per_unit)}</td><td className="px-4 py-2 text-right">{eur(m.price_per_unit)}</td>
+                                                                            <td className="px-4 py-2 text-right">{eur(m.cost_per_unit)}</td>
+                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={(m.price_per_unit ?? 0) === 0 ? '' : (m.price_per_unit ?? '')} onChange={e => updateMaterialVkPrice(m.id, e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur(m.total_cost)}</td><td className="px-4 py-2 text-right text-green-700">{eur(m.total_price)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteMaterial(m.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>

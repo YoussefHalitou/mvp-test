@@ -285,7 +285,7 @@ export default function CalculationPage() {
                 isKvMode, kvValues,
                 totalCosts, totalRevenue, margin, marginPct,
                 personalKosten, personalErloes, materialKosten, materialErloes,
-                vehicleErloes, serviceKosten, serviceErloes,
+                vehicleKosten, vehicleErloes, serviceKosten, serviceErloes,
                 hvzKosten, hvzErloes, bnkKosten, bnkErloes,
                 extraKosten, revenueTotal, discountTotal,
             };
@@ -476,7 +476,8 @@ export default function CalculationPage() {
     const personalErloes = useMemo(() => adjustedPersonnel.reduce((s, p) => s + p.erloes, 0), [adjustedPersonnel]);
     const materialKosten = useMemo(() => materials.reduce((s, m) => s + m.total_cost, 0), [materials]);
     const materialErloes = useMemo(() => materials.reduce((s, m) => s + m.total_price, 0), [materials]);
-    const vehicleErloes = useMemo(() => vehicles.reduce((s, v) => s + v.total_cost, 0), [vehicles]);
+    const vehicleKosten = useMemo(() => vehicles.reduce((s, v) => s + (v.usage_value || 0) * (v.cost_per_unit || 0), 0), [vehicles]);
+    const vehicleErloes = useMemo(() => vehicles.reduce((s, v) => s + (v.usage_value || 0) * (v.total_cost || 0), 0), [vehicles]);
     const serviceKosten = useMemo(() => services.reduce((s, sv) => s + sv.total_cost, 0), [services]);
     const serviceErloes = useMemo(() => services.reduce((s, sv) => s + (sv.total_price || 0), 0), [services]);
     const extraKosten = useMemo(() => extraCosts.reduce((s, e) => s + e.cost, 0), [extraCosts]);
@@ -486,7 +487,7 @@ export default function CalculationPage() {
     const bnkKosten = useMemo(() => bnkCosts.reduce((s, b) => s + (b.menge || 0) * (b.ek_preis || 0), 0), [bnkCosts]);
     const bnkErloes = useMemo(() => bnkCosts.reduce((s, b) => s + (b.menge || 0) * (b.vk_preis || 0), 0), [bnkCosts]);
 
-    const totalCosts = personalKosten + materialKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
+    const totalCosts = personalKosten + materialKosten + vehicleKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
     const baseRevenue = revenueTotal + personalErloes + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
     const discountTotal = useMemo(() => discounts.reduce((s, d) => {
         const mode = d.mode || 'flat';
@@ -551,9 +552,7 @@ export default function CalculationPage() {
     const updateVehicleCost = (id: string, field: string, value: any) => {
         setVehicles(prev => prev.map(v => {
             if (v.id !== id) return v;
-            const updated = { ...v, [field]: value };
-            updated.total_cost = +(updated.usage_value * updated.cost_per_unit).toFixed(2);
-            return updated;
+            return { ...v, [field]: value };
         }));
     };
     const saveVehicleCosts = async () => {
@@ -784,9 +783,9 @@ export default function CalculationPage() {
         <h2>2. Material (${eur(materialKosten)})</h2><table><tr><th>Material</th><th>Menge</th><th>Einheit</th><th class="right">EK</th><th class="right">VK</th><th class="right">Kosten</th><th class="right">Erlöse</th></tr>
         ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.price_per_unit)}</td><td class="right">${eur(m.total_cost)}</td><td class="right">${eur(m.total_price)}</td></tr>`).join('')}
         <tr><th colspan="5">Summe</th><th class="right">${eur(materialKosten)}</th><th class="right">${eur(materialErloes)}</th></tr></table>
-        <h2>3. Fahrzeug (${eur(vehicleErloes)})</h2><table><tr><th>Fahrzeug</th><th>Typ</th><th>Wert</th><th class="right">Satz</th><th class="right">Erlöse</th></tr>
-        ${vehicles.map(v => `<tr><td>${v.fahrzeug}</td><td>${v.usage_type}</td><td>${v.usage_value}</td><td class="right">${eur(v.cost_per_unit)}</td><td class="right">${eur(v.total_cost)}</td></tr>`).join('')}
-        <tr><th colspan="4">Summe Erlöse</th><th class="right">${eur(vehicleErloes)}</th></tr></table>
+        <h2>3. Fahrzeug (LiS: ${eur(vehicleKosten)} / Kunde: ${eur(vehicleErloes)})</h2><table><tr><th>Beschreibung</th><th>Menge</th><th class="right">EK-Preis</th><th class="right">VK-Preis</th><th class="right">LiS Kosten</th><th class="right">Kunden-Kosten</th></tr>
+        ${vehicles.map(v => `<tr><td>${v.fahrzeug}</td><td>${v.usage_value}</td><td class="right">${eur(v.cost_per_unit)}</td><td class="right">${eur(v.total_cost)}</td><td class="right">${eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td><td class="right">${eur((v.usage_value || 0) * (v.total_cost || 0))}</td></tr>`).join('')}
+        <tr><th colspan="4">Summe</th><th class="right">${eur(vehicleKosten)}</th><th class="right">${eur(vehicleErloes)}</th></tr></table>
         <h2>HVZ (EK: ${eur(hvzKosten)} / VK: ${eur(hvzErloes)})</h2><table><tr><th>Von</th><th>Bis</th><th>Tage</th><th class="right">EK</th><th class="right">VK</th></tr>
         ${hvzCosts.map(h => `<tr><td>${h.datum_von ? new Date(h.datum_von).toLocaleDateString('de-DE') : '—'}</td><td>${h.datum_bis ? new Date(h.datum_bis).toLocaleDateString('de-DE') : '—'}</td><td>${h.tage || '—'}</td><td class="right">${eur(h.ek_preis)}</td><td class="right">${eur(h.vk_preis)}</td></tr>`).join('')}
         <tr><th colspan="3">Summe</th><th class="right">${eur(hvzKosten)}</th><th class="right">${eur(hvzErloes)}</th></tr></table>
@@ -832,8 +831,8 @@ export default function CalculationPage() {
         // EVD, HVZ, LKW, Diesel, Sonstige
         let lkwKosten = 0, lkwErloes = 0;
         vehicles.forEach(v => {
-            lkwErloes += v.total_cost;
-            lkwKosten += (v.usage_value * (v.cost_per_unit || 0));
+            lkwKosten += (v.usage_value || 0) * (v.cost_per_unit || 0);
+            lkwErloes += (v.usage_value || 0) * (v.total_cost || 0);
         });
 
         // Build dynamic EVD rows from services, grouped by supplier
@@ -960,7 +959,7 @@ export default function CalculationPage() {
             })()}
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
-            <td></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
+            <td><div class="val-container"><span></span><span>${numFormat(lkwKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
             ${isKvMode ? `<td class="right">${kvValues['lkw'] ? numFormat(kvValues['lkw']) : ''}</td>` : ''}
         </tr>
         <tr>
@@ -1650,16 +1649,25 @@ export default function CalculationPage() {
                                                             </div>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Fahrzeug</th><th className="px-4 py-2 text-right w-24">Wert</th><th className="px-4 py-2 text-right w-28">Satz (€)</th><th className="px-4 py-2 text-right">LiS Kosten</th><th className="px-4 py-2 text-right">Kunden-Kosten</th><th className="w-10"></th></tr>
+                                                                    <tr>
+                                                                        <th className="px-4 py-2 text-left">Beschreibung</th>
+                                                                        <th className="px-4 py-2 text-right w-20">Menge</th>
+                                                                        <th className="px-4 py-2 text-right w-28">EK-Preis</th>
+                                                                        <th className="px-4 py-2 text-right w-28">VK-Preis</th>
+                                                                        <th className="px-4 py-2 text-right">LiS Kosten</th>
+                                                                        <th className="px-4 py-2 text-right">Kunden-Kosten</th>
+                                                                        <th className="w-10"></th>
+                                                                    </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
-                                                                    {vehicles.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">Keine Fahrzeugkosten</td></tr> : vehicles.map(v => (
+                                                                    {vehicles.length === 0 ? <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">Keine Fahrzeugkosten</td></tr> : vehicles.map(v => (
                                                                         <tr key={v.id} className="hover:bg-slate-50 group">
                                                                             <td className="px-4 py-2 font-medium">{v.fahrzeug}</td>
                                                                             <td className="px-4 py-1.5"><input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.usage_value === 0 ? '' : (v.usage_value ?? '')} onChange={e => updateVehicleCost(v.id, 'usage_value', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.cost_per_unit === 0 ? '' : (v.cost_per_unit ?? '')} onChange={e => updateVehicleCost(v.id, 'cost_per_unit', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.total_cost === 0 ? '' : (v.total_cost ?? '')} onChange={e => updateVehicleCost(v.id, 'total_cost', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
-                                                                            <td className="px-4 py-2 text-right font-semibold text-green-700">{eur(v.usage_value * v.cost_per_unit)}</td>
+                                                                            <td className="px-4 py-2 text-right font-semibold">{eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td>
+                                                                            <td className="px-4 py-2 text-right text-green-700 font-semibold">{eur((v.usage_value || 0) * (v.total_cost || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteVehicleCost(v.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1851,8 +1859,8 @@ export default function CalculationPage() {
                     {/* ======= ADD VEHICLE COST MODAL ======= */}
                     {addVehModal && <Modal title="Fahrzeugkosten hinzufügen" onClose={() => setAddVehModal(false)} onSave={addVehicleCost} disabled={!addVehForm.vehicle_id}>
                         <div className="space-y-3">
-                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Fahrzeug</label>
-                                <input list="fahrzeugList" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.vehicle_id} onChange={e => setAddVehForm({ ...addVehForm, vehicle_id: e.target.value })} placeholder="Wählen oder eingeben..." />
+                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Beschreibung</label>
+                                <input list="fahrzeugList" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.vehicle_id} onChange={e => setAddVehForm({ ...addVehForm, vehicle_id: e.target.value })} placeholder="z.B. L4U, Sprinter..." />
                                 <datalist id="fahrzeugList">
                                     <option value="L4U" />
                                     <option value="L4N" />
@@ -1861,16 +1869,18 @@ export default function CalculationPage() {
                                     <option value="L Caddy" />
                                     <option value="L Star" />
                                 </datalist></div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Wert</label>
+                            <div className="grid grid-cols-3 gap-3">
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
                                     <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.usage_value === 0 ? '' : (addVehForm.usage_value ?? '')} onChange={e => setAddVehForm({ ...addVehForm, usage_value: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
-                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Satz (€)</label>
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">EK-Preis (€)</label>
                                     <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.cost_per_unit === 0 ? '' : (addVehForm.cost_per_unit ?? '')} onChange={e => setAddVehForm({ ...addVehForm, cost_per_unit: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">VK-Preis (€)</label>
+                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.total_cost === 0 ? '' : (addVehForm.total_cost ?? '')} onChange={e => setAddVehForm({ ...addVehForm, total_cost: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                             </div>
-                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Kosten (€)</label>
-                                <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.total_cost === 0 ? '' : (addVehForm.total_cost ?? '')} onChange={e => setAddVehForm({ ...addVehForm, total_cost: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} placeholder="Tatsächliche Kosten" /></div>
-                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Notizen</label>
-                                <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.notes} onChange={e => setAddVehForm({ ...addVehForm, notes: e.target.value })} /></div>
+                            <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3">
+                                <div className="text-xs text-slate-500">LiS Kosten: <span className="font-semibold text-slate-700">{eur(addVehForm.usage_value * addVehForm.cost_per_unit)}</span></div>
+                                <div className="text-xs text-slate-500">Kunden-Kosten: <span className="font-semibold text-green-700">{eur(addVehForm.usage_value * addVehForm.total_cost)}</span></div>
+                            </div>
                         </div>
                     </Modal>}
 

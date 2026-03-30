@@ -900,16 +900,24 @@ export default function CalculationPage() {
             <div class="field-row"><div class="value">${selectedProject?.strasse || ''} ${selectedProject?.nr || ''}</div></div>
             <div class="field-row"><div class="value">${selectedProject?.plz || ''} ${selectedProject?.ort || ''}</div></div>
         </div>
-        <div class="box">Sonstige Bemerkungen<div class="box-content">${selectedProject?.notes || ''}</div></div>
+        <div style="border:1px solid #cbd5e1; border-radius:6px; padding:16px; background:#f8fafc; display:flex; flex-direction:column; gap:12px; justify-content:center;">
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+                <span style="font-size:10px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.06em;">KV oder FP</span>
+                <span style="background-color:${isKvMode ? '#86efac' : '#fde68a'}; color:${isKvMode ? '#166534' : '#92400e'}; font-size:11px; font-weight:800; padding:4px 18px; border-radius:20px; border:1px solid ${isKvMode ? '#4ade80' : '#fbbf24'}; letter-spacing:0.05em;">${isKvMode ? 'KV' : 'FP'}</span>
+            </div>
+            <div style="height:1px; background:#e2e8f0;"></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <span style="font-size:10px; font-weight:600; color:#64748b;">Kundennummer</span>
+                <span style="font-size:11px; font-weight:600; color:#0f172a; border-bottom:1.5px solid #94a3b8; min-width:100px; text-align:right; padding-bottom:2px;">${kundennummer || '—'}</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <span style="font-size:10px; font-weight:600; color:#64748b;">Angebotsnummer</span>
+                <span style="font-size:11px; font-weight:600; color:#0f172a; border-bottom:1.5px solid #94a3b8; min-width:100px; text-align:right; padding-bottom:2px;">${angebotsnummer || '—'}</span>
+            </div>
+        </div>
     </div>
     <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
         <div class="field-row" style="width: 50%;"><div class="label">Telefonnummer Kunde:</div><div class="value">${selectedProject?.telefon || ''}</div></div>
-        <div style="width: 40%; display:flex; align-items: flex-end;">
-            <div style="font-size:10px; font-weight:600; margin-right:12px; color: #475569;">KV oder FP</div>
-            <div style="flex:1; background-color:${isKvMode ? '#86efac' : '#fde68a'}; height:18px; border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; color:${isKvMode ? '#166534' : '#92400e'};">${isKvMode ? 'KV' : 'FP'}</div>
-            <div style="font-size:10px; font-weight:600; margin-left:15px; margin-right:12px; color: #475569;">Kunden Nr.</div>
-            <div class="value" style="flex:1;">${kundennummer || ''}</div>
-        </div>
     </div>
     <div class="field-row"><div class="label">Auftragsdatum</div><div class="value">${selectedProject?.project_date ? new Date(selectedProject.project_date).toLocaleDateString('de-DE') : ''}</div></div>
     <div class="field-row"><div class="label">Aufgaben</div><div class="value">${selectedProject?.dienstleistungen || ''}</div></div>

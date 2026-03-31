@@ -675,7 +675,7 @@ export default function CalculationPage() {
     };
 
     // ---- KV VALUES PERSISTENCE ----
-    const saveKvValues = async () => {
+    const saveKvValues = async (silent = false) => {
         if (!selectedProjectId) return;
         try {
             const entries = Object.entries(kvValues);
@@ -690,12 +690,12 @@ export default function CalculationPage() {
             if (toDelete.length > 0) {
                 await supabase.from('t_project_kv_values').delete().eq('project_id', selectedProjectId).in('kv_key', toDelete);
             }
-            toast('KV-Werte gespeichert', 'success');
-        } catch { toast('Fehler beim Speichern der KV-Werte', 'error'); }
+            if (!silent) toast('KV-Werte gespeichert', 'success');
+        } catch { if (!silent) toast('Fehler beim Speichern der KV-Werte', 'error'); }
     };
 
     // ---- KUNDENNUMMER / ANGEBOTSNUMMER SAVE ----
-    const saveKundennummerAngebotsnummer = async () => {
+    const saveKundennummerAngebotsnummer = async (silent = false) => {
         if (!selectedProjectId) return;
         try {
             const { error } = await supabase.from('t_projects').update({
@@ -703,8 +703,12 @@ export default function CalculationPage() {
                 angebotsnummer: angebotsnummer || null,
             } as any).eq('project_id', selectedProjectId);
             if (error) throw error;
-            toast('Kundennummer / Angebotsnummer gespeichert', 'success');
-        } catch { toast('Fehler beim Speichern', 'error'); }
+
+            setProjects(prev => prev.map(p => p.project_id === selectedProjectId ? { ...p, kundennummer: kundennummer || (null as any), angebotsnummer: angebotsnummer || (null as any) } : p));
+            if (selectedProject) setSelectedProject({ ...selectedProject, kundennummer: kundennummer || null, angebotsnummer: angebotsnummer || null } as any);
+
+            if (!silent) toast('Kundennummer / Angebotsnummer gespeichert', 'success');
+        } catch { if (!silent) toast('Fehler beim Speichern', 'error'); }
     };
 
     // ---- AUTO-SAVE: Kundennummer & Angebotsnummer (debounced 800ms) ----
@@ -715,10 +719,7 @@ export default function CalculationPage() {
         if (!selectedProjectId) return;
         if (metadataTimerRef.current) clearTimeout(metadataTimerRef.current);
         metadataTimerRef.current = setTimeout(async () => {
-            await supabase.from('t_projects').update({
-                kundennummer: kundennummer || null,
-                angebotsnummer: angebotsnummer || null,
-            } as any).eq('project_id', selectedProjectId);
+            await saveKundennummerAngebotsnummer(true);
         }, 800);
         return () => { if (metadataTimerRef.current) clearTimeout(metadataTimerRef.current); };
     }, [kundennummer, angebotsnummer, selectedProjectId]);
@@ -731,18 +732,7 @@ export default function CalculationPage() {
         if (!selectedProjectId) return;
         if (kvTimerRef.current) clearTimeout(kvTimerRef.current);
         kvTimerRef.current = setTimeout(async () => {
-            const entries = Object.entries(kvValues);
-            const toUpsert = entries.filter(([, v]) => v !== 0).map(([k, v]) => ({
-                project_id: selectedProjectId, kv_key: k, kv_value: v, updated_at: new Date().toISOString()
-            }));
-            const toDelete = entries.filter(([, v]) => v === 0).map(([k]) => k);
-
-            if (toUpsert.length > 0) {
-                await supabase.from('t_project_kv_values').upsert(toUpsert, { onConflict: 'project_id,kv_key' });
-            }
-            if (toDelete.length > 0) {
-                await supabase.from('t_project_kv_values').delete().eq('project_id', selectedProjectId).in('kv_key', toDelete);
-            }
+            await saveKvValues(true);
         }, 1000);
         return () => { if (kvTimerRef.current) clearTimeout(kvTimerRef.current); };
     }, [kvValues, selectedProjectId]);
@@ -1494,6 +1484,7 @@ export default function CalculationPage() {
                                         className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                         value={kundennummer}
                                         onChange={e => setKundennummer(e.target.value)}
+                                        onBlur={() => saveKundennummerAngebotsnummer(true)}
                                         placeholder="z.B. KD-12345"
                                     />
                                 </div>
@@ -1503,11 +1494,12 @@ export default function CalculationPage() {
                                         className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                         value={angebotsnummer}
                                         onChange={e => setAngebotsnummer(e.target.value)}
+                                        onBlur={() => saveKundennummerAngebotsnummer(true)}
                                         placeholder="z.B. AG-2026-001"
                                     />
                                 </div>
                                 <button
-                                    onClick={saveKundennummerAngebotsnummer}
+                                    onClick={() => saveKundennummerAngebotsnummer(false)}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium"
                                 >
                                     <Save className="h-3.5 w-3.5" /> Speichern
@@ -1531,6 +1523,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['personalkosten'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, personalkosten: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1539,6 +1532,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['material'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, material: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1547,6 +1541,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['service_total'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, service_total: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1555,6 +1550,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['lkw'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, lkw: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1563,6 +1559,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['hvz'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, hvz: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1571,6 +1568,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['diesel'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, diesel: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1579,11 +1577,12 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['extra'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, extra: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                     </div>
                                     <div className="flex justify-end mt-4">
-                                        <button onClick={saveKvValues} className="flex items-center gap-1.5 px-4 py-2 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm font-semibold">
+                                        <button onClick={() => saveKvValues(false)} className="flex items-center gap-1.5 px-4 py-2 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm font-semibold">
                                             <Save className="h-3.5 w-3.5" /> KV-Werte speichern
                                         </button>
                                     </div>

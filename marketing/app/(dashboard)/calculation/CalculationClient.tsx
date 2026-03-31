@@ -624,7 +624,7 @@ export default function CalculationPage() {
             });
             if (error) throw error;
             setAddExtraModal(false);
-            toast('Sonderkosten hinzugefügt');
+            toast('Sonstige Kosten hinzugefügt');
             loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
@@ -636,7 +636,7 @@ export default function CalculationPage() {
             await Promise.all(extraCosts.map(e =>
                 supabase.from('t_project_costs_extra').update({ cost_type: e.cost_type, description: e.description, cost: e.cost }).eq('cost_id', e.cost_id)
             ));
-            toast('Sonderkosten gespeichert');
+            toast('Sonstige Kosten gespeichert');
             loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
@@ -836,7 +836,7 @@ export default function CalculationPage() {
         <h2>4. Dienstleistungskosten (${eur(serviceKosten)})</h2><table><tr><th>Leistung</th><th>Lieferant</th><th>Menge</th><th class="right">EK</th><th class="right">Kosten</th></tr>
         ${services.map(s => `<tr><td>${s.service_name}</td><td>${s.supplier}</td><td>${s.quantity}</td><td class="right">${eur(s.cost_per_unit)}</td><td class="right">${eur(s.total_cost)}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(serviceKosten)}</th></tr></table>
-        <h2>5. Sonderkosten (${eur(extraKosten)})</h2><table><tr><th>Typ</th><th>Beschreibung</th><th class="right">Betrag</th></tr>
+        <h2>5. Sonstige Kosten (${eur(extraKosten)})</h2><table><tr><th>Typ</th><th>Beschreibung</th><th class="right">Betrag</th></tr>
         ${extraCosts.map(e => `<tr><td>${e.cost_type}</td><td>${e.description}</td><td class="right">${eur(e.cost)}</td></tr>`).join('')}
         <tr><th colspan="2">Summe</th><th class="right">${eur(extraKosten)}</th></tr></table>
         <h2>6. Rabatte / Nachlässe (${eur(discountTotal)})</h2><table><tr><th>Bezeichnung</th><th>Typ</th><th class="right">Wert</th><th class="right">Betrag</th></tr>
@@ -1007,15 +1007,15 @@ export default function CalculationPage() {
         </tr>`;
             })()}
         <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
-            <td><div class="val-container"><span></span><span>${numFormat(lkwKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['lkw'] ? numFormat(kvValues['lkw']) : ''}</td>` : ''}
-        </tr>
-        <tr>
             <td style="font-weight:600; color:#475569; height:28px;">HVZ</td>
             <td><div class="val-container"><span></span><span>${numFormat(hvzKosten)}</span></div></td>
             <td><div class="val-container"><span></span><span>${numFormat(hvzErloes)}</span></div></td>
             ${isKvMode ? `<td class="right">${kvValues['hvz'] ? numFormat(kvValues['hvz']) : ''}</td>` : ''}
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
+            <td><div class="val-container"><span></span><span>${numFormat(lkwKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
+            ${isKvMode ? `<td class="right">${kvValues['lkw'] ? numFormat(kvValues['lkw']) : ''}</td>` : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Diesel / BNK</td>
@@ -1024,15 +1024,15 @@ export default function CalculationPage() {
             ${isKvMode ? `<td class="right">${kvValues['diesel'] ? numFormat(kvValues['diesel']) : ''}</td>` : ''}
         </tr>
         <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
-            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td>
-            ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
-        </tr>
-        <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Material</td>
             <td><div class="val-container"><span></span><span>${numFormat(materialKosten)}</span></div></td>
             <td><div class="val-container"><span></span><span>${numFormat(materialErloes)}</span></div></td>
             ${isKvMode ? `<td class="right">${kvValues['material'] ? numFormat(kvValues['material']) : ''}</td>` : ''}
+        </tr>
+        <tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
+            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td>
+            ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Erlöse</td>
@@ -1817,7 +1817,7 @@ export default function CalculationPage() {
                                             case 'extra':
                                                 return (
                                                     <SortableCostSection key="extra" id="extra">
-                                                        <CostSection title="Sonderkosten" icon={<AlertCircle className="h-5 w-5" />} total={extraKosten} color="amber"
+                                                        <CostSection title="Sonstige Kosten" icon={<AlertCircle className="h-5 w-5" />} total={extraKosten} color="amber"
                                                             actions={<div className="flex gap-2">
                                                                 <button onClick={() => { setAddExtraForm({ cost_type: '', description: '', cost: 0 }); setAddExtraModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Kosten</button>
                                                                 <button onClick={saveExtraCosts} className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
@@ -1827,7 +1827,7 @@ export default function CalculationPage() {
                                                                     <tr><th className="px-4 py-2 text-left">Typ</th><th className="px-4 py-2 text-left">Beschreibung</th><th className="px-4 py-2 text-right w-32">Betrag (€)</th><th className="w-10"></th></tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
-                                                                    {extraCosts.length === 0 ? <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">Keine Sonderkosten</td></tr> : extraCosts.map(e => (
+                                                                    {extraCosts.length === 0 ? <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">Keine Sonstigen Kosten</td></tr> : extraCosts.map(e => (
                                                                         <tr key={e.cost_id} className="hover:bg-slate-50 group">
                                                                             <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={e.cost_type} onChange={ev => updateExtraCost(e.cost_id, 'cost_type', ev.target.value)} placeholder="Typ eingeben..." /></td>
                                                                             <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={e.description} onChange={ev => updateExtraCost(e.cost_id, 'description', ev.target.value)} placeholder="Beschreibung..." /></td>
@@ -1982,7 +1982,7 @@ export default function CalculationPage() {
                     </Modal>}
 
                     {/* ======= ADD EXTRA COST MODAL ======= */}
-                    {addExtraModal && <Modal title="Sonderkosten hinzufügen" onClose={() => setAddExtraModal(false)} onSave={addExtraCost} disabled={!addExtraForm.description}>
+                    {addExtraModal && <Modal title="Sonstige Kosten hinzufügen" onClose={() => setAddExtraModal(false)} onSave={addExtraCost} disabled={!addExtraForm.description}>
                         <div className="space-y-3">
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Typ</label>
                                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.cost_type} onChange={e => setAddExtraForm({ ...addExtraForm, cost_type: e.target.value })} placeholder="z.B. Maut, Parkgebühr, Entsorgung..." /></div>

@@ -899,6 +899,7 @@ export default function CalculationPage() {
     tr { page-break-inside: avoid; break-inside: avoid; }
     .flex-tables { page-break-before: auto; }
     .summary-table { page-break-before: auto; }
+    .no-break { page-break-inside: avoid; break-inside: avoid; }
 </style>
 </head><body>
     <h1>Auftragsnachkalkulation</h1>
@@ -1056,6 +1057,7 @@ export default function CalculationPage() {
         </div>
     </div>
 
+    <div class="no-break">
     <table class="summary-table">
         <tr><td class="label">KV vorher</td><td class="val${isKvMode ? '' : ' cur'}">${isKvMode ? numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0)) : '- €'}</td></tr>
         <tr><td class="label">Nettoumsatz</td><td class="val">${numFormat(totalRevenue)}</td></tr>
@@ -1064,6 +1066,7 @@ export default function CalculationPage() {
         <tr class="total"><td class="label">Nettoeinnahme</td><td class="val">${numFormat(margin)}</td></tr>
         <tr><td class="label">Prozent</td><td class="val" style="padding-top: 12px;"><span style="background-color:#86efac; color:#166534; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #4ade80;">${marginPct >= 0 || marginPct < 0 ? marginPct.toFixed(1) + '%' : '#DIV/0!'}</span></td></tr>
     </table>
+    </div>
 </body></html>`;
 
         const html2pdf = (await import('html2pdf.js')).default;

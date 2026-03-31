@@ -941,7 +941,7 @@ export default function CalculationPage() {
             <td class="text-orange" style="background:#fff7ed;">Gesamt Std</td>
             <td class="center text-orange" style="background:#fff7ed;">${gesamtStd.toFixed(2)}</td>
             <td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>
-            ${isKvMode ? '<td style="background:#fff7ed;"></td>' : ''}
+            ${isKvMode ? `<td class="center" style="background:#fff7ed;">${kvValues['stunden'] ? (+kvValues['stunden']).toFixed(2) : ''}</td>` : ''}
         </tr>
         ${(() => {
                 const rateEntries = Array.from(rateMap.values());
@@ -1482,12 +1482,41 @@ export default function CalculationPage() {
                                     </div>
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Personalkosten</label>
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Stunden</label>
                                             <input type="number" step="0.01" placeholder="0,00"
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
-                                                value={kvValues['personalkosten'] || ''}
-                                                onChange={e => setKvValues(prev => ({ ...prev, personalkosten: e.target.value === '' ? 0 : +e.target.value }))}
+                                                value={kvValues['stunden'] || ''}
+                                                onChange={e => {
+                                                    const stunden = e.target.value === '' ? 0 : +e.target.value;
+                                                    const satz = kvValues['stundensatz'] || 0;
+                                                    setKvValues(prev => ({ ...prev, stunden, personalkosten: +(stunden * satz).toFixed(2) }));
+                                                }}
                                                 onBlur={() => saveKvValues(true)}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Stundensatz</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                value={kvValues['stundensatz'] || ''}
+                                                onChange={e => {
+                                                    const satz = e.target.value === '' ? 0 : +e.target.value;
+                                                    const stunden = kvValues['stunden'] || 0;
+                                                    setKvValues(prev => ({ ...prev, stundensatz: satz, personalkosten: +(stunden * satz).toFixed(2) }));
+                                                }}
+                                                onBlur={() => saveKvValues(true)}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider flex items-center gap-1">
+                                                Personalkosten
+                                                <span className="text-[9px] font-normal text-green-500 normal-case">= Std × Satz</span>
+                                            </label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-sm text-right text-green-800 font-semibold focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300 cursor-default"
+                                                value={kvValues['personalkosten'] || ''}
+                                                readOnly
+                                                tabIndex={-1}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">

@@ -824,15 +824,17 @@ export default function CalculationPage() {
     const exportAuftragsnachkalkulationHTML = async () => {
         // Prepare personnel grouping by rate (merge employees with same rate)
         // LiS Std = costs, Kd Std = revenue
-        const rateMap = new Map<number, { names: string[], std: number, satz: number, kosten: number, erloes: number }>();
+        const rateMap = new Map<number, { names: string[], std: number, satz: number, kosten: number, erloes: number, kd_std: number, kd_satz: number }>();
         let gesamtStd = 0;
         let gesamtKdStd = 0;
         adjustedPersonnel.forEach((p: any) => {
             gesamtStd += p.lis_stunden;
             gesamtKdStd += p.kunden_stunden;
-            const existing = rateMap.get(p.satz) || { names: [] as string[], std: 0, satz: p.satz, kosten: 0, erloes: 0 };
+            const existing = rateMap.get(p.satz) || { names: [] as string[], std: 0, satz: p.satz, kosten: 0, erloes: 0, kd_std: 0, kd_satz: p.kunden_satz || p.satz };
             if (!existing.names.includes(p.mitarbeiter)) existing.names.push(p.mitarbeiter);
             existing.std += p.lis_stunden;
+            existing.kd_std += p.kunden_stunden;
+            existing.kd_satz = p.kunden_satz || p.satz;
             existing.kosten += p.kosten;
             existing.erloes += p.erloes;
             rateMap.set(p.satz, existing);
@@ -952,7 +954,7 @@ export default function CalculationPage() {
                     return `<tr>
             <td style="font-weight:600; color:#475569;">Stunden ${data.names.join(', ')} <span style="color:#94a3b8; font-weight:400;">(${data.std.toFixed(2)} Std.)</span></td>
             <td class="center"><div class="val-container"><span>${data.std.toFixed(2)} x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td>
-            <td class="center"><div class="val-container"><span></span><span style="color:#15803d;">${numFormat(data.erloes)}</span></div></td>
+            <td class="center"><div class="val-container"><span>${data.kd_std.toFixed(2)} x ${numFormat(data.kd_satz)} =</span><span style="color:#15803d;">${numFormat(data.erloes)}</span></div></td>
             ${kvCell}
         </tr>`;
                 }).join('');

@@ -106,7 +106,7 @@ export default function CalculationPage() {
     const [vehicles, setVehicles] = useState<VehicleCostRow[]>([]);
     const [services, setServices] = useState<ServiceCostRow[]>([]);
     const [revenue, setRevenue] = useState<RevenueRow[]>([]);
-    const [extraCosts, setExtraCosts] = useState<{ cost_id: string; cost_type: string; description: string; cost: number; isNew?: boolean }[]>([]);
+    const [extraCosts, setExtraCosts] = useState<{ cost_id: string; beschreibung: string; menge: number; ek_preis: number; vk_preis: number; isNew?: boolean }[]>([]);
     const [discounts, setDiscounts] = useState<DiscountRow[]>([]);
     const [hvzCosts, setHvzCosts] = useState<HvzCostRow[]>([]);
     const [bnkCosts, setBnkCosts] = useState<BnkCostRow[]>([]);
@@ -122,7 +122,7 @@ export default function CalculationPage() {
     const [addVehModal, setAddVehModal] = useState(false);
     const [addVehForm, setAddVehForm] = useState({ vehicle_id: '', usage_type: 'Pauschal', usage_value: 1, cost_per_unit: 0, total_cost: 0, notes: '' });
     const [addExtraModal, setAddExtraModal] = useState(false);
-    const [addExtraForm, setAddExtraForm] = useState({ cost_type: '', description: '', cost: 0 });
+    const [addExtraForm, setAddExtraForm] = useState({ beschreibung: '', menge: 0, ek_preis: 0, vk_preis: 0 });
     const [addSvcModal, setAddSvcModal] = useState(false);
     const [addSvcForm, setAddSvcForm] = useState({ service_id: '', quantity: 0, unit: 'Std', cost_per_unit: 0, supplier: '' });
     const [addHvzModal, setAddHvzModal] = useState(false);
@@ -287,7 +287,7 @@ export default function CalculationPage() {
                 personalKosten, personalErloes, materialKosten, materialErloes,
                 vehicleKosten, vehicleErloes, serviceKosten, serviceErloes,
                 hvzKosten, hvzErloes, bnkKosten, bnkErloes,
-                extraKosten, revenueTotal, discountTotal,
+                extraKosten, discountTotal,
             };
 
             const { error } = await supabase.from('t_nachkalkulation_submissions').insert({
@@ -450,12 +450,8 @@ export default function CalculationPage() {
             };
         }));
 
-        setRevenue(revData.map((r: any) => ({
-            id: r.id, position_label: r.position_label, qty: r.qty, unit: r.unit || '',
-            unit_price: r.unit_price, line_total: r.line_total || +(r.qty * r.unit_price).toFixed(2), kind: r.kind
-        })));
 
-        setExtraCosts(extData.map((e: any) => ({ cost_id: e.cost_id, cost_type: e.cost_type, description: e.description || '', cost: e.cost })));
+        setExtraCosts(extData.map((e: any) => ({ cost_id: e.cost_id, beschreibung: e.beschreibung || e.description || '', menge: e.menge ?? 1, ek_preis: e.ek_preis ?? (e.cost ?? 0), vk_preis: e.vk_preis ?? 0 })));
         setDiscounts(discData.map((d: any) => ({ id: d.id, mode: d.mode || 'flat', description: d.description || '', value: d.value || 0 })));
         setHvzCosts(hvzData.map((h: any) => ({ id: h.id, datum_von: h.datum_von, datum_bis: h.datum_bis, tage: h.tage, ek_preis: h.ek_preis, vk_preis: h.vk_preis })));
         setBnkCosts(bnkData.map((b: any) => ({ id: b.id, beschreibung: b.beschreibung, menge: b.menge, ek_preis: b.ek_preis, vk_preis: b.vk_preis })));
@@ -483,15 +479,15 @@ export default function CalculationPage() {
     const vehicleErloes = useMemo(() => vehicles.reduce((s, v) => s + (v.usage_value || 0) * (v.total_cost || 0), 0), [vehicles]);
     const serviceKosten = useMemo(() => services.reduce((s, sv) => s + sv.total_cost, 0), [services]);
     const serviceErloes = useMemo(() => services.reduce((s, sv) => s + (sv.total_price || 0), 0), [services]);
-    const extraKosten = useMemo(() => extraCosts.reduce((s, e) => s + e.cost, 0), [extraCosts]);
-    const revenueTotal = useMemo(() => revenue.reduce((s, r) => s + r.line_total, 0), [revenue]);
+    const extraKosten = useMemo(() => extraCosts.reduce((s, e) => s + (e.menge || 0) * (e.ek_preis || 0), 0), [extraCosts]);
+    const extraErloes = useMemo(() => extraCosts.reduce((s, e) => s + (e.menge || 0) * (e.vk_preis || 0), 0), [extraCosts]);
     const hvzKosten = useMemo(() => hvzCosts.reduce((s, h) => s + (h.tage || 0) * (h.ek_preis || 0), 0), [hvzCosts]);
     const hvzErloes = useMemo(() => hvzCosts.reduce((s, h) => s + (h.tage || 0) * (h.vk_preis || 0), 0), [hvzCosts]);
     const bnkKosten = useMemo(() => bnkCosts.reduce((s, b) => s + (b.menge || 0) * (b.ek_preis || 0), 0), [bnkCosts]);
     const bnkErloes = useMemo(() => bnkCosts.reduce((s, b) => s + (b.menge || 0) * (b.vk_preis || 0), 0), [bnkCosts]);
 
     const totalCosts = personalKosten + materialKosten + vehicleKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
-    const baseRevenue = revenueTotal + personalErloes + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
+    const baseRevenue = personalErloes + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes + extraErloes;
     const discountTotal = useMemo(() => discounts.reduce((s, d) => {
         const mode = d.mode || 'flat';
         if (mode === 'percent') return s + (baseRevenue * ((d.value || 0) / 100)); // Apply % to revenue
@@ -616,11 +612,17 @@ export default function CalculationPage() {
 
     // ---- EXTRA COSTS CRUD ----
     const addExtraCost = async () => {
-        if (!selectedProjectId || !addExtraForm.description) return;
+        if (!selectedProjectId || !addExtraForm.beschreibung) return;
         try {
             const { error } = await supabase.from('t_project_costs_extra').insert({
-                project_id: selectedProjectId, cost_type: addExtraForm.cost_type,
-                description: addExtraForm.description, cost: addExtraForm.cost,
+                project_id: selectedProjectId,
+                beschreibung: addExtraForm.beschreibung,
+                menge: addExtraForm.menge,
+                ek_preis: addExtraForm.ek_preis,
+                vk_preis: addExtraForm.vk_preis,
+                cost_type: addExtraForm.beschreibung,
+                description: addExtraForm.beschreibung,
+                cost: addExtraForm.menge * addExtraForm.ek_preis,
             });
             if (error) throw error;
             setAddExtraModal(false);
@@ -634,7 +636,7 @@ export default function CalculationPage() {
     const saveExtraCosts = async () => {
         try {
             await Promise.all(extraCosts.map(e =>
-                supabase.from('t_project_costs_extra').update({ cost_type: e.cost_type, description: e.description, cost: e.cost }).eq('cost_id', e.cost_id)
+                supabase.from('t_project_costs_extra').update({ beschreibung: e.beschreibung, menge: e.menge, ek_preis: e.ek_preis, vk_preis: e.vk_preis, cost_type: e.beschreibung, description: e.beschreibung, cost: (e.menge || 0) * (e.ek_preis || 0) }).eq('cost_id', e.cost_id)
             ));
             toast('Sonstige Kosten gespeichert');
             loadProjectData([selectedProjectId]);
@@ -777,36 +779,6 @@ export default function CalculationPage() {
         if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
     };
 
-    // ---- REVENUE CRUD ----
-    const addRevenueRow = () => { setRevenue(prev => [...prev, { id: `temp-${Date.now()}`, position_label: '', qty: 0, unit: 'Std', unit_price: 0, line_total: 0, kind: 'manual', isNew: true }]); };
-    const updateRevenue = (id: string, field: keyof RevenueRow, value: any) => {
-        setRevenue(prev => prev.map(r => {
-            if (r.id !== id) return r;
-            const updated = { ...r, [field]: value };
-            if (field === 'qty' || field === 'unit_price') updated.line_total = +((updated.qty || 0) * (updated.unit_price || 0)).toFixed(2);
-            return updated;
-        }));
-    };
-    const saveRevenue = async () => {
-        if (!selectedProjectId) return;
-        try {
-            await Promise.all(revenue.map(r => {
-                const record = { project_id: selectedProjectId, position_label: r.position_label, qty: r.qty, unit: r.unit, unit_price: r.unit_price, line_total: r.line_total, kind: r.kind };
-                return r.isNew || r.id.startsWith('temp-')
-                    ? supabase.from('t_project_revenue_items').insert(record)
-                    : supabase.from('t_project_revenue_items').update(record).eq('id', r.id);
-            }));
-            toast('Erlöse gespeichert');
-            loadProjectData([selectedProjectId]);
-        } catch { toast('Fehler beim Speichern', 'error'); }
-    };
-    const deleteRevenue = async (id: string) => {
-        if (id.startsWith('temp-')) { setRevenue(prev => prev.filter(r => r.id !== id)); return; }
-        setRevenue(prev => prev.filter(r => r.id !== id));
-        const { error } = await supabase.from('t_project_revenue_items').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
-    };
-
     // ---- EXPORT ----
     const exportHTML = () => {
         const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Nachkalkulation – ${selectedProject?.name || ''}</title>
@@ -836,15 +808,12 @@ export default function CalculationPage() {
         <h2>4. Dienstleistungskosten (${eur(serviceKosten)})</h2><table><tr><th>Leistung</th><th>Lieferant</th><th>Menge</th><th class="right">EK</th><th class="right">Kosten</th></tr>
         ${services.map(s => `<tr><td>${s.service_name}</td><td>${s.supplier}</td><td>${s.quantity}</td><td class="right">${eur(s.cost_per_unit)}</td><td class="right">${eur(s.total_cost)}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(serviceKosten)}</th></tr></table>
-        <h2>5. Sonstige Kosten (${eur(extraKosten)})</h2><table><tr><th>Typ</th><th>Beschreibung</th><th class="right">Betrag</th></tr>
-        ${extraCosts.map(e => `<tr><td>${e.cost_type}</td><td>${e.description}</td><td class="right">${eur(e.cost)}</td></tr>`).join('')}
-        <tr><th colspan="2">Summe</th><th class="right">${eur(extraKosten)}</th></tr></table>
+        <h2>5. Sonstige Kosten (EK: ${eur(extraKosten)} / VK: ${eur(extraErloes)})</h2><table><tr><th>Beschreibung</th><th>Menge</th><th class="right">EK</th><th class="right">VK</th><th class="right">LiS Kosten</th><th class="right">Kunden-Kosten</th></tr>
+        ${extraCosts.map(e => `<tr><td>${e.beschreibung || '—'}</td><td>${e.menge || '—'}</td><td class="right">${eur(e.ek_preis)}</td><td class="right">${eur(e.vk_preis)}</td><td class="right">${eur((e.menge||0)*(e.ek_preis||0))}</td><td class="right">${eur((e.menge||0)*(e.vk_preis||0))}</td></tr>`).join('')}
+        <tr><th colspan="4">Summe</th><th class="right">${eur(extraKosten)}</th><th class="right">${eur(extraErloes)}</th></tr></table>
         <h2>6. Rabatte / Nachlässe (${eur(discountTotal)})</h2><table><tr><th>Bezeichnung</th><th>Typ</th><th class="right">Wert</th><th class="right">Betrag</th></tr>
         ${discounts.map((d: any) => `<tr><td>${d.description || ''}</td><td>${d.mode === 'percent' ? 'Prozent' : 'Pauschal'}</td><td class="right">${d.mode === 'percent' ? `${d.value}%` : eur(d.value)}</td><td class="right">${eur(d.mode === 'percent' ? baseRevenue * (d.value / 100) : d.value)}</td></tr>`).join('')}
         <tr><th colspan="3">Summe Abzug</th><th class="right">${eur(discountTotal)}</th></tr></table>
-        <h2>7. Erlöse Manuell (${eur(revenueTotal)})</h2><table><tr><th>Position</th><th>Menge</th><th>Einheit</th><th class="right">Preis</th><th class="right">Gesamt</th></tr>
-        ${revenue.map(r => `<tr><td>${r.position_label}</td><td>${r.qty}</td><td>${r.unit}</td><td class="right">${eur(r.unit_price)}</td><td class="right">${eur(r.line_total)}</td></tr>`).join('')}
-        <tr><th colspan="4">Summe Erlöse Manuell</th><th class="right">${eur(revenueTotal)}</th></tr></table>
         </body></html>`;
         const blob = new Blob([html], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
@@ -1031,14 +1000,9 @@ export default function CalculationPage() {
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
-            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td>
+            <td><div class="val-container"><span></span><span>${numFormat(extraErloes)}</span></div></td>
             ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
-        </tr>
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Erlöse</td>
-            <td></td>
-            <td><div class="val-container"><span></span><span>${numFormat(revenueTotal)}</span></div></td>
-            ${isKvMode ? '<td></td>' : ''}
         </tr>
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
@@ -1819,19 +1783,22 @@ export default function CalculationPage() {
                                                     <SortableCostSection key="extra" id="extra">
                                                         <CostSection title="Sonstige Kosten" icon={<AlertCircle className="h-5 w-5" />} total={extraKosten} color="amber"
                                                             actions={<div className="flex gap-2">
-                                                                <button onClick={() => { setAddExtraForm({ cost_type: '', description: '', cost: 0 }); setAddExtraModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Kosten</button>
+                                                                <button onClick={() => { setAddExtraForm({ beschreibung: '', menge: 0, ek_preis: 0, vk_preis: 0 }); setAddExtraModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Kosten</button>
                                                                 <button onClick={saveExtraCosts} className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
                                                             </div>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Typ</th><th className="px-4 py-2 text-left">Beschreibung</th><th className="px-4 py-2 text-right w-32">Betrag (€)</th><th className="w-10"></th></tr>
+                                                                    <tr><th className="px-4 py-2 text-left">Beschreibung</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="px-4 py-2 text-right">LiS Kosten</th><th className="px-4 py-2 text-right">Kunden-Kosten</th><th className="w-10"></th></tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
-                                                                    {extraCosts.length === 0 ? <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">Keine Sonstigen Kosten</td></tr> : extraCosts.map(e => (
+                                                                    {extraCosts.length === 0 ? <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">Keine Sonstigen Kosten</td></tr> : extraCosts.map(e => (
                                                                         <tr key={e.cost_id} className="hover:bg-slate-50 group">
-                                                                            <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={e.cost_type} onChange={ev => updateExtraCost(e.cost_id, 'cost_type', ev.target.value)} placeholder="Typ eingeben..." /></td>
-                                                                            <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={e.description} onChange={ev => updateExtraCost(e.cost_id, 'description', ev.target.value)} placeholder="Beschreibung..." /></td>
-                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.cost === 0 ? '' : (e.cost ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'cost', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={e.beschreibung} onChange={ev => updateExtraCost(e.cost_id, 'beschreibung', ev.target.value)} placeholder="Beschreibung..." /></td>
+                                                                            <td className="px-4 py-1.5"><input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.menge === 0 ? '' : (e.menge ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'menge', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.ek_preis === 0 ? '' : (e.ek_preis ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'ek_preis', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.vk_preis === 0 ? '' : (e.vk_preis ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'vk_preis', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
+                                                                            <td className="px-4 py-2 text-right font-semibold">{eur((e.menge || 0) * (e.ek_preis || 0))}</td>
+                                                                            <td className="px-4 py-2 text-right text-green-700 font-semibold">{eur((e.menge || 0) * (e.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteExtraCost(e.cost_id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1841,59 +1808,7 @@ export default function CalculationPage() {
                                                     </SortableCostSection>
                                                 );
                                             case 'revenue':
-                                                return (
-                                                    <SortableCostSection key="revenue" id="revenue">
-                                                        {/* Rabatte & Erlöse merged into one block or stacked */}
-                                                        <CostSection title="Rabatte / Nachlässe" icon={<Percent className="h-5 w-5" />} total={discountTotal} color="purple"
-                                                            actions={<div className="flex gap-2">
-                                                                <button onClick={addDiscountRow} className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"><Plus className="h-3.5 w-3.5" /> Rabatt</button>
-                                                                <button onClick={saveDiscounts} className="flex items-center gap-1 text-xs bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
-                                                            </div>}>
-                                                            <table className="w-full text-sm mb-4">
-                                                                <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Bezeichnung</th><th className="px-4 py-2 w-24">Typ</th><th className="px-4 py-2 text-right w-32">Wert (€)</th><th className="w-10"></th></tr>
-                                                                </thead>
-                                                                <tbody className="divide-y divide-slate-100">
-                                                                    {discounts.length === 0 ? <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">Keine Rabatte</td></tr> : discounts.map((d: any) => {
-                                                                        const rowId = d.id;
-                                                                        return (
-                                                                            <tr key={rowId} className="hover:bg-slate-50 group">
-                                                                                <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={d.description || ''} onChange={e => updateDiscount(rowId, 'description', e.target.value)} placeholder="Beschreibung..." /></td>
-                                                                                <td className="px-4 py-1.5"><select className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1 py-1 text-sm" value={d.mode || 'flat'} onChange={e => updateDiscount(rowId, 'mode', e.target.value)}><option value="flat">Pauschal</option><option value="percent">Prozent</option></select></td>
-                                                                                <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={d.value === 0 ? '' : (d.value ?? '')} onChange={e => updateDiscount(rowId, 'value', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
-                                                                                <td className="px-2"><button onClick={() => deleteDiscount(rowId)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
-                                                                            </tr>
-                                                                        )
-                                                                    })}
-                                                                </tbody>
-                                                            </table>
-                                                        </CostSection>
-                                                        <div className="h-6" />
-                                                        <CostSection title="Erlöse (Rechnungspositionen)" icon={<TrendingUp className="h-5 w-5" />} total={revenueTotal} color="green"
-                                                            actions={<div className="flex gap-2">
-                                                                <button onClick={addRevenueRow} className="flex items-center gap-1 text-xs text-green-700 hover:text-green-900"><Plus className="h-3.5 w-3.5" /> Zeile</button>
-                                                                <button onClick={saveRevenue} className="flex items-center gap-1 text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
-                                                            </div>}>
-                                                            <table className="w-full text-sm">
-                                                                <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Position</th><th className="px-4 py-2 text-right w-20">Menge</th><th className="px-4 py-2 w-20">Einheit</th><th className="px-4 py-2 text-right w-28">Preis/Einheit</th><th className="px-4 py-2 text-right w-28">Gesamt</th><th className="w-10"></th></tr>
-                                                                </thead>
-                                                                <tbody className="divide-y divide-slate-100">
-                                                                    {revenue.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">Keine Erlöse</td></tr> : revenue.map(r => (
-                                                                        <tr key={r.id} className="hover:bg-slate-50 group">
-                                                                            <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={r.position_label} onChange={e => updateRevenue(r.id, 'position_label', e.target.value)} placeholder="Position..." /></td>
-                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={r.qty === 0 ? '' : (r.qty ?? '')} onChange={e => updateRevenue(r.id, 'qty', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
-                                                                            <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={r.unit} onChange={e => updateRevenue(r.id, 'unit', e.target.value)} /></td>
-                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={r.unit_price === 0 ? '' : (r.unit_price ?? '')} onChange={e => updateRevenue(r.id, 'unit_price', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
-                                                                            <td className="px-4 py-2 text-right font-semibold text-green-700">{eur(r.line_total)}</td>
-                                                                            <td className="px-2"><button onClick={() => deleteRevenue(r.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
-                                                                        </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
-                                                        </CostSection>
-                                                    </SortableCostSection>
-                                                );
+                                                return null;
                                             default: return null;
                                         }
                                     })}
@@ -1982,14 +1897,22 @@ export default function CalculationPage() {
                     </Modal>}
 
                     {/* ======= ADD EXTRA COST MODAL ======= */}
-                    {addExtraModal && <Modal title="Sonstige Kosten hinzufügen" onClose={() => setAddExtraModal(false)} onSave={addExtraCost} disabled={!addExtraForm.description}>
+                    {addExtraModal && <Modal title="Sonstige Kosten hinzufügen" onClose={() => setAddExtraModal(false)} onSave={addExtraCost} disabled={!addExtraForm.beschreibung}>
                         <div className="space-y-3">
-                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Typ</label>
-                                <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.cost_type} onChange={e => setAddExtraForm({ ...addExtraForm, cost_type: e.target.value })} placeholder="z.B. Maut, Parkgebühr, Entsorgung..." /></div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Beschreibung</label>
-                                <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.description} onChange={e => setAddExtraForm({ ...addExtraForm, description: e.target.value })} placeholder="z.B. Autobahnmaut A3" /></div>
-                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Betrag (€)</label>
-                                <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.cost === 0 ? '' : (addExtraForm.cost ?? '')} onChange={e => setAddExtraForm({ ...addExtraForm, cost: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.beschreibung} onChange={e => setAddExtraForm({ ...addExtraForm, beschreibung: e.target.value })} placeholder="z.B. Maut, Parkgebühr, Entsorgung..." /></div>
+                            <div className="grid grid-cols-3 gap-3">
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
+                                    <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.menge === 0 ? '' : (addExtraForm.menge ?? '')} onChange={e => setAddExtraForm({ ...addExtraForm, menge: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">EK-Preis (€)</label>
+                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.ek_preis === 0 ? '' : (addExtraForm.ek_preis ?? '')} onChange={e => setAddExtraForm({ ...addExtraForm, ek_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">VK-Preis (€)</label>
+                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.vk_preis === 0 ? '' : (addExtraForm.vk_preis ?? '')} onChange={e => setAddExtraForm({ ...addExtraForm, vk_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3">
+                                <div className="text-xs text-slate-500">LiS Kosten: <span className="font-semibold text-slate-700">{eur(addExtraForm.menge * addExtraForm.ek_preis)}</span></div>
+                                <div className="text-xs text-slate-500">Kunden-Kosten: <span className="font-semibold text-green-700">{eur(addExtraForm.menge * addExtraForm.vk_preis)}</span></div>
+                            </div>
                         </div>
                     </Modal>}
                     {/* ======= ADD HVZ MODAL ======= */}

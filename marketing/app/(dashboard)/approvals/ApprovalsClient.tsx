@@ -8,7 +8,7 @@ import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import {
     ClipboardCheck, CheckCircle2, XCircle, Clock, Loader2, FileText,
-    ChevronDown, User, Calendar, MessageSquare, Eye
+    ChevronDown, User, Calendar, MessageSquare, Eye, Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +41,7 @@ export default function ApprovalsClient() {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'accepted' | 'rejected'>('all');
     const [userEmail, setUserEmail] = useState('');
+    const [deletingId, setDeletingId] = useState<string | null>(null);
 
     // Fetch current user
     useEffect(() => {
@@ -183,6 +184,26 @@ export default function ApprovalsClient() {
         } catch (err) {
             console.error('Error accepting submission:', err);
             toast('Fehler beim Annehmen', 'error');
+        } finally {
+            setProcessing(null);
+        }
+    };
+
+    // ---- Delete ----
+    const handleDelete = async (submissionId: string) => {
+        if (!window.confirm('Eintrag wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return;
+        setProcessing(submissionId);
+        try {
+            const { error } = await supabase
+                .from('t_nachkalkulation_submissions')
+                .delete()
+                .eq('id', submissionId);
+            if (error) throw error;
+            toast('Eintrag gelöscht', 'success');
+            fetchSubmissions();
+        } catch (err) {
+            console.error('Error deleting submission:', err);
+            toast('Fehler beim Löschen', 'error');
         } finally {
             setProcessing(null);
         }
@@ -377,6 +398,16 @@ export default function ApprovalsClient() {
                                                 </button>
                                             </>
                                         )}
+                                        <button
+                                            onClick={() => handleDelete(sub.id)}
+                                            disabled={processing === sub.id}
+                                            className="p-2 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                                            title="Eintrag löschen"
+                                        >
+                                            {processing === sub.id
+                                                ? <Loader2 className="w-4 h-4 animate-spin" />
+                                                : <Trash2 className="w-4 h-4" />}
+                                        </button>
                                     </div>
                                 </div>
 

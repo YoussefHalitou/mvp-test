@@ -630,6 +630,10 @@ export default function TrackingPage() {
     const [replaceDropdown, setReplaceDropdown] = useState<string | null>(null);
     const [replaceDropdownPos, setReplaceDropdownPos] = useState<{ top: number; left: number; openUp: boolean } | null>(null);
 
+    // Work assignment replace/cross-out state
+    const [waReplaceDropdown, setWaReplaceDropdown] = useState<string | null>(null);
+    const [waReplaceDropdownPos, setWaReplaceDropdownPos] = useState<{ top: number; left: number; openUp: boolean } | null>(null);
+
     const handleReplace = async (row: TrackingRow, replacementEmployeeId: string) => {
         const emp = employees.find(e => e.employee_id === replacementEmployeeId);
         if (!emp) return;
@@ -737,7 +741,7 @@ export default function TrackingPage() {
         if (!waForm.employee_name || !waForm.work_type) return;
         setSavingWa(true);
         try {
-            const payload = {
+            const payload: any = {
                 work_type: waForm.work_type,
                 employee_name: waForm.employee_name,
                 employee_code: waForm.employee_code || null,
@@ -771,6 +775,53 @@ export default function TrackingPage() {
         setWorkAssignments(prev => prev.filter(w => w.assignment_id !== id));
         const { error } = await supabase.from('t_work_assignments').delete().eq('assignment_id', id);
         if (error) { toast('Fehler beim Löschen', 'error'); fetchData(); }
+    };
+
+    // Cross out work assignment
+    const handleWaCrossOut = async (wa: WorkAssignment) => {
+        setWaReplaceDropdown(null);
+        await supabase.from('t_work_assignments').update({ replaced_by: 'crossed_out' }).eq('assignment_id', wa.assignment_id);
+        setWorkAssignments(prev => prev.map(w => w.assignment_id === wa.assignment_id ? { ...w, replaced_by: 'crossed_out' } : w));
+        toast(`${wa.employee_name} gestrichen`);
+    };
+
+    // Undo cross-out on work assignment
+    const handleWaUndoCrossOut = async (wa: WorkAssignment) => {
+        await supabase.from('t_work_assignments').update({ replaced_by: null }).eq('assignment_id', wa.assignment_id);
+        setWorkAssignments(prev => prev.map(w => w.assignment_id === wa.assignment_id ? { ...w, replaced_by: null } : w));
+        toast(`${wa.employee_name} wiederhergestellt`);
+    };
+
+    // Replace work assignment employee
+    const handleWaReplace = async (wa: WorkAssignment, replacementEmployeeId: string) => {
+        const emp = employees.find(e => e.employee_id === replacementEmployeeId);
+        if (!emp) return;
+        setWaReplaceDropdown(null);
+
+        const newAssignmentId = `replace-wa-${wa.assignment_id}-${Date.now()}`;
+
+        // Mark original as replaced
+        await supabase.from('t_work_assignments').update({ replaced_by: newAssignmentId }).eq('assignment_id', wa.assignment_id);
+
+        // Insert replacement
+        await supabase.from('t_work_assignments').insert({
+            assignment_id: newAssignmentId,
+            work_type: wa.work_type,
+            employee_name: emp.name,
+            employee_code: emp.employee_code || null,
+            assignment_date: wa.assignment_date,
+            start_time: wa.start_time,
+            end_time: wa.end_time,
+            break_minutes: wa.break_minutes,
+            hours_estimated: wa.hours_estimated,
+            status: wa.status,
+            notes: wa.notes,
+            project_id: wa.project_id,
+            is_replacement: true,
+        });
+
+        fetchData();
+        toast(`${wa.employee_name} ersetzt durch ${emp.name}`);
     };
 
     const calcWaHours = (st: string | null, et: string | null, brk: number | null) => {
@@ -1719,25 +1770,109 @@ export default function TrackingPage() {
                                         <p>Keine Arbeitseinsätze für diesen Tag.</p>
                                         <button onClick={openCreateWa} className="text-orange-600 hover:underline mt-2">Neuen Einsatz anlegen</button>
                                     </td></tr>
-                                ) : workAssignments.map(wa => (
-                                    <tr key={wa.assignment_id} className="hover:bg-slate-50 group">
-                                        <td className="px-4 py-3"><span className="text-xs font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{wa.work_type}</span></td>
-                                        <td className="px-4 py-3 font-medium text-slate-900">{wa.employee_name}</td>
-                                        <td className="px-4 py-3 text-slate-600 text-sm">{wa.project_id ? (projects.find(p => p.project_id === wa.project_id)?.name || '—') : '—'}</td>
-                                        <td className="px-4 py-3 text-center font-mono">{wa.start_time?.substring(0, 5) || '—'}</td>
-                                        <td className="px-4 py-3 text-center font-mono">{wa.end_time?.substring(0, 5) || '—'}</td>
-                                        <td className="px-4 py-3 text-center">{wa.break_minutes || 0}</td>
-                                        <td className="px-4 py-3 text-center font-semibold text-slate-700">{calcWaHours(wa.start_time, wa.end_time, wa.break_minutes)}</td>
-                                        <td className="px-4 py-3"><span className={cn("text-xs px-2 py-0.5 rounded-full", wa.status === 'Erledigt' ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700")}>{wa.status || 'Offen'}</span></td>
-                                        <td className="px-4 py-3 text-slate-600 truncate max-w-[200px]">{wa.notes || '—'}</td>
+                                ) : workAssignments.map(wa => {
+                                    const waIsReplaced = !!wa.replaced_by;
+                                    const waIsCrossedOut = wa.replaced_by === 'crossed_out';
+                                    return (
+                                    <tr key={wa.assignment_id} className={cn("group", waIsReplaced ? (waIsCrossedOut ? "bg-amber-50/40 opacity-70" : "bg-red-50/30 opacity-60") : "hover:bg-slate-50")}>
+                                        <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className="text-xs font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{wa.work_type}</span></td>
+                                        <td className={cn("px-4 py-3 font-medium text-slate-900", waIsReplaced && (waIsCrossedOut ? "line-through text-amber-500" : "line-through text-red-400"))}>{wa.employee_name}</td>
+                                        <td className={cn("px-4 py-3 text-slate-600 text-sm", waIsReplaced && "line-through")}>{wa.project_id ? (projects.find(p => p.project_id === wa.project_id)?.name || '—') : '—'}</td>
+                                        <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.start_time?.substring(0, 5) || '—'}</td>
+                                        <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.end_time?.substring(0, 5) || '—'}</td>
+                                        <td className={cn("px-4 py-3 text-center", waIsReplaced && "line-through text-slate-400")}>{wa.break_minutes || 0}</td>
+                                        <td className={cn("px-4 py-3 text-center font-semibold text-slate-700", waIsReplaced && "line-through text-slate-400")}>{calcWaHours(wa.start_time, wa.end_time, wa.break_minutes)}</td>
+                                        <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className={cn("text-xs px-2 py-0.5 rounded-full", wa.status === 'Erledigt' ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700")}>{wa.status || 'Offen'}</span></td>
+                                        <td className={cn("px-4 py-3 text-slate-600 truncate max-w-[200px]", waIsReplaced && "line-through text-slate-400")}>{wa.notes || '—'}</td>
                                         <td className="px-4 py-3">
-                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button onClick={() => openEditWa(wa)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600"><Pencil className="h-4 w-4" /></button>
-                                                <button onClick={() => deleteWa(wa.assignment_id)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+                                            <div className="flex items-center gap-1 justify-center relative">
+                                                {!waIsReplaced && (
+                                                    <>
+                                                        <div className="relative">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    if (waReplaceDropdown === wa.assignment_id) {
+                                                                        setWaReplaceDropdown(null);
+                                                                        setWaReplaceDropdownPos(null);
+                                                                    } else {
+                                                                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                                                        const spaceBelow = window.innerHeight - rect.bottom;
+                                                                        const openUp = spaceBelow < 220;
+                                                                        setWaReplaceDropdownPos({
+                                                                            top: openUp ? rect.top : rect.bottom + 4,
+                                                                            left: Math.min(rect.right - 192, window.innerWidth - 200),
+                                                                            openUp,
+                                                                        });
+                                                                        setWaReplaceDropdown(wa.assignment_id);
+                                                                    }
+                                                                }}
+                                                                className="text-slate-400 hover:text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                                title="Mitarbeiter ersetzen / streichen"
+                                                            >
+                                                                <ArrowLeftRight className="h-4 w-4" />
+                                                            </button>
+                                                        </div>
+                                                        {waReplaceDropdown === wa.assignment_id && waReplaceDropdownPos && typeof document !== 'undefined' && ReactDOM.createPortal(
+                                                            <>
+                                                                <div className="fixed inset-0 z-[99]" onClick={() => { setWaReplaceDropdown(null); setWaReplaceDropdownPos(null); }} />
+                                                                <div
+                                                                    className="fixed z-[100] bg-white border border-slate-200 rounded-lg shadow-2xl py-1 w-48 max-h-56 overflow-y-auto"
+                                                                    style={{
+                                                                        left: waReplaceDropdownPos.left,
+                                                                        ...(waReplaceDropdownPos.openUp
+                                                                            ? { bottom: window.innerHeight - waReplaceDropdownPos.top + 4 }
+                                                                            : { top: waReplaceDropdownPos.top }),
+                                                                    }}
+                                                                >
+                                                                    <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wide">Ersetzen durch:</div>
+                                                                    {employees
+                                                                        .filter(emp => emp.name !== wa.employee_name)
+                                                                        .map(emp => (
+                                                                            <button
+                                                                                key={emp.employee_id}
+                                                                                className="w-full text-left px-3 py-1.5 text-sm hover:bg-orange-50 hover:text-orange-700 transition-colors"
+                                                                                onClick={() => handleWaReplace(wa, emp.employee_id)}
+                                                                            >
+                                                                                {emp.name}
+                                                                            </button>
+                                                                        ))}
+                                                                    <button
+                                                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-amber-50 hover:text-amber-700 transition-colors border-t border-slate-100 flex items-center gap-2"
+                                                                        onClick={() => handleWaCrossOut(wa)}
+                                                                    >
+                                                                        <UserX className="h-3.5 w-3.5" /> Streichen
+                                                                    </button>
+                                                                    <button
+                                                                        className="w-full text-left px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-50 border-t border-slate-100"
+                                                                        onClick={() => { setWaReplaceDropdown(null); setWaReplaceDropdownPos(null); }}
+                                                                    >
+                                                                        Abbrechen
+                                                                    </button>
+                                                                </div>
+                                                            </>,
+                                                            document.body
+                                                        )}
+                                                        <button onClick={() => openEditWa(wa)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"><Pencil className="h-4 w-4" /></button>
+                                                        <button onClick={() => deleteWa(wa.assignment_id)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-4 w-4" /></button>
+                                                    </>
+                                                )}
+                                                {waIsCrossedOut && (
+                                                    <button onClick={() => handleWaUndoCrossOut(wa)} className="text-amber-500 hover:text-amber-700 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1" title="Streichung rückgängig machen">
+                                                        <Undo2 className="h-3.5 w-3.5" />
+                                                        <span className="text-[10px] font-medium">Gestrichen</span>
+                                                    </button>
+                                                )}
+                                                {waIsReplaced && !waIsCrossedOut && (
+                                                    <button onClick={() => deleteWa(wa.assignment_id)} className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1" title="Ersetzten Eintrag löschen">
+                                                        <Trash2 className="h-3.5 w-3.5" />
+                                                        <span className="text-[10px] font-medium">Ersetzt</span>
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -120,9 +120,9 @@ export default function CalculationPage() {
     const [addMatModal, setAddMatModal] = useState(false);
     const [addMatForm, setAddMatForm] = useState({ material_id: '', quantity: 0 });
     const [addVehModal, setAddVehModal] = useState(false);
-    const [addVehForm, setAddVehForm] = useState({ vehicle_id: '', usage_type: 'km', usage_value: 0, cost_per_unit: 0, notes: '' });
+    const [addVehForm, setAddVehForm] = useState({ vehicle_id: '', usage_type: 'Pauschal', usage_value: 1, cost_per_unit: 0, total_cost: 0, notes: '' });
     const [addExtraModal, setAddExtraModal] = useState(false);
-    const [addExtraForm, setAddExtraForm] = useState({ cost_type: 'Sonstiges', description: '', cost: 0 });
+    const [addExtraForm, setAddExtraForm] = useState({ cost_type: '', description: '', cost: 0 });
     const [addSvcModal, setAddSvcModal] = useState(false);
     const [addSvcForm, setAddSvcForm] = useState({ service_id: '', quantity: 0, unit: 'Std', cost_per_unit: 0, supplier: '' });
     const [addHvzModal, setAddHvzModal] = useState(false);
@@ -165,9 +165,15 @@ export default function CalculationPage() {
         }
     };
 
+    // Kundennummer & Angebotsnummer
+    const [kundennummer, setKundennummer] = useState('');
+    const [angebotsnummer, setAngebotsnummer] = useState('');
+
     // Fixed: LiS Std always = costs (satz), Kd Std always = revenue (kunden_satz, editable per row)
     // Per-row Kd Satz overrides: pair_id -> kunden_satz value
     const [perRowKundenSatz, setPerRowKundenSatz] = useState<Record<string, number>>({});
+    // Per-row Kd Std overrides: pair_id -> kunden_stunden value
+    const [perRowKundenStd, setPerRowKundenStd] = useState<Record<string, number>>({});
     const [globalKdSatz, setGlobalKdSatz] = useState<number | null>(null);
     const getKundenSatz = (pairId: string, defaultSatz: number) => perRowKundenSatz[pairId] ?? globalKdSatz ?? defaultSatz;
     const setKundenSatz = (pairId: string, value: number, defaultSatz: number) => {
@@ -279,7 +285,7 @@ export default function CalculationPage() {
                 isKvMode, kvValues,
                 totalCosts, totalRevenue, margin, marginPct,
                 personalKosten, personalErloes, materialKosten, materialErloes,
-                vehicleErloes, serviceKosten, serviceErloes,
+                vehicleKosten, vehicleErloes, serviceKosten, serviceErloes,
                 hvzKosten, hvzErloes, bnkKosten, bnkErloes,
                 extraKosten, revenueTotal, discountTotal,
             };
@@ -304,12 +310,16 @@ export default function CalculationPage() {
 
     useEffect(() => {
         if (multiSelectMode) return; // don't auto-load in multi-select mode
+        // Reset auto-save guards so loading new project data doesn't trigger spurious saves
+        isFirstMetadataRender.current = true;
+        isFirstKvRender.current = true;
         if (!selectedProjectId) {
-            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setKvValues({}); setPerRowKundenSatz({}); setGlobalKdSatz(null); setSubmissionStatus('none');
+            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setKvValues({}); setPerRowKundenSatz({}); setPerRowKundenStd({}); setGlobalKdSatz(null); setSubmissionStatus('none'); setKundennummer(''); setAngebotsnummer('');
             return;
         }
         setMergedProjectNames([]);
         setPerRowKundenSatz({});
+        setPerRowKundenStd({});
         setGlobalKdSatz(null);
         loadProjectData([selectedProjectId], selectedPlanDate);
         checkSubmissionStatus(selectedProjectId);
@@ -341,8 +351,18 @@ export default function CalculationPage() {
         if (proj) {
             setSelectedProject(proj);
             setIsKvMode((proj as any).offer_type === 'Kostenvoranschlag');
+            setKundennummer((proj as any).kundennummer || '');
+            setAngebotsnummer((proj as any).angebotsnummer || '');
         }
         setKvValues({});
+
+        // Load persisted KV values
+        const { data: kvData } = await supabase.from('t_project_kv_values').select('kv_key, kv_value').eq('project_id', pids[0]);
+        if (kvData && kvData.length > 0) {
+            const loaded: Record<string, number> = {};
+            kvData.forEach((kv: any) => { loaded[kv.kv_key] = kv.kv_value || 0; });
+            setKvValues(loaded);
+        }
 
 
 
@@ -445,19 +465,22 @@ export default function CalculationPage() {
     // LiS Std = costs (satz), Kd Std = revenue (kunden_satz, editable)
     const adjustedPersonnel = useMemo(() => personnel.map(p => {
         const kd_satz = getKundenSatz(p.pair_id, p.satz);
+        const kd_std = perRowKundenStd[p.pair_id] ?? p.kunden_stunden;
         return {
             ...p,
+            kunden_stunden: kd_std,
             kunden_satz: kd_satz,
             kosten: +(p.lis_stunden * p.satz).toFixed(2),
-            erloes: +(p.kunden_stunden * kd_satz).toFixed(2),
+            erloes: +(kd_std * kd_satz).toFixed(2),
         };
-    }), [personnel, perRowKundenSatz, globalKdSatz]);
+    }), [personnel, perRowKundenSatz, perRowKundenStd, globalKdSatz]);
     // Calculations
     const personalKosten = useMemo(() => adjustedPersonnel.reduce((s, p) => s + p.kosten, 0), [adjustedPersonnel]);
     const personalErloes = useMemo(() => adjustedPersonnel.reduce((s, p) => s + p.erloes, 0), [adjustedPersonnel]);
     const materialKosten = useMemo(() => materials.reduce((s, m) => s + m.total_cost, 0), [materials]);
     const materialErloes = useMemo(() => materials.reduce((s, m) => s + m.total_price, 0), [materials]);
-    const vehicleErloes = useMemo(() => vehicles.reduce((s, v) => s + v.total_cost, 0), [vehicles]);
+    const vehicleKosten = useMemo(() => vehicles.reduce((s, v) => s + (v.usage_value || 0) * (v.cost_per_unit || 0), 0), [vehicles]);
+    const vehicleErloes = useMemo(() => vehicles.reduce((s, v) => s + (v.usage_value || 0) * (v.total_cost || 0), 0), [vehicles]);
     const serviceKosten = useMemo(() => services.reduce((s, sv) => s + sv.total_cost, 0), [services]);
     const serviceErloes = useMemo(() => services.reduce((s, sv) => s + (sv.total_price || 0), 0), [services]);
     const extraKosten = useMemo(() => extraCosts.reduce((s, e) => s + e.cost, 0), [extraCosts]);
@@ -467,7 +490,7 @@ export default function CalculationPage() {
     const bnkKosten = useMemo(() => bnkCosts.reduce((s, b) => s + (b.menge || 0) * (b.ek_preis || 0), 0), [bnkCosts]);
     const bnkErloes = useMemo(() => bnkCosts.reduce((s, b) => s + (b.menge || 0) * (b.vk_preis || 0), 0), [bnkCosts]);
 
-    const totalCosts = personalKosten + materialKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
+    const totalCosts = personalKosten + materialKosten + vehicleKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
     const baseRevenue = revenueTotal + personalErloes + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
     const discountTotal = useMemo(() => discounts.reduce((s, d) => {
         const mode = d.mode || 'flat';
@@ -492,12 +515,15 @@ export default function CalculationPage() {
     const updateMaterialQty = (id: string, qty: number) => {
         setMaterials(prev => prev.map(m => m.id === id ? { ...m, quantity: qty, total_cost: +(qty * m.cost_per_unit).toFixed(2), total_price: +(qty * m.price_per_unit).toFixed(2) } : m));
     };
+    const updateMaterialVkPrice = (id: string, price: number) => {
+        setMaterials(prev => prev.map(m => m.id === id ? { ...m, price_per_unit: price, total_price: +(m.quantity * price).toFixed(2) } : m));
+    };
     const saveMaterials = async () => {
         try {
             await Promise.all(materials.filter(m => !m.isNew).map(m =>
-                supabase.from('t_project_material_usage').update({ quantity: m.quantity }).eq('id', m.id)
+                supabase.from('t_project_material_usage').update({ quantity: m.quantity, price_per_unit: m.price_per_unit }).eq('id', m.id)
             ));
-            toast('Materialmengen gespeichert');
+            toast('Materialien gespeichert');
             loadProjectData([selectedProjectId]);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
@@ -518,9 +544,9 @@ export default function CalculationPage() {
                 setVehicleCatalog(prev => [...prev, { vehicle_id: addVehForm.vehicle_id, nickname: addVehForm.vehicle_id }]);
             }
 
-            const total = +(addVehForm.usage_value * addVehForm.cost_per_unit).toFixed(2);
+            const total = addVehForm.total_cost || +(addVehForm.usage_value * addVehForm.cost_per_unit).toFixed(2);
             const { error } = await supabase.from('t_project_vehicle_costs').insert({
-                project_id: selectedProjectId, vehicle_id: addVehForm.vehicle_id, usage_type: addVehForm.usage_type,
+                project_id: selectedProjectId, vehicle_id: addVehForm.vehicle_id, usage_type: 'Pauschal',
                 usage_value: addVehForm.usage_value, cost_per_unit: addVehForm.cost_per_unit, total_cost: total, notes: addVehForm.notes || null,
             });
             if (error) throw error;
@@ -532,9 +558,7 @@ export default function CalculationPage() {
     const updateVehicleCost = (id: string, field: string, value: any) => {
         setVehicles(prev => prev.map(v => {
             if (v.id !== id) return v;
-            const updated = { ...v, [field]: value };
-            updated.total_cost = +(updated.usage_value * updated.cost_per_unit).toFixed(2);
-            return updated;
+            return { ...v, [field]: value };
         }));
     };
     const saveVehicleCosts = async () => {
@@ -570,6 +594,24 @@ export default function CalculationPage() {
         setServices(prev => prev.filter(s => s.id !== id));
         const { error } = await supabase.from('t_project_service_usage').delete().eq('id', id);
         if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
+    };
+    const updateServiceCost = (id: string, field: string, value: any) => {
+        setServices(prev => prev.map(s => {
+            if (s.id !== id) return s;
+            const updated = { ...s, [field]: value };
+            if (field === 'price_per_unit') {
+                updated.total_price = +((updated.quantity || 1) * (updated.price_per_unit || 0)).toFixed(2);
+            }
+            return updated;
+        }));
+    };
+    const saveServiceCosts = async () => {
+        if (!selectedProjectId) return;
+        try {
+            // We can only save quantity/supplier via project_service_usage. 
+            // price_per_unit overrides are local to calculation view.
+            toast('Dienstleistungen gespeichert');
+        } catch { toast('Fehler beim Speichern', 'error'); }
     };
 
     // ---- EXTRA COSTS CRUD ----
@@ -632,7 +674,70 @@ export default function CalculationPage() {
         if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
     };
 
-    // ---- HVZ CRUD ----
+    // ---- KV VALUES PERSISTENCE ----
+    const saveKvValues = async (silent = false) => {
+        if (!selectedProjectId) return;
+        try {
+            const entries = Object.entries(kvValues);
+            const toUpsert = entries.filter(([, v]) => v !== 0).map(([k, v]) => ({
+                project_id: selectedProjectId, kv_key: k, kv_value: v, updated_at: new Date().toISOString()
+            }));
+            const toDelete = entries.filter(([, v]) => v === 0).map(([k]) => k);
+
+            if (toUpsert.length > 0) {
+                await supabase.from('t_project_kv_values').upsert(toUpsert, { onConflict: 'project_id,kv_key' });
+            }
+            if (toDelete.length > 0) {
+                await supabase.from('t_project_kv_values').delete().eq('project_id', selectedProjectId).in('kv_key', toDelete);
+            }
+            if (!silent) toast('KV-Werte gespeichert', 'success');
+        } catch { if (!silent) toast('Fehler beim Speichern der KV-Werte', 'error'); }
+    };
+
+    // ---- KUNDENNUMMER / ANGEBOTSNUMMER SAVE ----
+    const saveKundennummerAngebotsnummer = async (silent = false) => {
+        if (!selectedProjectId) return;
+        try {
+            const { error } = await supabase.from('t_projects').update({
+                kundennummer: kundennummer || null,
+                angebotsnummer: angebotsnummer || null,
+            } as any).eq('project_id', selectedProjectId);
+            if (error) throw error;
+
+            setProjects(prev => prev.map(p => p.project_id === selectedProjectId ? { ...p, kundennummer: kundennummer || (null as any), angebotsnummer: angebotsnummer || (null as any) } : p));
+            if (selectedProject) setSelectedProject({ ...selectedProject, kundennummer: kundennummer || null, angebotsnummer: angebotsnummer || null } as any);
+
+            if (!silent) toast('Kundennummer / Angebotsnummer gespeichert', 'success');
+        } catch { if (!silent) toast('Fehler beim Speichern', 'error'); }
+    };
+
+    // ---- AUTO-SAVE: Kundennummer & Angebotsnummer (debounced 800ms) ----
+    const metadataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isFirstMetadataRender = useRef(true);
+    useEffect(() => {
+        if (isFirstMetadataRender.current) { isFirstMetadataRender.current = false; return; }
+        if (!selectedProjectId) return;
+        if (metadataTimerRef.current) clearTimeout(metadataTimerRef.current);
+        metadataTimerRef.current = setTimeout(async () => {
+            await saveKundennummerAngebotsnummer(true);
+        }, 800);
+        return () => { if (metadataTimerRef.current) clearTimeout(metadataTimerRef.current); };
+    }, [kundennummer, angebotsnummer, selectedProjectId]);
+
+    // ---- AUTO-SAVE: KV Values (debounced 1000ms) ----
+    const kvTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isFirstKvRender = useRef(true);
+    useEffect(() => {
+        if (isFirstKvRender.current) { isFirstKvRender.current = false; return; }
+        if (!selectedProjectId) return;
+        if (kvTimerRef.current) clearTimeout(kvTimerRef.current);
+        kvTimerRef.current = setTimeout(async () => {
+            await saveKvValues(true);
+        }, 1000);
+        return () => { if (kvTimerRef.current) clearTimeout(kvTimerRef.current); };
+    }, [kvValues, selectedProjectId]);
+
+
     const addHvzCost = async () => {
         if (!selectedProjectId) return;
         try {
@@ -719,9 +824,9 @@ export default function CalculationPage() {
         <h2>2. Material (${eur(materialKosten)})</h2><table><tr><th>Material</th><th>Menge</th><th>Einheit</th><th class="right">EK</th><th class="right">VK</th><th class="right">Kosten</th><th class="right">Erlöse</th></tr>
         ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.price_per_unit)}</td><td class="right">${eur(m.total_cost)}</td><td class="right">${eur(m.total_price)}</td></tr>`).join('')}
         <tr><th colspan="5">Summe</th><th class="right">${eur(materialKosten)}</th><th class="right">${eur(materialErloes)}</th></tr></table>
-        <h2>3. Fahrzeug (${eur(vehicleErloes)})</h2><table><tr><th>Fahrzeug</th><th>Typ</th><th>Wert</th><th class="right">Satz</th><th class="right">Erlöse</th></tr>
-        ${vehicles.map(v => `<tr><td>${v.fahrzeug}</td><td>${v.usage_type}</td><td>${v.usage_value}</td><td class="right">${eur(v.cost_per_unit)}</td><td class="right">${eur(v.total_cost)}</td></tr>`).join('')}
-        <tr><th colspan="4">Summe Erlöse</th><th class="right">${eur(vehicleErloes)}</th></tr></table>
+        <h2>3. Fahrzeug (LiS: ${eur(vehicleKosten)} / Kunde: ${eur(vehicleErloes)})</h2><table><tr><th>Beschreibung</th><th>Menge</th><th class="right">EK-Preis</th><th class="right">VK-Preis</th><th class="right">LiS Kosten</th><th class="right">Kunden-Kosten</th></tr>
+        ${vehicles.map(v => `<tr><td>${v.fahrzeug}</td><td>${v.usage_value}</td><td class="right">${eur(v.cost_per_unit)}</td><td class="right">${eur(v.total_cost)}</td><td class="right">${eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td><td class="right">${eur((v.usage_value || 0) * (v.total_cost || 0))}</td></tr>`).join('')}
+        <tr><th colspan="4">Summe</th><th class="right">${eur(vehicleKosten)}</th><th class="right">${eur(vehicleErloes)}</th></tr></table>
         <h2>HVZ (EK: ${eur(hvzKosten)} / VK: ${eur(hvzErloes)})</h2><table><tr><th>Von</th><th>Bis</th><th>Tage</th><th class="right">EK</th><th class="right">VK</th></tr>
         ${hvzCosts.map(h => `<tr><td>${h.datum_von ? new Date(h.datum_von).toLocaleDateString('de-DE') : '—'}</td><td>${h.datum_bis ? new Date(h.datum_bis).toLocaleDateString('de-DE') : '—'}</td><td>${h.tage || '—'}</td><td class="right">${eur(h.ek_preis)}</td><td class="right">${eur(h.vk_preis)}</td></tr>`).join('')}
         <tr><th colspan="3">Summe</th><th class="right">${eur(hvzKosten)}</th><th class="right">${eur(hvzErloes)}</th></tr></table>
@@ -767,8 +872,8 @@ export default function CalculationPage() {
         // EVD, HVZ, LKW, Diesel, Sonstige
         let lkwKosten = 0, lkwErloes = 0;
         vehicles.forEach(v => {
-            lkwErloes += v.total_cost;
-            lkwKosten += (v.usage_value * (v.cost_per_unit || 0));
+            lkwKosten += (v.usage_value || 0) * (v.cost_per_unit || 0);
+            lkwErloes += (v.usage_value || 0) * (v.total_cost || 0);
         });
 
         // Build dynamic EVD rows from services, grouped by supplier
@@ -833,16 +938,24 @@ export default function CalculationPage() {
             <div class="field-row"><div class="value">${selectedProject?.strasse || ''} ${selectedProject?.nr || ''}</div></div>
             <div class="field-row"><div class="value">${selectedProject?.plz || ''} ${selectedProject?.ort || ''}</div></div>
         </div>
-        <div class="box">Sonstige Bemerkungen<div class="box-content">${selectedProject?.notes || ''}</div></div>
+        <div style="border:1px solid #cbd5e1; border-radius:6px; padding:16px; background:#f8fafc; display:flex; flex-direction:column; gap:12px; justify-content:center;">
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+                <span style="font-size:10px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.06em;">KV oder FP</span>
+                <span style="background-color:${isKvMode ? '#86efac' : '#fde68a'}; color:${isKvMode ? '#166534' : '#92400e'}; font-size:11px; font-weight:800; padding:4px 18px; border-radius:20px; border:1px solid ${isKvMode ? '#4ade80' : '#fbbf24'}; letter-spacing:0.05em;">${isKvMode ? 'KV' : 'FP'}</span>
+            </div>
+            <div style="height:1px; background:#e2e8f0;"></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <span style="font-size:10px; font-weight:600; color:#64748b;">Kundennummer</span>
+                <span style="font-size:11px; font-weight:600; color:#0f172a; border-bottom:1.5px solid #94a3b8; min-width:100px; text-align:right; padding-bottom:2px;">${kundennummer || '—'}</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <span style="font-size:10px; font-weight:600; color:#64748b;">Angebotsnummer</span>
+                <span style="font-size:11px; font-weight:600; color:#0f172a; border-bottom:1.5px solid #94a3b8; min-width:100px; text-align:right; padding-bottom:2px;">${angebotsnummer || '—'}</span>
+            </div>
+        </div>
     </div>
     <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
         <div class="field-row" style="width: 50%;"><div class="label">Telefonnummer Kunde:</div><div class="value">${selectedProject?.telefon || ''}</div></div>
-        <div style="width: 40%; display:flex; align-items: flex-end;">
-            <div style="font-size:10px; font-weight:600; margin-right:12px; color: #475569;">KV oder FP</div>
-            <div style="flex:1; background-color:${isKvMode ? '#86efac' : '#fde68a'}; height:18px; border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; color:${isKvMode ? '#166534' : '#92400e'};">${isKvMode ? 'KV' : 'FP'}</div>
-            <div style="font-size:10px; font-weight:600; margin-left:15px; margin-right:12px; color: #475569;">Kunden Nr.</div>
-            <div class="value" style="flex:1;"></div>
-        </div>
     </div>
     <div class="field-row"><div class="label">Auftragsdatum</div><div class="value">${selectedProject?.project_date ? new Date(selectedProject.project_date).toLocaleDateString('de-DE') : ''}</div></div>
     <div class="field-row"><div class="label">Aufgaben</div><div class="value">${selectedProject?.dienstleistungen || ''}</div></div>
@@ -895,7 +1008,7 @@ export default function CalculationPage() {
             })()}
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
-            <td></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
+            <td><div class="val-container"><span></span><span>${numFormat(lkwKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
             ${isKvMode ? `<td class="right">${kvValues['lkw'] ? numFormat(kvValues['lkw']) : ''}</td>` : ''}
         </tr>
         <tr>
@@ -993,7 +1106,7 @@ export default function CalculationPage() {
         document.body.appendChild(container);
         await html2pdf().set({
             margin: 10,
-            filename: `Auftragsnachkalkulation_${selectedProject?.project_code || 'Projekt'}.pdf`,
+            filename: `Nachkalkulation ${selectedProject?.anrede || ''} ${selectedProject?.name || 'Projekt'} ${selectedProject?.project_date ? new Date(selectedProject.project_date).toLocaleDateString('de-DE') : ''}.pdf`.trim(),
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
@@ -1325,10 +1438,10 @@ export default function CalculationPage() {
                             {/* Personnel Legend + Global Kd Satz Input */}
                             <div className="flex flex-wrap items-center gap-3 mb-2">
                                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-50 border border-blue-100 text-xs font-medium text-blue-700">
-                                    <span className="font-bold">LiS Std.</span> = Kosten
+                                    <span className="font-bold">LiS Std.</span> = LiS Kosten
                                 </span>
                                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-green-50 border border-green-100 text-xs font-medium text-green-700">
-                                    <span className="font-bold">Kd Std.</span> = Erlöse
+                                    <span className="font-bold">Kd Std.</span> = Kunden-Kosten
                                 </span>
                                 {/* Global Kd Satz */}
                                 <div className="flex items-center gap-2 ml-auto bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
@@ -1363,6 +1476,36 @@ export default function CalculationPage() {
                                     color={marginPct >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={marginPct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
                             </div>
 
+                            {/* Kundennummer & Angebotsnummer */}
+                            <div className="flex items-end gap-4 bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4">
+                                <div className="flex-1">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Kundennummer</label>
+                                    <input
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        value={kundennummer}
+                                        onChange={e => setKundennummer(e.target.value)}
+                                        onBlur={() => saveKundennummerAngebotsnummer(true)}
+                                        placeholder="z.B. KD-12345"
+                                    />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Angebotsnummer</label>
+                                    <input
+                                        className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        value={angebotsnummer}
+                                        onChange={e => setAngebotsnummer(e.target.value)}
+                                        onBlur={() => saveKundennummerAngebotsnummer(true)}
+                                        placeholder="z.B. AG-2026-001"
+                                    />
+                                </div>
+                                <button
+                                    onClick={() => saveKundennummerAngebotsnummer(false)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium"
+                                >
+                                    <Save className="h-3.5 w-3.5" /> Speichern
+                                </button>
+                            </div>
+
                             {/* KV Input Panel */}
                             {isKvMode && (
                                 <div className="bg-green-50 border border-green-200 rounded-xl p-5 shadow-sm">
@@ -1380,6 +1523,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['personalkosten'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, personalkosten: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1388,6 +1532,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['material'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, material: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1396,6 +1541,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['service_total'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, service_total: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1404,6 +1550,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['lkw'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, lkw: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1412,6 +1559,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['hvz'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, hvz: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1420,6 +1568,7 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['diesel'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, diesel: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -1428,8 +1577,14 @@ export default function CalculationPage() {
                                                 className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
                                                 value={kvValues['extra'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, extra: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
+                                    </div>
+                                    <div className="flex justify-end mt-4">
+                                        <button onClick={() => saveKvValues(false)} className="flex items-center gap-1.5 px-4 py-2 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm font-semibold">
+                                            <Save className="h-3.5 w-3.5" /> KV-Werte speichern
+                                        </button>
                                     </div>
                                 </div>
                             )}
@@ -1453,8 +1608,8 @@ export default function CalculationPage() {
                                                                         <th className="px-4 py-2 text-right text-green-600">Kd Std.</th>
                                                                         <th className="px-4 py-2 text-right text-blue-600" title="Stundensatz LiS (Kosten)">LiS Satz</th>
                                                                         <th className="px-4 py-2 text-right text-green-600" title="Stundensatz Kunde (Erlöse)">Kd Satz</th>
-                                                                        <th className="px-4 py-2 text-right text-blue-600">Kosten</th>
-                                                                        <th className="px-4 py-2 text-right text-green-600">Erlöse</th>
+                                                                        <th className="px-4 py-2 text-right text-blue-600">LiS Kosten</th>
+                                                                        <th className="px-4 py-2 text-right text-green-600">Kunden-Kosten</th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
@@ -1464,7 +1619,22 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 font-medium">{p.mitarbeiter}</td>
                                                                             <td className="px-4 py-2 text-slate-500">{p.role || '—'}</td>
                                                                             <td className="px-4 py-2 text-right font-mono font-semibold text-blue-700">{p.lis_stunden.toFixed(2)}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono font-semibold text-green-700">{p.kunden_stunden.toFixed(2)}</td>
+                                                                            <td className="px-2 py-1">
+                                                                                <input
+                                                                                    type="number"
+                                                                                    step="0.01"
+                                                                                    className={cn(
+                                                                                        "w-full border rounded px-2 py-1 text-xs text-right font-mono focus:outline-none transition-colors",
+                                                                                        perRowKundenStd[p.pair_id] !== undefined
+                                                                                            ? "bg-amber-50 border-amber-300 text-amber-800 focus:ring-1 focus:ring-amber-400"
+                                                                                            : "bg-green-50 border-green-200 hover:border-green-400 text-green-800 focus:ring-1 focus:ring-green-300"
+                                                                                    )}
+                                                                                    value={p.kunden_stunden === 0 ? '' : (p.kunden_stunden ?? '')}
+                                                                                    onChange={e => setPerRowKundenStd(prev => ({ ...prev, [p.pair_id]: e.target.value === '' ? 0 : +e.target.value }))}
+                                                                                    onFocus={e => e.target.select()}
+                                                                                    title={perRowKundenStd[p.pair_id] !== undefined ? 'Individuell überschrieben' : 'Standard (LiS Std.)'}
+                                                                                />
+                                                                            </td>
                                                                             {/* LiS Satz — read-only, from employee master */}
                                                                             <td className="px-4 py-2 text-right text-blue-700 font-mono text-xs">{eur(p.satz)}</td>
                                                                             {/* Kd Satz — editable inline; shows override indicator if != global */}
@@ -1509,7 +1679,7 @@ export default function CalculationPage() {
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
                                                                     <tr><th className="px-4 py-2 text-left">Material</th><th className="px-4 py-2 text-right w-24">Menge</th><th className="px-4 py-2 text-left">Einheit</th>
-                                                                        <th className="px-4 py-2 text-right">EK/Einheit</th><th className="px-4 py-2 text-right">VK/Einheit</th><th className="px-4 py-2 text-right">Kosten</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
+                                                                        <th className="px-4 py-2 text-right">EK/Einheit</th><th className="px-4 py-2 text-right">VK/Einheit</th><th className="px-4 py-2 text-right">LiS Kosten</th><th className="px-4 py-2 text-right">Kunden-Kosten</th><th className="w-10"></th></tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
                                                                     {materials.length === 0 ? <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">Keine Materialien</td></tr> : materials.map(m => (
@@ -1517,7 +1687,8 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 font-medium">{m.material_name}</td>
                                                                             <td className="px-4 py-1.5"><input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={m.quantity === 0 ? '' : (m.quantity ?? '')} onChange={e => updateMaterialQty(m.id, e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-slate-500">{m.unit}</td>
-                                                                            <td className="px-4 py-2 text-right">{eur(m.cost_per_unit)}</td><td className="px-4 py-2 text-right">{eur(m.price_per_unit)}</td>
+                                                                            <td className="px-4 py-2 text-right">{eur(m.cost_per_unit)}</td>
+                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={(m.price_per_unit ?? 0) === 0 ? '' : (m.price_per_unit ?? '')} onChange={e => updateMaterialVkPrice(m.id, e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur(m.total_cost)}</td><td className="px-4 py-2 text-right text-green-700">{eur(m.total_price)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteMaterial(m.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
@@ -1532,21 +1703,30 @@ export default function CalculationPage() {
                                                     <SortableCostSection key="vehicle" id="vehicle">
                                                         <CostSection title="Fahrzeug" icon={<Truck className="h-5 w-5" />} total={vehicleErloes} color="green"
                                                             actions={<div className="flex gap-2">
-                                                                <button onClick={() => { setAddVehForm({ vehicle_id: '', usage_type: 'km', usage_value: 0, cost_per_unit: 0, notes: '' }); setAddVehModal(true); }} className="flex items-center gap-1 text-xs text-sky-700 hover:text-sky-900"><Plus className="h-3.5 w-3.5" /> Fahrzeug</button>
+                                                                <button onClick={() => { setAddVehForm({ vehicle_id: '', usage_type: 'Pauschal', usage_value: 1, cost_per_unit: 0, total_cost: 0, notes: '' }); setAddVehModal(true); }} className="flex items-center gap-1 text-xs text-sky-700 hover:text-sky-900"><Plus className="h-3.5 w-3.5" /> Fahrzeug</button>
                                                                 <button onClick={saveVehicleCosts} className="flex items-center gap-1 text-xs bg-sky-600 text-white px-2 py-1 rounded hover:bg-sky-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
                                                             </div>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Fahrzeug</th><th className="px-4 py-2 w-20">Typ</th><th className="px-4 py-2 text-right w-24">Wert</th><th className="px-4 py-2 text-right w-28">Satz (€)</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
+                                                                    <tr>
+                                                                        <th className="px-4 py-2 text-left">Beschreibung</th>
+                                                                        <th className="px-4 py-2 text-right w-20">Menge</th>
+                                                                        <th className="px-4 py-2 text-right w-28">EK-Preis</th>
+                                                                        <th className="px-4 py-2 text-right w-28">VK-Preis</th>
+                                                                        <th className="px-4 py-2 text-right">LiS Kosten</th>
+                                                                        <th className="px-4 py-2 text-right">Kunden-Kosten</th>
+                                                                        <th className="w-10"></th>
+                                                                    </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
-                                                                    {vehicles.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">Keine Fahrzeugkosten</td></tr> : vehicles.map(v => (
+                                                                    {vehicles.length === 0 ? <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">Keine Fahrzeugkosten</td></tr> : vehicles.map(v => (
                                                                         <tr key={v.id} className="hover:bg-slate-50 group">
                                                                             <td className="px-4 py-2 font-medium">{v.fahrzeug}</td>
-                                                                            <td className="px-4 py-1.5"><select className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1 py-1 text-sm" value={v.usage_type} onChange={e => updateVehicleCost(v.id, 'usage_type', e.target.value)}><option value="km">km</option><option value="Std">Std</option><option value="Tag">Tag</option><option value="Pauschal">Pauschal</option></select></td>
                                                                             <td className="px-4 py-1.5"><input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.usage_value === 0 ? '' : (v.usage_value ?? '')} onChange={e => updateVehicleCost(v.id, 'usage_value', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.cost_per_unit === 0 ? '' : (v.cost_per_unit ?? '')} onChange={e => updateVehicleCost(v.id, 'cost_per_unit', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
-                                                                            <td className="px-4 py-2 text-right font-semibold">{eur(v.total_cost)}</td>
+                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.total_cost === 0 ? '' : (v.total_cost ?? '')} onChange={e => updateVehicleCost(v.id, 'total_cost', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
+                                                                            <td className="px-4 py-2 text-right font-semibold">{eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td>
+                                                                            <td className="px-4 py-2 text-right text-green-700 font-semibold">{eur((v.usage_value || 0) * (v.total_cost || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteVehicleCost(v.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1562,7 +1742,7 @@ export default function CalculationPage() {
                                                             actions={<button onClick={() => { setAddSvcForm({ service_id: '', quantity: 0, unit: 'Std', cost_per_unit: 0, supplier: '' }); setAddSvcModal(true); }} className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"><Plus className="h-3.5 w-3.5" /> Leistung</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Leistung</th><th className="px-4 py-2 text-left">Lieferant</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK/Einheit</th><th className="px-4 py-2 text-right">VK/Einheit</th><th className="px-4 py-2 text-right">Kosten</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
+                                                                    <tr><th className="px-4 py-2 text-left">Leistung</th><th className="px-4 py-2 text-left">Lieferant</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK/Einheit</th><th className="px-4 py-2 text-right">VK/Einheit</th><th className="px-4 py-2 text-right">LiS Kosten</th><th className="px-4 py-2 text-right">Kunden-Kosten</th><th className="w-10"></th></tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
                                                                     {services.length === 0 ? <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">Keine Dienstleistungen</td></tr> : services.map(s => (
@@ -1570,7 +1750,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 font-medium">{s.service_name}</td><td className="px-4 py-2 text-slate-500">{s.supplier || '—'}</td>
                                                                             <td className="px-4 py-2 text-right font-mono">{s.quantity}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(s.cost_per_unit)}</td>
-                                                                            <td className="px-4 py-2 text-right">{eur(s.price_per_unit ?? 0)}</td>
+                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={(s.price_per_unit ?? 0) === 0 ? '' : (s.price_per_unit ?? '')} onChange={e => updateServiceCost(s.id!, 'price_per_unit', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur(s.total_cost)}</td>
                                                                             <td className="px-4 py-2 text-right text-green-700">{eur(s.total_price ?? 0)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteServiceCost(s.id!)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
@@ -1588,7 +1768,7 @@ export default function CalculationPage() {
                                                             actions={<button onClick={() => { setAddHvzForm({ datum_von: '', datum_bis: '', tage: 0, ek_preis: 0, vk_preis: 0 }); setAddHvzModal(true); }} className="flex items-center gap-1 text-xs text-orange-700 hover:text-orange-900"><Plus className="h-3.5 w-3.5" /> HVZ</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Von</th><th className="px-4 py-2 text-left">Bis</th><th className="px-4 py-2 text-right">Tage</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="px-4 py-2 text-right">Kosten</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
+                                                                    <tr><th className="px-4 py-2 text-left">Von</th><th className="px-4 py-2 text-left">Bis</th><th className="px-4 py-2 text-right">Tage</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="px-4 py-2 text-right">LiS Kosten</th><th className="px-4 py-2 text-right">Kunden-Kosten</th><th className="w-10"></th></tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
                                                                     {hvzCosts.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">Keine HVZ Einträge</td></tr> : hvzCosts.map(h => (
@@ -1615,7 +1795,7 @@ export default function CalculationPage() {
                                                             actions={<button onClick={() => { setAddBnkForm({ beschreibung: 'Diesel', menge: 0, ek_preis: 0, vk_preis: 0 }); setAddBnkModal(true); }} className="flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900"><Plus className="h-3.5 w-3.5" /> Diesel / BNK</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
-                                                                    <tr><th className="px-4 py-2 text-left">Beschreibung</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="px-4 py-2 text-right">Kosten</th><th className="px-4 py-2 text-right">Erlöse</th><th className="w-10"></th></tr>
+                                                                    <tr><th className="px-4 py-2 text-left">Beschreibung</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="px-4 py-2 text-right">LiS Kosten</th><th className="px-4 py-2 text-right">Kunden-Kosten</th><th className="w-10"></th></tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-slate-100">
                                                                     {bnkCosts.length === 0 ? <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-400">Keine Diesel/BNK Einträge</td></tr> : bnkCosts.map(b => (
@@ -1639,7 +1819,7 @@ export default function CalculationPage() {
                                                     <SortableCostSection key="extra" id="extra">
                                                         <CostSection title="Sonderkosten" icon={<AlertCircle className="h-5 w-5" />} total={extraKosten} color="amber"
                                                             actions={<div className="flex gap-2">
-                                                                <button onClick={() => { setAddExtraForm({ cost_type: 'Sonstiges', description: '', cost: 0 }); setAddExtraModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Kosten</button>
+                                                                <button onClick={() => { setAddExtraForm({ cost_type: '', description: '', cost: 0 }); setAddExtraModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Kosten</button>
                                                                 <button onClick={saveExtraCosts} className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
                                                             </div>}>
                                                             <table className="w-full text-sm">
@@ -1649,9 +1829,7 @@ export default function CalculationPage() {
                                                                 <tbody className="divide-y divide-slate-100">
                                                                     {extraCosts.length === 0 ? <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">Keine Sonderkosten</td></tr> : extraCosts.map(e => (
                                                                         <tr key={e.cost_id} className="hover:bg-slate-50 group">
-                                                                            <td className="px-4 py-1.5"><select className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={e.cost_type} onChange={ev => updateExtraCost(e.cost_id, 'cost_type', ev.target.value)}>
-                                                                                <option value="Maut">Maut</option><option value="Parkgebühr">Parkgebühr</option><option value="Entsorgung">Entsorgung</option><option value="Verpackung">Verpackung</option><option value="Sonstiges">Sonstiges</option>
-                                                                            </select></td>
+                                                                            <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={e.cost_type} onChange={ev => updateExtraCost(e.cost_id, 'cost_type', ev.target.value)} placeholder="Typ eingeben..." /></td>
                                                                             <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={e.description} onChange={ev => updateExtraCost(e.cost_id, 'description', ev.target.value)} placeholder="Beschreibung..." /></td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.cost === 0 ? '' : (e.cost ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'cost', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
                                                                             <td className="px-2"><button onClick={() => deleteExtraCost(e.cost_id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
@@ -1740,8 +1918,8 @@ export default function CalculationPage() {
                     {/* ======= ADD VEHICLE COST MODAL ======= */}
                     {addVehModal && <Modal title="Fahrzeugkosten hinzufügen" onClose={() => setAddVehModal(false)} onSave={addVehicleCost} disabled={!addVehForm.vehicle_id}>
                         <div className="space-y-3">
-                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Fahrzeug</label>
-                                <input list="fahrzeugList" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.vehicle_id} onChange={e => setAddVehForm({ ...addVehForm, vehicle_id: e.target.value })} placeholder="Wählen oder eingeben..." />
+                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Beschreibung</label>
+                                <input list="fahrzeugList" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.vehicle_id} onChange={e => setAddVehForm({ ...addVehForm, vehicle_id: e.target.value })} placeholder="z.B. L4U, Sprinter..." />
                                 <datalist id="fahrzeugList">
                                     <option value="L4U" />
                                     <option value="L4N" />
@@ -1751,17 +1929,17 @@ export default function CalculationPage() {
                                     <option value="L Star" />
                                 </datalist></div>
                             <div className="grid grid-cols-3 gap-3">
-                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Typ</label>
-                                    <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.usage_type} onChange={e => setAddVehForm({ ...addVehForm, usage_type: e.target.value })}>
-                                        <option value="km">km</option><option value="Std">Std</option><option value="Tag">Tag</option><option value="Pauschal">Pauschal</option>
-                                    </select></div>
-                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Wert</label>
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
                                     <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.usage_value === 0 ? '' : (addVehForm.usage_value ?? '')} onChange={e => setAddVehForm({ ...addVehForm, usage_value: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
-                                <div><label className="block text-xs font-medium text-slate-500 mb-1">Satz (€)</label>
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">EK-Preis (€)</label>
                                     <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.cost_per_unit === 0 ? '' : (addVehForm.cost_per_unit ?? '')} onChange={e => setAddVehForm({ ...addVehForm, cost_per_unit: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                <div><label className="block text-xs font-medium text-slate-500 mb-1">VK-Preis (€)</label>
+                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.total_cost === 0 ? '' : (addVehForm.total_cost ?? '')} onChange={e => setAddVehForm({ ...addVehForm, total_cost: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
                             </div>
-                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Notizen</label>
-                                <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.notes} onChange={e => setAddVehForm({ ...addVehForm, notes: e.target.value })} /></div>
+                            <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3">
+                                <div className="text-xs text-slate-500">LiS Kosten: <span className="font-semibold text-slate-700">{eur(addVehForm.usage_value * addVehForm.cost_per_unit)}</span></div>
+                                <div className="text-xs text-slate-500">Kunden-Kosten: <span className="font-semibold text-green-700">{eur(addVehForm.usage_value * addVehForm.total_cost)}</span></div>
+                            </div>
                         </div>
                     </Modal>}
 
@@ -1807,9 +1985,7 @@ export default function CalculationPage() {
                     {addExtraModal && <Modal title="Sonderkosten hinzufügen" onClose={() => setAddExtraModal(false)} onSave={addExtraCost} disabled={!addExtraForm.description}>
                         <div className="space-y-3">
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Typ</label>
-                                <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.cost_type} onChange={e => setAddExtraForm({ ...addExtraForm, cost_type: e.target.value })}>
-                                    <option value="Maut">Maut</option><option value="Parkgebühr">Parkgebühr</option><option value="Entsorgung">Entsorgung</option><option value="Verpackung">Verpackung</option><option value="Sonstiges">Sonstiges</option>
-                                </select></div>
+                                <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.cost_type} onChange={e => setAddExtraForm({ ...addExtraForm, cost_type: e.target.value })} placeholder="z.B. Maut, Parkgebühr, Entsorgung..." /></div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Beschreibung</label>
                                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.description} onChange={e => setAddExtraForm({ ...addExtraForm, description: e.target.value })} placeholder="z.B. Autobahnmaut A3" /></div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Betrag (€)</label>

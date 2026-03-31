@@ -54,6 +54,8 @@ interface WorkAssignmentRow {
     notes: string | null;
     break_minutes: number | null;
     project_id: string | null;
+    replaced_by: string | null;
+    is_replacement: boolean | null;
 }
 
 interface EmployeeInfo {
@@ -441,7 +443,8 @@ export function TrackingExport({
 
         // ===== ARBEITSEINSÄTZE =====
         const buildArbeitseinsaetzeHtml = (): string => {
-            if (workAssignments.length === 0) return '';
+            const activeWa = workAssignments.filter(wa => !wa.replaced_by);
+            if (activeWa.length === 0) return '';
 
             const calcWaHours = (st: string | null, et: string | null, brk: number | null): string => {
                 if (!st || !et) return '—';
@@ -462,7 +465,7 @@ export function TrackingExport({
             const headers = ['Typ', 'Mitarbeiter', 'Projekt', 'Start', 'Ende', 'Pause', 'Stunden', 'Status', 'Notizen'];
 
             let totalHours = 0;
-            const body = workAssignments.map(wa => {
+            const body = activeWa.map(wa => {
                 const hours = calcWaHours(wa.start_time, wa.end_time, wa.break_minutes);
                 if (hours !== '—') totalHours += parseFloat(hours);
                 const projName = wa.project_id ? (projectNames[wa.project_id] || '—') : '—';
@@ -488,7 +491,7 @@ export function TrackingExport({
             return `
             <div class="wa-block">
                 <div class="wa-title">📋 Arbeitseinsätze</div>
-                <div class="wa-sub">${workAssignments.length} Einsätze</div>
+                <div class="wa-sub">${activeWa.length} Einsätze</div>
                 <table>
                     <thead><tr>${headers.map(h => `<th class="${h === 'Start' || h === 'Ende' || h === 'Pause' || h === 'Stunden' ? 'text-center' : ''}">${h}</th>`).join('')}</tr></thead>
                     <tbody>${body}${totalRow}</tbody>

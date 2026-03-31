@@ -31,6 +31,8 @@ export interface Database {
                     project_end_date: string | null
                     offer_type: string | null
                     mannanzahl: number | null
+                    kundennummer: string | null
+                    angebotsnummer: string | null
                     created_at: string
                     updated_at: string
                 }
@@ -55,6 +57,8 @@ export interface Database {
                     project_end_date?: string | null
                     offer_type?: string | null
                     mannanzahl?: number | null
+                    kundennummer?: string | null
+                    angebotsnummer?: string | null
                 }
                 Update: {
                     project_id?: string
@@ -77,6 +81,8 @@ export interface Database {
                     project_end_date?: string | null
                     offer_type?: string | null
                     mannanzahl?: number | null
+                    kundennummer?: string | null
+                    angebotsnummer?: string | null
                 }
             }
             t_employees: {
@@ -433,6 +439,8 @@ export interface Database {
                     notes: string | null
                     break_minutes: number | null
                     project_id: string | null
+                    replaced_by: string | null
+                    is_replacement: boolean | null
                     created_at: string | null
                     updated_at: string | null
                 }
@@ -449,6 +457,8 @@ export interface Database {
                     notes?: string | null
                     break_minutes?: number | null
                     project_id?: string | null
+                    replaced_by?: string | null
+                    is_replacement?: boolean | null
                 }
                 Update: {
                     work_type?: string
@@ -462,6 +472,8 @@ export interface Database {
                     notes?: string | null
                     break_minutes?: number | null
                     project_id?: string | null
+                    replaced_by?: string | null
+                    is_replacement?: boolean | null
                 }
             }
             t_project_service_usage: {
@@ -964,6 +976,28 @@ export interface Database {
                     vk_preis?: number
                     is_kv?: boolean | null
                     created_at?: string | null
+                }
+            }
+            t_project_kv_values: {
+                Row: {
+                    id: string
+                    project_id: string
+                    kv_key: string
+                    kv_value: number
+                    created_at: string | null
+                    updated_at: string | null
+                }
+                Insert: {
+                    id?: string
+                    project_id: string
+                    kv_key: string
+                    kv_value?: number
+                }
+                Update: {
+                    id?: string
+                    project_id?: string
+                    kv_key?: string
+                    kv_value?: number
                 }
             }
         }

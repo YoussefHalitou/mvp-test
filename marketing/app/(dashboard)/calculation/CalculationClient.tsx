@@ -283,12 +283,12 @@ export default function CalculationPage() {
                 adjustedPersonnel: adjustedPersonnel,
                 materials, vehicles, services, revenue, extraCosts, discounts,
                 hvzCosts, bnkCosts,
-                isKvMode, isFpMode, kvValues,
+                isKvMode, isFpMode, kvValues, fpRevenue, istRevenue,
                 totalCosts, totalRevenue, margin, marginPct,
                 personalKosten, personalErloes, materialKosten, materialErloes,
                 vehicleKosten, vehicleErloes, serviceKosten, serviceErloes,
                 hvzKosten, hvzErloes, bnkKosten, bnkErloes,
-                extraKosten, discountTotal,
+                extraKosten, extraErloes, discountTotal,
             };
 
             const { error } = await supabase.from('t_nachkalkulation_submissions').insert({
@@ -495,7 +495,10 @@ export default function CalculationPage() {
         if (mode === 'percent') return s + (baseRevenue * ((d.value || 0) / 100)); // Apply % to revenue
         return s + (d.value || 0);
     }, 0), [discounts, baseRevenue]);
-    const totalRevenue = baseRevenue - discountTotal;
+    // In FP mode: revenue = sum of agreed FP values (kvValues), not the actual calculated revenue
+    const fpRevenue = useMemo(() => (Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0), [kvValues]);
+    const istRevenue = baseRevenue - discountTotal; // actual calculated revenue (always available)
+    const totalRevenue = isFpMode ? fpRevenue : istRevenue;
     const margin = totalRevenue - totalCosts;
     const marginPct = totalRevenue > 0 ? (margin / totalRevenue) * 100 : 0;
 
@@ -1100,8 +1103,11 @@ export default function CalculationPage() {
 
     <div class="no-break">
     <table class="summary-table">
-        <tr><td class="label">${isKvMode ? 'KV' : 'FP'} vorher</td><td class="val${(isKvMode || isFpMode) ? '' : ' cur'}">${(isKvMode || isFpMode) ? numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0)) : '- €'}</td></tr>
-        <tr><td class="label">Nettoumsatz</td><td class="val">${numFormat(totalRevenue)}</td></tr>
+        ${isFpMode
+          ? `<tr><td class="label">Ist-Erlöse</td><td class="val">${numFormat(istRevenue)}</td></tr>`
+          : `<tr><td class="label">${isKvMode ? 'KV' : 'FP'} vorher</td><td class="val${isKvMode ? '' : ' cur'}">${isKvMode ? numFormat(fpRevenue) : '- €'}</td></tr>`
+        }
+        <tr><td class="label">${isFpMode ? 'Nettoumsatz (FP)' : 'Nettoumsatz'}</td><td class="val">${numFormat(totalRevenue)}</td></tr>
         <tr class="total"><td class="label">Bruttoumsatz</td><td class="val">${numFormat(totalRevenue * 1.19)}</td></tr>
         <tr><td class="label">Gesamtkosten netto</td><td class="val">${numFormat(totalCosts)}</td></tr>
         <tr class="total"><td class="label">Nettoeinnahme</td><td class="val">${numFormat(margin)}</td></tr>
@@ -1478,9 +1484,13 @@ export default function CalculationPage() {
                             </div>
 
                             {/* KPI Cards */}
-                            <div className="grid grid-cols-4 gap-4">
+                            <div className={cn("grid gap-4", isFpMode ? "grid-cols-5" : "grid-cols-4")}>
                                 <KpiCard label="Gesamtkosten" value={eur(totalCosts)} icon={<DollarSign className="h-5 w-5" />} color="text-slate-800" bgColor="bg-slate-100" />
-                                <KpiCard label="Gesamterlöse" value={eur(totalRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-blue-700" bgColor="bg-blue-50" />
+                                <KpiCard label={isFpMode ? "Erlöse (FP)" : "Gesamterlöse"} value={eur(totalRevenue)} icon={<TrendingUp className="h-5 w-5" />}
+                                    color={isFpMode ? "text-amber-700" : "text-blue-700"} bgColor={isFpMode ? "bg-amber-50" : "bg-blue-50"} />
+                                {isFpMode && (
+                                    <KpiCard label="Ist-Erlöse" value={eur(istRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-slate-600" bgColor="bg-slate-50" />
+                                )}
                                 <KpiCard label="Marge (€)" value={eur(margin)} icon={<TrendingUp className="h-5 w-5" />}
                                     color={margin >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={margin >= 0 ? 'bg-green-50' : 'bg-red-50'} />
                                 <KpiCard label="Marge (%)" value={`${marginPct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}

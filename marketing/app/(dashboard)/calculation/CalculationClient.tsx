@@ -504,6 +504,11 @@ export default function CalculationPage() {
     // Kalk. Marge: hypothetical margin if billed on actuals instead of FP
     const kalkMargin = istRevenue - totalCosts;
     const kalkMarginPct = istRevenue > 0 ? (kalkMargin / istRevenue) * 100 : 0;
+    // KV comparison: how accurate was the estimate?
+    const kvAbweichung = istRevenue - fpRevenue; // positive = billed more than estimated
+    const kvAbweichungPct = fpRevenue > 0 ? (kvAbweichung / fpRevenue) * 100 : 0;
+    const kvMarge = fpRevenue - totalCosts; // margin if only KV amount was billed
+    const kvMargePct = fpRevenue > 0 ? (kvMarge / fpRevenue) * 100 : 0;
 
     // ---- MATERIAL CRUD ----
     const addMaterial = async () => {
@@ -1117,6 +1122,9 @@ export default function CalculationPage() {
         <tr><td class="label">Prozent</td><td class="val" style="padding-top: 12px;"><span style="background-color:#86efac; color:#166534; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #4ade80;">${marginPct >= 0 || marginPct < 0 ? marginPct.toFixed(1) + '%' : '#DIV/0!'}</span></td></tr>
         ${isFpMode ? `<tr style="border-top:2px solid #e2e8f0;"><td class="label">Kalk. Marge</td><td class="val">${numFormat(kalkMargin)}</td></tr>
         <tr><td class="label">Kalk. Marge %</td><td class="val" style="padding-top: 12px;"><span style="background-color:#e2e8f0; color:#475569; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #cbd5e1;">${kalkMarginPct.toFixed(1)}%</span></td></tr>` : ''}
+        ${isKvMode ? `<tr style="border-top:2px solid #e2e8f0;"><td class="label">Abweichung</td><td class="val">${kvAbweichung >= 0 ? '+' : ''}${numFormat(kvAbweichung)} (${kvAbweichungPct >= 0 ? '+' : ''}${kvAbweichungPct.toFixed(1)}%)</td></tr>
+        <tr><td class="label">KV-Marge</td><td class="val">${numFormat(kvMarge)}</td></tr>
+        <tr><td class="label">KV-Marge %</td><td class="val" style="padding-top: 12px;"><span style="background-color:#e2e8f0; color:#475569; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #cbd5e1;">${kvMargePct.toFixed(1)}%</span></td></tr>` : ''}
     </table>
     </div>
 </body></html>`;
@@ -1510,6 +1518,20 @@ export default function CalculationPage() {
                                     <KpiCard label="Kalk. Marge (%)" value={`${kalkMarginPct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
                                         color={kalkMarginPct >= 0 ? 'text-green-700' : 'text-red-600'}
                                         bgColor={kalkMarginPct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                </div>
+                            )}
+                            {isKvMode && (
+                                <div className="grid grid-cols-4 gap-4">
+                                    <KpiCard label="KV-Wert" value={eur(fpRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-green-700" bgColor="bg-green-50" />
+                                    <KpiCard label="Abweichung" value={`${kvAbweichung >= 0 ? '+' : ''}${eur(kvAbweichung)} (${kvAbweichungPct >= 0 ? '+' : ''}${kvAbweichungPct.toFixed(1)}%)`} icon={<TrendingUp className="h-5 w-5" />}
+                                        color={kvAbweichung >= 0 ? 'text-amber-700' : 'text-green-700'}
+                                        bgColor={kvAbweichung >= 0 ? 'bg-amber-50' : 'bg-green-50'} />
+                                    <KpiCard label="KV-Marge (€)" value={eur(kvMarge)} icon={<TrendingUp className="h-5 w-5" />}
+                                        color={kvMarge >= 0 ? 'text-green-700' : 'text-red-600'}
+                                        bgColor={kvMarge >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                    <KpiCard label="KV-Marge (%)" value={`${kvMargePct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
+                                        color={kvMargePct >= 0 ? 'text-green-700' : 'text-red-600'}
+                                        bgColor={kvMargePct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
                                 </div>
                             )}
 

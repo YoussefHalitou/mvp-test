@@ -84,6 +84,56 @@ function calcHours(von: string | null, bis: string | null, pauseMin: number = 0)
 }
 function eur(n: number) { return n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }); }
 
+// ---- COLORING HELPERS ----
+// Layer 1: Per-row markup highlighting (VK vs EK)
+function getMarkupColor(ek: number, vk: number): string {
+    if (ek === 0 && vk === 0) return '';
+    if (ek === 0) return vk > 0 ? 'bg-emerald-50 text-emerald-700' : '';
+    const ratio = vk / ek;
+    if (ratio < 1.0) return 'bg-red-50 text-red-700 font-semibold';
+    if (ratio <= 1.001) return 'bg-amber-50 text-amber-700';
+    if (ratio > 1.20) return 'bg-emerald-50 text-emerald-700';
+    return '';
+}
+
+// Layer 3: Personnel hours deviation coloring
+function getHoursDeviationColor(lisStd: number, kdStd: number): string {
+    if (lisStd === 0 && kdStd === 0) return '';
+    if (lisStd === 0) return kdStd > 0 ? 'bg-emerald-50' : '';
+    const ratio = kdStd / lisStd;
+    if (ratio < 0.95) return 'bg-red-50';
+    if (ratio > 1.20) return 'bg-emerald-50';
+    if (ratio > 1.005) return 'bg-amber-50';
+    return '';
+}
+
+// Layer 4: KPI card tiered margin severity
+function getMarginTierColor(pct: number): { color: string; bgColor: string; ring?: string } {
+    if (pct >= 25) return { color: 'text-emerald-800', bgColor: 'bg-emerald-100' };
+    if (pct >= 10) return { color: 'text-green-700', bgColor: 'bg-green-50' };
+    if (pct >= 0) return { color: 'text-amber-700', bgColor: 'bg-amber-50' };
+    if (pct >= -10) return { color: 'text-red-600', bgColor: 'bg-red-50' };
+    return { color: 'text-red-800', bgColor: 'bg-red-100', ring: 'ring-2 ring-red-300 animate-pulse' };
+}
+
+// Layer 5: KV/FP deviation coloring (actual vs estimated)
+function getKvDeviationBorder(actual: number, estimated: number): string {
+    if (estimated === 0) return '';
+    const pct = ((actual - estimated) / estimated) * 100;
+    if (pct > 20) return 'border-l-4 border-l-red-400';
+    if (pct > 5) return 'border-l-4 border-l-amber-400';
+    if (pct > -5) return 'border-l-4 border-l-green-400';
+    return 'border-l-4 border-l-blue-400';
+}
+
+// Layer 6: Summary row gradient based on margin
+function getSummaryGradient(marginValue: number): string {
+    if (marginValue > 100) return 'bg-gradient-to-r from-emerald-50 to-green-50';
+    if (marginValue > 0) return 'bg-gradient-to-r from-green-50 to-emerald-50/50';
+    if (marginValue === 0) return 'bg-gradient-to-r from-amber-50 to-yellow-50/50';
+    return 'bg-gradient-to-r from-red-50 to-rose-50';
+}
+
 export default function CalculationPage() {
     const { toast } = useToast();
     const [projects, setProjects] = useState<Project[]>([]);
@@ -1473,6 +1523,12 @@ export default function CalculationPage() {
                                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-green-50 border border-green-100 text-xs font-medium text-green-700">
                                     <span className="font-bold">Kd Std.</span> = Kunden-Kosten
                                 </span>
+                                {/* Layer 7: Color Legend */}
+                                <div className="flex items-center gap-1.5 ml-2 border-l border-slate-200 pl-3">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-50 border border-red-100 text-[10px] font-medium text-red-700">Verlust</span>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 border border-amber-100 text-[10px] font-medium text-amber-700">Kein Aufschlag</span>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-100 text-[10px] font-medium text-emerald-700">Guter Aufschlag</span>
+                                </div>
                                 {/* Global Kd Satz */}
                                 <div className="flex items-center gap-2 ml-auto bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
                                     <span className="text-xs font-semibold text-green-700 whitespace-nowrap">Kd Satz (alle):</span>
@@ -1496,15 +1552,15 @@ export default function CalculationPage() {
                                 </div>
                             </div>
 
-                            {/* KPI Cards */}
+                            {/* KPI Cards — Layer 4: tiered margin severity */}
                             <div className="grid grid-cols-4 gap-4">
                                 <KpiCard label="Gesamtkosten" value={eur(totalCosts)} icon={<DollarSign className="h-5 w-5" />} color="text-slate-800" bgColor="bg-slate-100" />
                                 <KpiCard label={isFpMode ? "Erlöse (FP)" : "Gesamterlöse"} value={eur(totalRevenue)} icon={<TrendingUp className="h-5 w-5" />}
                                     color={isFpMode ? "text-amber-700" : "text-blue-700"} bgColor={isFpMode ? "bg-amber-50" : "bg-blue-50"} />
                                 <KpiCard label="Marge (€)" value={eur(margin)} icon={<TrendingUp className="h-5 w-5" />}
-                                    color={margin >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={margin >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                    {...getMarginTierColor(marginPct)} />
                                 <KpiCard label="Marge (%)" value={`${marginPct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
-                                    color={marginPct >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={marginPct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                    {...getMarginTierColor(marginPct)} />
                             </div>
                             {isFpMode && (
                                 <div className="grid grid-cols-4 gap-4">
@@ -1513,11 +1569,9 @@ export default function CalculationPage() {
                                         color={fpRevenue - istRevenue >= 0 ? 'text-green-700' : 'text-red-600'}
                                         bgColor={fpRevenue - istRevenue >= 0 ? 'bg-green-50' : 'bg-red-50'} />
                                     <KpiCard label="Kalk. Marge (€)" value={eur(kalkMargin)} icon={<TrendingUp className="h-5 w-5" />}
-                                        color={kalkMargin >= 0 ? 'text-green-700' : 'text-red-600'}
-                                        bgColor={kalkMargin >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                        {...getMarginTierColor(kalkMarginPct)} />
                                     <KpiCard label="Kalk. Marge (%)" value={`${kalkMarginPct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
-                                        color={kalkMarginPct >= 0 ? 'text-green-700' : 'text-red-600'}
-                                        bgColor={kalkMarginPct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                        {...getMarginTierColor(kalkMarginPct)} />
                                 </div>
                             )}
                             {isKvMode && (
@@ -1527,11 +1581,9 @@ export default function CalculationPage() {
                                         color={kvAbweichung >= 0 ? 'text-amber-700' : 'text-green-700'}
                                         bgColor={kvAbweichung >= 0 ? 'bg-amber-50' : 'bg-green-50'} />
                                     <KpiCard label="KV-Marge (€)" value={eur(kvMarge)} icon={<TrendingUp className="h-5 w-5" />}
-                                        color={kvMarge >= 0 ? 'text-green-700' : 'text-red-600'}
-                                        bgColor={kvMarge >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                        {...getMarginTierColor(kvMargePct)} />
                                     <KpiCard label="KV-Marge (%)" value={`${kvMargePct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
-                                        color={kvMargePct >= 0 ? 'text-green-700' : 'text-red-600'}
-                                        bgColor={kvMargePct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                        {...getMarginTierColor(kvMargePct)} />
                                 </div>
                             )}
 
@@ -1602,7 +1654,7 @@ export default function CalculationPage() {
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['personalkosten'] ? getKvDeviationBorder(personalErloes, kvValues['personalkosten']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider flex items-center gap-1", isKvMode ? "text-green-700" : "text-amber-700")}>
                                                 Personalkosten
                                                 <span className={cn("text-[9px] font-normal normal-case", isKvMode ? "text-green-500" : "text-amber-500")}>= Std × Satz</span>
@@ -1614,7 +1666,7 @@ export default function CalculationPage() {
                                                 tabIndex={-1}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['material'] ? getKvDeviationBorder(materialErloes, kvValues['material']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Material</label>
                                             <input type="number" step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
@@ -1623,7 +1675,7 @@ export default function CalculationPage() {
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['service_total'] ? getKvDeviationBorder(serviceErloes, kvValues['service_total']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Entsorgungen</label>
                                             <input type="number" step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
@@ -1632,7 +1684,7 @@ export default function CalculationPage() {
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['lkw'] ? getKvDeviationBorder(vehicleErloes, kvValues['lkw']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>LKW</label>
                                             <input type="number" step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
@@ -1641,7 +1693,7 @@ export default function CalculationPage() {
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['hvz'] ? getKvDeviationBorder(hvzErloes, kvValues['hvz']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>HVZ</label>
                                             <input type="number" step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
@@ -1650,7 +1702,7 @@ export default function CalculationPage() {
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['diesel'] ? getKvDeviationBorder(bnkErloes, kvValues['diesel']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Diesel / BNK</label>
                                             <input type="number" step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
@@ -1659,7 +1711,7 @@ export default function CalculationPage() {
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['extra'] ? getKvDeviationBorder(extraErloes, kvValues['extra']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Sonstige Kosten</label>
                                             <input type="number" step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
@@ -1685,7 +1737,7 @@ export default function CalculationPage() {
                                             case 'personnel':
                                                 return (
                                                     <SortableCostSection key="personnel" id="personnel">
-                                                        <CostSection title="Personalkosten" icon={<Users className="h-5 w-5" />} total={personalKosten} color="blue">
+                                                        <CostSection title="Personalkosten" icon={<Users className="h-5 w-5" />} total={personalKosten} color="blue" kosten={personalKosten} erloes={personalErloes}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
                                                                     <tr>
@@ -1706,8 +1758,8 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-slate-600">{p.datum}</td>
                                                                             <td className="px-4 py-2 font-medium">{p.mitarbeiter}</td>
                                                                             <td className="px-4 py-2 text-slate-500">{p.role || '—'}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono font-semibold text-blue-700">{p.lis_stunden.toFixed(2)}</td>
-                                                                            <td className="px-2 py-1">
+                                                                            <td className={cn('px-4 py-2 text-right font-mono font-semibold text-blue-700', getHoursDeviationColor(p.lis_stunden, p.kunden_stunden) && 'rounded-l')}>{p.lis_stunden.toFixed(2)}</td>
+                                                                            <td className={cn('px-2 py-1', getHoursDeviationColor(p.lis_stunden, p.kunden_stunden))}>
                                                                                 <input
                                                                                     type="number"
                                                                                     step="0.01"
@@ -1715,12 +1767,12 @@ export default function CalculationPage() {
                                                                                         "w-full border rounded px-2 py-1 text-xs text-right font-mono focus:outline-none transition-colors",
                                                                                         perRowKundenStd[p.pair_id] !== undefined
                                                                                             ? "bg-amber-50 border-amber-300 text-amber-800 focus:ring-1 focus:ring-amber-400"
-                                                                                            : "bg-green-50 border-green-200 hover:border-green-400 text-green-800 focus:ring-1 focus:ring-green-300"
+                                                                                            : "bg-transparent border-green-200 hover:border-green-400 text-green-800 focus:ring-1 focus:ring-green-300"
                                                                                     )}
                                                                                     value={p.kunden_stunden === 0 ? '' : (p.kunden_stunden ?? '')}
                                                                                     onChange={e => setPerRowKundenStd(prev => ({ ...prev, [p.pair_id]: e.target.value === '' ? 0 : +e.target.value }))}
                                                                                     onFocus={e => e.target.select()}
-                                                                                    title={perRowKundenStd[p.pair_id] !== undefined ? 'Individuell überschrieben' : 'Standard (LiS Std.)'}
+                                                                                    title={perRowKundenStd[p.pair_id] !== undefined ? 'Individuell überschrieben' : `Standard (LiS Std.) ${p.lis_stunden !== p.kunden_stunden ? `| Δ ${(p.kunden_stunden - p.lis_stunden).toFixed(2)} Std.` : ''}`}
                                                                                 />
                                                                             </td>
                                                                             {/* LiS Satz — read-only, from employee master */}
@@ -1748,7 +1800,7 @@ export default function CalculationPage() {
                                                                                 </div>
                                                                             </td>
                                                                             <td className="px-4 py-2 text-right font-semibold text-blue-700">{eur(p.kosten)}</td>
-                                                                            <td className="px-4 py-2 text-right font-semibold text-green-700">{eur(p.erloes)}</td>
+                                                                            <td className={cn('px-4 py-2 text-right font-semibold text-green-700', getMarkupColor(p.kosten, p.erloes))}>{eur(p.erloes)}</td>
                                                                         </tr>
                                                                     ))}
                                                                 </tbody>
@@ -1759,7 +1811,7 @@ export default function CalculationPage() {
                                             case 'material':
                                                 return (
                                                     <SortableCostSection key="material" id="material">
-                                                        <CostSection title="Material" icon={<Package className="h-5 w-5" />} total={materialKosten} color="amber"
+                                                        <CostSection title="Material" icon={<Package className="h-5 w-5" />} total={materialKosten} color="amber" kosten={materialKosten} erloes={materialErloes}
                                                             actions={<div className="flex gap-2">
                                                                 <button onClick={() => { setAddMatForm({ material_id: '', quantity: 0 }); setAddMatModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Material</button>
                                                                 <button onClick={saveMaterials} className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
@@ -1777,7 +1829,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-slate-500">{m.unit}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(m.cost_per_unit)}</td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={(m.price_per_unit ?? 0) === 0 ? '' : (m.price_per_unit ?? '')} onChange={e => updateMaterialVkPrice(m.id, e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
-                                                                            <td className="px-4 py-2 text-right font-semibold">{eur(m.total_cost)}</td><td className="px-4 py-2 text-right text-green-700">{eur(m.total_price)}</td>
+                                                                            <td className="px-4 py-2 text-right font-semibold">{eur(m.total_cost)}</td><td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(m.cost_per_unit, m.price_per_unit))}>{eur(m.total_price)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteMaterial(m.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1789,7 +1841,7 @@ export default function CalculationPage() {
                                             case 'vehicle':
                                                 return (
                                                     <SortableCostSection key="vehicle" id="vehicle">
-                                                        <CostSection title="Fahrzeug" icon={<Truck className="h-5 w-5" />} total={vehicleErloes} color="green"
+                                                        <CostSection title="Fahrzeug" icon={<Truck className="h-5 w-5" />} total={vehicleErloes} color="green" kosten={vehicleKosten} erloes={vehicleErloes}
                                                             actions={<div className="flex gap-2">
                                                                 <button onClick={() => { setAddVehForm({ vehicle_id: '', usage_type: 'Pauschal', usage_value: 1, cost_per_unit: 0, total_cost: 0, notes: '' }); setAddVehModal(true); }} className="flex items-center gap-1 text-xs text-sky-700 hover:text-sky-900"><Plus className="h-3.5 w-3.5" /> Fahrzeug</button>
                                                                 <button onClick={saveVehicleCosts} className="flex items-center gap-1 text-xs bg-sky-600 text-white px-2 py-1 rounded hover:bg-sky-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
@@ -1814,7 +1866,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.cost_per_unit === 0 ? '' : (v.cost_per_unit ?? '')} onChange={e => updateVehicleCost(v.id, 'cost_per_unit', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.total_cost === 0 ? '' : (v.total_cost ?? '')} onChange={e => updateVehicleCost(v.id, 'total_cost', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700 font-semibold">{eur((v.usage_value || 0) * (v.total_cost || 0))}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700 font-semibold', getMarkupColor(v.cost_per_unit, v.total_cost))}>{eur((v.usage_value || 0) * (v.total_cost || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteVehicleCost(v.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1826,7 +1878,7 @@ export default function CalculationPage() {
                                             case 'service':
                                                 return (
                                                     <SortableCostSection key="service" id="service">
-                                                        <CostSection title="Dienstleistungskosten" icon={<Wrench className="h-5 w-5" />} total={serviceKosten} color="purple"
+                                                        <CostSection title="Dienstleistungskosten" icon={<Wrench className="h-5 w-5" />} total={serviceKosten} color="purple" kosten={serviceKosten} erloes={serviceErloes}
                                                             actions={<button onClick={() => { setAddSvcForm({ service_id: '', quantity: 0, unit: 'Std', cost_per_unit: 0, supplier: '' }); setAddSvcModal(true); }} className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"><Plus className="h-3.5 w-3.5" /> Leistung</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
@@ -1840,7 +1892,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-right">{eur(s.cost_per_unit)}</td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={(s.price_per_unit ?? 0) === 0 ? '' : (s.price_per_unit ?? '')} onChange={e => updateServiceCost(s.id!, 'price_per_unit', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur(s.total_cost)}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700">{eur(s.total_price ?? 0)}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(s.cost_per_unit, s.price_per_unit ?? 0))}>{eur(s.total_price ?? 0)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteServiceCost(s.id!)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1852,7 +1904,7 @@ export default function CalculationPage() {
                                             case 'hvz':
                                                 return (
                                                     <SortableCostSection key="hvz" id="hvz">
-                                                        <CostSection title="HVZ" icon={<Truck className="h-5 w-5" />} total={hvzKosten} color="orange"
+                                                        <CostSection title="HVZ" icon={<Truck className="h-5 w-5" />} total={hvzKosten} color="orange" kosten={hvzKosten} erloes={hvzErloes}
                                                             actions={<button onClick={() => { setAddHvzForm({ datum_von: '', datum_bis: '', tage: 0, ek_preis: 0, vk_preis: 0 }); setAddHvzModal(true); }} className="flex items-center gap-1 text-xs text-orange-700 hover:text-orange-900"><Plus className="h-3.5 w-3.5" /> HVZ</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
@@ -1867,7 +1919,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-right">{eur(h.ek_preis)}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(h.vk_preis)}</td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((h.tage || 0) * (h.ek_preis || 0))}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700">{eur((h.tage || 0) * (h.vk_preis || 0))}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(h.ek_preis, h.vk_preis))}>{eur((h.tage || 0) * (h.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteHvzCost(h.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1879,7 +1931,7 @@ export default function CalculationPage() {
                                             case 'bnk':
                                                 return (
                                                     <SortableCostSection key="bnk" id="bnk">
-                                                        <CostSection title="Diesel / BNK" icon={<Truck className="h-5 w-5" />} total={bnkKosten} color="blue"
+                                                        <CostSection title="Diesel / BNK" icon={<Truck className="h-5 w-5" />} total={bnkKosten} color="blue" kosten={bnkKosten} erloes={bnkErloes}
                                                             actions={<button onClick={() => { setAddBnkForm({ beschreibung: 'Diesel', menge: 0, ek_preis: 0, vk_preis: 0 }); setAddBnkModal(true); }} className="flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900"><Plus className="h-3.5 w-3.5" /> Diesel / BNK</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
@@ -1893,7 +1945,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-right">{eur(b.ek_preis)}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(b.vk_preis)}</td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((b.menge || 0) * (b.ek_preis || 0))}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700">{eur((b.menge || 0) * (b.vk_preis || 0))}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(b.ek_preis, b.vk_preis))}>{eur((b.menge || 0) * (b.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteBnkCost(b.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1905,7 +1957,7 @@ export default function CalculationPage() {
                                             case 'extra':
                                                 return (
                                                     <SortableCostSection key="extra" id="extra">
-                                                        <CostSection title="Sonstige Kosten" icon={<AlertCircle className="h-5 w-5" />} total={extraKosten} color="amber"
+                                                        <CostSection title="Sonstige Kosten" icon={<AlertCircle className="h-5 w-5" />} total={extraKosten} color="amber" kosten={extraKosten} erloes={extraErloes}
                                                             actions={<div className="flex gap-2">
                                                                 <button onClick={() => { setAddExtraForm({ beschreibung: '', menge: 0, ek_preis: 0, vk_preis: 0 }); setAddExtraModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Kosten</button>
                                                                 <button onClick={saveExtraCosts} className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
@@ -1922,7 +1974,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.ek_preis === 0 ? '' : (e.ek_preis ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'ek_preis', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.vk_preis === 0 ? '' : (e.vk_preis ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'vk_preis', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((e.menge || 0) * (e.ek_preis || 0))}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700 font-semibold">{eur((e.menge || 0) * (e.vk_preis || 0))}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700 font-semibold', getMarkupColor(e.ek_preis, e.vk_preis))}>{eur((e.menge || 0) * (e.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteExtraCost(e.cost_id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1938,6 +1990,43 @@ export default function CalculationPage() {
                                     })}
                                 </SortableContext>
                             </DndContext>
+
+                            {/* Layer 6: Summary Gradient Footer */}
+                            {selectedProject && (
+                                <div className={cn('rounded-xl border shadow-sm overflow-hidden', margin >= 0 ? 'border-green-200' : 'border-red-200')}>
+                                    <div className={cn('px-6 py-4', getSummaryGradient(margin))}>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-6">
+                                                <div>
+                                                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Gesamtkosten</div>
+                                                    <div className="text-lg font-bold text-slate-800">{eur(totalCosts)}</div>
+                                                </div>
+                                                <div className="text-slate-300 text-xl font-light">→</div>
+                                                <div>
+                                                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Gesamterlöse</div>
+                                                    <div className="text-lg font-bold text-slate-800">{eur(totalRevenue)}</div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-4">
+                                                <div className="text-right">
+                                                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Netto-Marge</div>
+                                                    <div className={cn('text-2xl font-bold', getMarginTierColor(marginPct).color)}>{eur(margin)}</div>
+                                                </div>
+                                                <div className={cn(
+                                                    'px-4 py-2 rounded-xl text-lg font-black',
+                                                    marginPct >= 25 ? 'bg-emerald-200 text-emerald-900' :
+                                                    marginPct >= 10 ? 'bg-green-100 text-green-800' :
+                                                    marginPct >= 0 ? 'bg-amber-100 text-amber-800' :
+                                                    marginPct >= -10 ? 'bg-red-100 text-red-700' :
+                                                    'bg-red-200 text-red-900 animate-pulse'
+                                                )}>
+                                                    {marginPct.toFixed(1)}%
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -2081,20 +2170,49 @@ export default function CalculationPage() {
 }
 
 // -- Helper Components --
-function KpiCard({ label, value, icon, color, bgColor }: { label: string; value: string; icon: React.ReactNode; color: string; bgColor: string }) {
-    return (<div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+function KpiCard({ label, value, icon, color, bgColor, ring }: { label: string; value: string; icon: React.ReactNode; color: string; bgColor: string; ring?: string }) {
+    return (<div className={cn('rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all duration-300', ring)}>
         <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-slate-500 uppercase tracking-wider">{label}</span><div className={cn('p-2 rounded-lg', bgColor, color)}>{icon}</div></div>
         <div className={cn('text-2xl font-bold', color)}>{value}</div>
     </div>);
 }
 
-function CostSection({ title, icon, total, color, children, actions }: { title: string; icon: React.ReactNode; total: number; color: string; children: React.ReactNode; actions?: React.ReactNode }) {
+// Layer 2: Category-level delta bar
+function DeltaBar({ kosten, erloes }: { kosten: number; erloes: number }) {
+    const delta = erloes - kosten;
+    const pct = kosten > 0 ? (delta / kosten) * 100 : 0;
+    if (kosten === 0 && erloes === 0) return null;
+    const isPositive = delta >= 0;
+    const barWidth = Math.min(Math.abs(pct), 100);
+    return (
+        <div className="flex items-center gap-3 px-5 py-2.5 bg-slate-50/80 border-t border-slate-100">
+            <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-500 font-medium">Δ</span>
+                <span className={cn('font-bold', isPositive ? 'text-green-700' : 'text-red-600')}>
+                    {isPositive ? '+' : ''}{eur(delta)}
+                </span>
+                <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-full', isPositive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600')}>
+                    {isPositive ? '+' : ''}{pct.toFixed(1)}%
+                </span>
+            </div>
+            <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                    className={cn('h-full rounded-full transition-all duration-500', isPositive ? 'bg-gradient-to-r from-green-400 to-emerald-500' : 'bg-gradient-to-r from-red-400 to-rose-500')}
+                    style={{ width: `${barWidth}%` }}
+                />
+            </div>
+        </div>
+    );
+}
+
+function CostSection({ title, icon, total, color, children, actions, kosten, erloes }: { title: string; icon: React.ReactNode; total: number; color: string; children: React.ReactNode; actions?: React.ReactNode; kosten?: number; erloes?: number }) {
     const colorMap: Record<string, string> = { blue: 'border-l-blue-500', amber: 'border-l-amber-500', sky: 'border-l-sky-500', green: 'border-l-green-500', purple: 'border-l-purple-500', red: 'border-l-red-500', orange: 'border-l-orange-500' };
     return (<div className={cn('bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden border-l-4', colorMap[color] || 'border-l-slate-300')}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <div className="flex items-center gap-2 text-slate-700">{icon}<span className="font-semibold">{title}</span></div>
             <div className="flex items-center gap-4">{actions}<span className="text-lg font-bold text-slate-800">{eur(total)}</span></div>
         </div>{children}
+        {kosten !== undefined && erloes !== undefined && <DeltaBar kosten={kosten} erloes={erloes} />}
     </div>);
 }
 

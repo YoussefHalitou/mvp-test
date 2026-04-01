@@ -1056,7 +1056,7 @@ export default function CalculationPage() {
             <td style="font-weight:700; color:#0f172a;">Summe</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>
             <td style="font-weight:700; text-align:right; color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}</td>
-            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalRevenue)}</td>
+            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(istRevenue)}</td>
         </tr>` : `<tr style="border-top:3px double #334155; background:#f1f5f9;">
             <td style="font-weight:700; color:#0f172a;">Summe</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>

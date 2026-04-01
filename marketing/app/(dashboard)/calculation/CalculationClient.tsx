@@ -501,6 +501,9 @@ export default function CalculationPage() {
     const totalRevenue = isFpMode ? fpRevenue : istRevenue;
     const margin = totalRevenue - totalCosts;
     const marginPct = totalRevenue > 0 ? (margin / totalRevenue) * 100 : 0;
+    // Kalk. Marge: hypothetical margin if billed on actuals instead of FP
+    const kalkMargin = istRevenue - totalCosts;
+    const kalkMarginPct = istRevenue > 0 ? (kalkMargin / istRevenue) * 100 : 0;
 
     // ---- MATERIAL CRUD ----
     const addMaterial = async () => {
@@ -1112,6 +1115,8 @@ export default function CalculationPage() {
         <tr><td class="label">Gesamtkosten netto</td><td class="val">${numFormat(totalCosts)}</td></tr>
         <tr class="total"><td class="label">Nettoeinnahme</td><td class="val">${numFormat(margin)}</td></tr>
         <tr><td class="label">Prozent</td><td class="val" style="padding-top: 12px;"><span style="background-color:#86efac; color:#166534; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #4ade80;">${marginPct >= 0 || marginPct < 0 ? marginPct.toFixed(1) + '%' : '#DIV/0!'}</span></td></tr>
+        ${isFpMode ? `<tr style="border-top:2px solid #e2e8f0;"><td class="label">Kalk. Marge</td><td class="val">${numFormat(kalkMargin)}</td></tr>
+        <tr><td class="label">Kalk. Marge %</td><td class="val" style="padding-top: 12px;"><span style="background-color:#e2e8f0; color:#475569; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #cbd5e1;">${kalkMarginPct.toFixed(1)}%</span></td></tr>` : ''}
     </table>
     </div>
 </body></html>`;
@@ -1484,18 +1489,29 @@ export default function CalculationPage() {
                             </div>
 
                             {/* KPI Cards */}
-                            <div className={cn("grid gap-4", isFpMode ? "grid-cols-5" : "grid-cols-4")}>
+                            <div className="grid grid-cols-4 gap-4">
                                 <KpiCard label="Gesamtkosten" value={eur(totalCosts)} icon={<DollarSign className="h-5 w-5" />} color="text-slate-800" bgColor="bg-slate-100" />
                                 <KpiCard label={isFpMode ? "Erlöse (FP)" : "Gesamterlöse"} value={eur(totalRevenue)} icon={<TrendingUp className="h-5 w-5" />}
                                     color={isFpMode ? "text-amber-700" : "text-blue-700"} bgColor={isFpMode ? "bg-amber-50" : "bg-blue-50"} />
-                                {isFpMode && (
-                                    <KpiCard label="Kalk. Erlöse" value={eur(istRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-slate-600" bgColor="bg-slate-50" />
-                                )}
                                 <KpiCard label="Marge (€)" value={eur(margin)} icon={<TrendingUp className="h-5 w-5" />}
                                     color={margin >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={margin >= 0 ? 'bg-green-50' : 'bg-red-50'} />
                                 <KpiCard label="Marge (%)" value={`${marginPct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
                                     color={marginPct >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={marginPct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
                             </div>
+                            {isFpMode && (
+                                <div className="grid grid-cols-4 gap-4">
+                                    <KpiCard label="Kalk. Erlöse" value={eur(istRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-slate-600" bgColor="bg-slate-50" />
+                                    <KpiCard label="Differenz" value={eur(fpRevenue - istRevenue)} icon={<TrendingUp className="h-5 w-5" />}
+                                        color={fpRevenue - istRevenue >= 0 ? 'text-green-700' : 'text-red-600'}
+                                        bgColor={fpRevenue - istRevenue >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                    <KpiCard label="Kalk. Marge (€)" value={eur(kalkMargin)} icon={<TrendingUp className="h-5 w-5" />}
+                                        color={kalkMargin >= 0 ? 'text-green-700' : 'text-red-600'}
+                                        bgColor={kalkMargin >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                    <KpiCard label="Kalk. Marge (%)" value={`${kalkMarginPct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
+                                        color={kalkMarginPct >= 0 ? 'text-green-700' : 'text-red-600'}
+                                        bgColor={kalkMarginPct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                </div>
+                            )}
 
                             {/* Kundennummer & Angebotsnummer */}
                             <div className="flex items-end gap-4 bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4">

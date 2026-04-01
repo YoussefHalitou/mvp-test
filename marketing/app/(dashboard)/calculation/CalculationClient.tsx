@@ -943,7 +943,7 @@ export default function CalculationPage() {
             <th style="text-align:left;">Kosten:</th>
             <th style="width:28%;">Land in Sicht</th>
             <th style="width:28%;">Kunde</th>
-            ${(isKvMode || isFpMode) ? `<th class="bg-green" style="width:18%;">${isKvMode ? 'KV' : 'Ist'}</th>` : ''}
+            ${(isKvMode || isFpMode) ? `<th class="bg-green" style="width:18%;">${isKvMode ? 'KV' : 'Kalk. Erlöse'}</th>` : ''}
         </tr>
         <tr>
             <td class="text-orange" style="background:#fff7ed;">Gesamt Std</td>
@@ -1104,7 +1104,7 @@ export default function CalculationPage() {
     <div class="no-break">
     <table class="summary-table">
         ${isFpMode
-          ? `<tr><td class="label">Ist-Erlöse</td><td class="val">${numFormat(istRevenue)}</td></tr>`
+          ? `<tr><td class="label">Kalk. Erlöse</td><td class="val">${numFormat(istRevenue)}</td></tr>`
           : `<tr><td class="label">${isKvMode ? 'KV' : 'FP'} vorher</td><td class="val${isKvMode ? '' : ' cur'}">${isKvMode ? numFormat(fpRevenue) : '- €'}</td></tr>`
         }
         <tr><td class="label">${isFpMode ? 'Nettoumsatz (FP)' : 'Nettoumsatz'}</td><td class="val">${numFormat(totalRevenue)}</td></tr>
@@ -1489,7 +1489,7 @@ export default function CalculationPage() {
                                 <KpiCard label={isFpMode ? "Erlöse (FP)" : "Gesamterlöse"} value={eur(totalRevenue)} icon={<TrendingUp className="h-5 w-5" />}
                                     color={isFpMode ? "text-amber-700" : "text-blue-700"} bgColor={isFpMode ? "bg-amber-50" : "bg-blue-50"} />
                                 {isFpMode && (
-                                    <KpiCard label="Ist-Erlöse" value={eur(istRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-slate-600" bgColor="bg-slate-50" />
+                                    <KpiCard label="Kalk. Erlöse" value={eur(istRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-slate-600" bgColor="bg-slate-50" />
                                 )}
                                 <KpiCard label="Marge (€)" value={eur(margin)} icon={<TrendingUp className="h-5 w-5" />}
                                     color={margin >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={margin >= 0 ? 'bg-green-50' : 'bg-red-50'} />

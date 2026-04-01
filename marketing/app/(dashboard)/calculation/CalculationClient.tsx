@@ -91,6 +91,7 @@ export default function CalculationPage() {
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(false);
     const [isKvMode, setIsKvMode] = useState(false);
+    const [isFpMode, setIsFpMode] = useState(false);
     const [kvValues, setKvValues] = useState<Record<string, number>>({});
     // Multi-select mode
     const [multiSelectMode, setMultiSelectMode] = useState(false);
@@ -282,7 +283,7 @@ export default function CalculationPage() {
                 adjustedPersonnel: adjustedPersonnel,
                 materials, vehicles, services, revenue, extraCosts, discounts,
                 hvzCosts, bnkCosts,
-                isKvMode, kvValues,
+                isKvMode, isFpMode, kvValues,
                 totalCosts, totalRevenue, margin, marginPct,
                 personalKosten, personalErloes, materialKosten, materialErloes,
                 vehicleKosten, vehicleErloes, serviceKosten, serviceErloes,
@@ -314,7 +315,7 @@ export default function CalculationPage() {
         isFirstMetadataRender.current = true;
         isFirstKvRender.current = true;
         if (!selectedProjectId) {
-            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setKvValues({}); setPerRowKundenSatz({}); setPerRowKundenStd({}); setGlobalKdSatz(null); setSubmissionStatus('none'); setKundennummer(''); setAngebotsnummer('');
+            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setIsFpMode(false); setKvValues({}); setPerRowKundenSatz({}); setPerRowKundenStd({}); setGlobalKdSatz(null); setSubmissionStatus('none'); setKundennummer(''); setAngebotsnummer('');
             return;
         }
         setMergedProjectNames([]);
@@ -351,6 +352,7 @@ export default function CalculationPage() {
         if (proj) {
             setSelectedProject(proj);
             setIsKvMode((proj as any).offer_type === 'Kostenvoranschlag');
+            setIsFpMode((proj as any).offer_type === 'Festpreis');
             setKundennummer((proj as any).kundennummer || '');
             setAngebotsnummer((proj as any).angebotsnummer || '');
         }
@@ -692,8 +694,8 @@ export default function CalculationPage() {
             if (toDelete.length > 0) {
                 await supabase.from('t_project_kv_values').delete().eq('project_id', selectedProjectId).in('kv_key', toDelete);
             }
-            if (!silent) toast('KV-Werte gespeichert', 'success');
-        } catch { if (!silent) toast('Fehler beim Speichern der KV-Werte', 'error'); }
+            if (!silent) toast(isFpMode ? 'FP-Werte gespeichert' : 'KV-Werte gespeichert', 'success');
+        } catch { if (!silent) toast(isFpMode ? 'Fehler beim Speichern der FP-Werte' : 'Fehler beim Speichern der KV-Werte', 'error'); }
     };
 
     // ---- KUNDENNUMMER / ANGEBOTSNUMMER SAVE ----
@@ -913,7 +915,7 @@ export default function CalculationPage() {
         <div style="border:1px solid #cbd5e1; border-radius:6px; padding:16px; background:#f8fafc; display:flex; flex-direction:column; gap:12px; justify-content:center;">
             <div style="display:flex; align-items:center; justify-content:space-between;">
                 <span style="font-size:10px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.06em;">KV oder FP</span>
-                <span style="background-color:${isKvMode ? '#86efac' : '#fde68a'}; color:${isKvMode ? '#166534' : '#92400e'}; font-size:11px; font-weight:800; padding:4px 18px; border-radius:20px; border:1px solid ${isKvMode ? '#4ade80' : '#fbbf24'}; letter-spacing:0.05em;">${isKvMode ? 'KV' : 'FP'}</span>
+                <span style="background-color:${isKvMode ? '#86efac' : isFpMode ? '#fde68a' : '#e2e8f0'}; color:${isKvMode ? '#166534' : isFpMode ? '#92400e' : '#475569'}; font-size:11px; font-weight:800; padding:4px 18px; border-radius:20px; border:1px solid ${isKvMode ? '#4ade80' : isFpMode ? '#fbbf24' : '#cbd5e1'}; letter-spacing:0.05em;">${isKvMode ? 'KV' : isFpMode ? 'FP' : '—'}</span>
             </div>
             <div style="height:1px; background:#e2e8f0;"></div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
@@ -938,87 +940,126 @@ export default function CalculationPage() {
             <th style="text-align:left;">Kosten:</th>
             <th style="width:28%;">Land in Sicht</th>
             <th style="width:28%;">Kunde</th>
-            ${isKvMode ? '<th class="bg-green" style="width:18%;">KV</th>' : ''}
+            ${(isKvMode || isFpMode) ? `<th class="bg-green" style="width:18%;">${isKvMode ? 'KV' : 'Ist'}</th>` : ''}
         </tr>
         <tr>
             <td class="text-orange" style="background:#fff7ed;">Gesamt Std</td>
             <td class="center text-orange" style="background:#fff7ed;">${gesamtStd.toFixed(2)}</td>
-            <td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>
-            ${isKvMode ? `<td class="center" style="background:#fff7ed;">${kvValues['stunden'] ? (+kvValues['stunden']).toFixed(2) : ''}</td>` : ''}
+            ${isFpMode
+              ? `<td class="center" style="background:#fff7ed;">${kvValues['stunden'] ? (+kvValues['stunden']).toFixed(2) : ''}</td>
+                 <td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>`
+              : `<td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>
+                 ${isKvMode ? `<td class="center" style="background:#fff7ed;">${kvValues['stunden'] ? (+kvValues['stunden']).toFixed(2) : ''}</td>` : ''}`
+            }
         </tr>
         ${(() => {
                 const rateEntries = Array.from(rateMap.values());
                 let personnelKvShown = false;
                 return rateEntries.map(data => {
-                    const kvCell = isKvMode ? (personnelKvShown ? '<td></td>' : `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>`) : '';
+                    const kvCellContent = personnelKvShown ? '' : (kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : '');
+                    const kundeCell = `<td class="center"><div class="val-container"><span>${data.kd_std.toFixed(2)} x ${numFormat(data.kd_satz)} =</span><span style="color:#15803d;">${numFormat(data.erloes)}</span></div></td>`;
+                    const fpCell = personnelKvShown ? '<td></td>' : `<td class="right">${kvCellContent}</td>`;
                     personnelKvShown = true;
+                    if (isFpMode) {
+                        return `<tr>
+            <td style="font-weight:600; color:#475569;">Stunden ${data.names.join(', ')} <span style="color:#94a3b8; font-weight:400;">(${data.std.toFixed(2)} Std.)</span></td>
+            <td class="center"><div class="val-container"><span>${data.std.toFixed(2)} x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td>
+            ${fpCell}
+            ${kundeCell}
+        </tr>`;
+                    }
                     return `<tr>
             <td style="font-weight:600; color:#475569;">Stunden ${data.names.join(', ')} <span style="color:#94a3b8; font-weight:400;">(${data.std.toFixed(2)} Std.)</span></td>
             <td class="center"><div class="val-container"><span>${data.std.toFixed(2)} x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td>
-            <td class="center"><div class="val-container"><span>${data.kd_std.toFixed(2)} x ${numFormat(data.kd_satz)} =</span><span style="color:#15803d;">${numFormat(data.erloes)}</span></div></td>
-            ${kvCell}
+            ${kundeCell}
+            ${isKvMode ? fpCell : ''}
         </tr>`;
                 }).join('');
             })()}
-        ${rateMap.size === 0 ? `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td><td class="center"><div class="val-container"><span></span><span class="cur">- €</span></div></td>${isKvMode ? `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>` : ''}</tr>` : ''}
+        ${rateMap.size === 0 ? (() => {
+            const emptyKunde = `<td class="center"><div class="val-container"><span></span><span class="cur">- €</span></div></td>`;
+            const emptyFpCell = `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>`;
+            if (isFpMode) return `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td>${emptyFpCell}${emptyKunde}</tr>`;
+            return `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td>${emptyKunde}${isKvMode ? emptyFpCell : ''}</tr>`;
+        })() : ''}
         ${(() => {
                 const totalServiceKosten = services.reduce((s, x) => s + x.total_cost, 0);
                 const totalServiceErloes = services.reduce((s, x) => s + ((x as any).total_price || x.total_cost), 0);
-                const kvServiceCell = isKvMode ? `<td class="right">${kvValues['service_total'] ? numFormat(kvValues['service_total']) : ''}</td>` : '';
-                if (services.length > 0) return `<tr>
+                const kundeServiceCell = `<td><div class="val-container"><span></span><span>${numFormat(totalServiceErloes)}</span></div></td>`;
+                const fpServiceCell = `<td class="right">${kvValues['service_total'] ? numFormat(kvValues['service_total']) : ''}</td>`;
+                const emptyKundeCell = `<td><div class="val-container"><span></span><span class="cur">- €</span></div></td>`;
+                if (services.length > 0) {
+                    if (isFpMode) return `<tr>
             <td style="font-weight:600; color:#475569;">Entsorgungen</td>
             <td><div class="val-container"><span></span><span>${numFormat(totalServiceKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(totalServiceErloes)}</span></div></td>
-            ${kvServiceCell}
+            ${fpServiceCell}
+            ${kundeServiceCell}
+        </tr>`;
+                    return `<tr>
+            <td style="font-weight:600; color:#475569;">Entsorgungen</td>
+            <td><div class="val-container"><span></span><span>${numFormat(totalServiceKosten)}</span></div></td>
+            ${kundeServiceCell}
+            ${isKvMode ? fpServiceCell : ''}
+        </tr>`;
+                }
+                if (isFpMode) return `<tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Entsorgungen</td>
+            <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
+            ${fpServiceCell}
+            ${emptyKundeCell}
         </tr>`;
                 return `<tr>
             <td style="font-weight:600; color:#475569; height:28px;">Entsorgungen</td>
             <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
-            <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
-            ${kvServiceCell}
+            ${emptyKundeCell}
+            ${isKvMode ? fpServiceCell : ''}
         </tr>`;
             })()}
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">HVZ</td>
-            <td><div class="val-container"><span></span><span>${numFormat(hvzKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(hvzErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['hvz'] ? numFormat(kvValues['hvz']) : ''}</td>` : ''}
-        </tr>
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
-            <td><div class="val-container"><span></span><span>${numFormat(lkwKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['lkw'] ? numFormat(kvValues['lkw']) : ''}</td>` : ''}
-        </tr>
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Diesel / BNK</td>
-            <td><div class="val-container"><span></span><span>${numFormat(bnkKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(bnkErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['diesel'] ? numFormat(kvValues['diesel']) : ''}</td>` : ''}
-        </tr>
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Material</td>
-            <td><div class="val-container"><span></span><span>${numFormat(materialKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(materialErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['material'] ? numFormat(kvValues['material']) : ''}</td>` : ''}
-        </tr>
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
-            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(extraErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
-        </tr>
-        <tr>
+        ${(() => {
+            const rows = [
+                { label: 'HVZ', lis: numFormat(hvzKosten), kunde: numFormat(hvzErloes), fp: kvValues['hvz'] ? numFormat(kvValues['hvz']) : '' },
+                { label: 'LKW', lis: numFormat(lkwKosten), kunde: numFormat(lkwErloes), fp: kvValues['lkw'] ? numFormat(kvValues['lkw']) : '' },
+                { label: 'Diesel / BNK', lis: numFormat(bnkKosten), kunde: numFormat(bnkErloes), fp: kvValues['diesel'] ? numFormat(kvValues['diesel']) : '' },
+                { label: 'Material', lis: numFormat(materialKosten), kunde: numFormat(materialErloes), fp: kvValues['material'] ? numFormat(kvValues['material']) : '' },
+                { label: 'Sonstige Kosten', lis: numFormat(extraKosten), kunde: numFormat(extraErloes), fp: kvValues['extra'] ? numFormat(kvValues['extra']) : '' },
+            ];
+            return rows.map(r => {
+                if (isFpMode) return `<tr>
+            <td style="font-weight:600; color:#475569; height:28px;">${r.label}</td>
+            <td><div class="val-container"><span></span><span>${r.lis}</span></div></td>
+            <td class="right">${r.fp}</td>
+            <td><div class="val-container"><span></span><span>${r.kunde}</span></div></td>
+        </tr>`;
+                return `<tr>
+            <td style="font-weight:600; color:#475569; height:28px;">${r.label}</td>
+            <td><div class="val-container"><span></span><span>${r.lis}</span></div></td>
+            <td><div class="val-container"><span></span><span>${r.kunde}</span></div></td>
+            ${isKvMode ? `<td class="right">${r.fp}</td>` : ''}
+        </tr>`;
+            }).join('');
+        })()}
+        ${isFpMode ? `<tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
+            <td></td>
+            <td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
+        </tr>` : `<tr>
             <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
             <td></td>
             <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
             ${isKvMode ? '<td></td>' : ''}
-        </tr>
-        <tr style="border-top:3px double #334155; background:#f1f5f9;">
+        </tr>`}
+        ${isFpMode ? `<tr style="border-top:3px double #334155; background:#f1f5f9;">
+            <td style="font-weight:700; color:#0f172a;">Summe</td>
+            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>
+            <td style="font-weight:700; text-align:right; color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}</td>
+            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalRevenue)}</td>
+        </tr>` : `<tr style="border-top:3px double #334155; background:#f1f5f9;">
             <td style="font-weight:700; color:#0f172a;">Summe</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalRevenue)}</td>
             ${isKvMode ? `<td style="font-weight:700; text-align:right; color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}</td>` : ''}
-        </tr>
+        </tr>`}
     </table>
 
     <div class="flex-tables">
@@ -1059,7 +1100,7 @@ export default function CalculationPage() {
 
     <div class="no-break">
     <table class="summary-table">
-        <tr><td class="label">KV vorher</td><td class="val${isKvMode ? '' : ' cur'}">${isKvMode ? numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0)) : '- €'}</td></tr>
+        <tr><td class="label">${isKvMode ? 'KV' : 'FP'} vorher</td><td class="val${(isKvMode || isFpMode) ? '' : ' cur'}">${(isKvMode || isFpMode) ? numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0)) : '- €'}</td></tr>
         <tr><td class="label">Nettoumsatz</td><td class="val">${numFormat(totalRevenue)}</td></tr>
         <tr class="total"><td class="label">Bruttoumsatz</td><td class="val">${numFormat(totalRevenue * 1.19)}</td></tr>
         <tr><td class="label">Gesamtkosten netto</td><td class="val">${numFormat(totalCosts)}</td></tr>
@@ -1333,6 +1374,7 @@ export default function CalculationPage() {
                                     ? `${mergedProjectNames.length} Projekte zusammengeführt`
                                     : selectedProject ? (selectedProject.name || 'Unbenannt') : 'Nachkalkulation'}
                                 {isKvMode && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-300">KV</span>}
+                                {isFpMode && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-300">FP</span>}
                             </h1>
                             {mergedProjectNames.length > 1 ? (
                                 <p className="text-xs text-blue-600 flex items-center gap-1 flex-wrap">
@@ -1475,21 +1517,21 @@ export default function CalculationPage() {
                                 </button>
                             </div>
 
-                            {/* KV Input Panel */}
-                            {isKvMode && (
-                                <div className="bg-green-50 border border-green-200 rounded-xl p-5 shadow-sm">
+                            {/* KV / FP Input Panel */}
+                            {(isKvMode || isFpMode) && (
+                                <div className={cn("rounded-xl p-5 shadow-sm border", isKvMode ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200")}>
                                     <div className="flex items-center gap-2 mb-4">
-                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-300">KV</span>
-                                        <h3 className="text-sm font-semibold text-green-800">Kostenvoranschlag – Werte</h3>
-                                        <span className="text-xs text-green-600 ml-auto font-medium">
-                                            Gesamt KV: {eur((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}
+                                        <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border", isKvMode ? "bg-green-100 text-green-700 border-green-300" : "bg-amber-100 text-amber-700 border-amber-300")}>{isKvMode ? 'KV' : 'FP'}</span>
+                                        <h3 className={cn("text-sm font-semibold", isKvMode ? "text-green-800" : "text-amber-800")}>{isKvMode ? 'Kostenvoranschlag – Werte' : 'Festpreis-Werte'}</h3>
+                                        <span className={cn("text-xs ml-auto font-medium", isKvMode ? "text-green-600" : "text-amber-600")}>
+                                            Gesamt {isKvMode ? 'KV' : 'FP'}: {eur((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}
                                         </span>
                                     </div>
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Stunden</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Stunden</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['stunden'] || ''}
                                                 onChange={e => {
                                                     const stunden = e.target.value === '' ? 0 : +e.target.value;
@@ -1500,9 +1542,9 @@ export default function CalculationPage() {
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Stundensatz</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Stundensatz</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['stundensatz'] || ''}
                                                 onChange={e => {
                                                     const satz = e.target.value === '' ? 0 : +e.target.value;
@@ -1513,66 +1555,66 @@ export default function CalculationPage() {
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider flex items-center gap-1">
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider flex items-center gap-1", isKvMode ? "text-green-700" : "text-amber-700")}>
                                                 Personalkosten
-                                                <span className="text-[9px] font-normal text-green-500 normal-case">= Std × Satz</span>
+                                                <span className={cn("text-[9px] font-normal normal-case", isKvMode ? "text-green-500" : "text-amber-500")}>= Std × Satz</span>
                                             </label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-sm text-right text-green-800 font-semibold focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300 cursor-default"
+                                                className={cn("rounded-lg border px-3 py-1.5 text-sm text-right font-semibold focus:outline-none focus:ring-1 cursor-default", isKvMode ? "border-green-300 bg-green-50 text-green-800 focus:border-green-500 focus:ring-green-300" : "border-amber-300 bg-amber-50 text-amber-800 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['personalkosten'] || ''}
                                                 readOnly
                                                 tabIndex={-1}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Material</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Material</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['material'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, material: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Entsorgungen</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Entsorgungen</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['service_total'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, service_total: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">LKW</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>LKW</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['lkw'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, lkw: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">HVZ</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>HVZ</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['hvz'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, hvz: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Diesel / BNK</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Diesel / BNK</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['diesel'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, diesel: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Sonstige Kosten</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Sonstige Kosten</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['extra'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, extra: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
@@ -1580,8 +1622,8 @@ export default function CalculationPage() {
                                         </div>
                                     </div>
                                     <div className="flex justify-end mt-4">
-                                        <button onClick={() => saveKvValues(false)} className="flex items-center gap-1.5 px-4 py-2 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm font-semibold">
-                                            <Save className="h-3.5 w-3.5" /> KV-Werte speichern
+                                        <button onClick={() => saveKvValues(false)} className={cn("flex items-center gap-1.5 px-4 py-2 text-xs text-white rounded-lg transition-colors shadow-sm font-semibold", isKvMode ? "bg-green-600 hover:bg-green-700" : "bg-amber-600 hover:bg-amber-700")}>
+                                            <Save className="h-3.5 w-3.5" /> {isKvMode ? 'KV' : 'FP'}-Werte speichern
                                         </button>
                                     </div>
                                 </div>

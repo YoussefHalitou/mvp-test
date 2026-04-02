@@ -84,6 +84,84 @@ function calcHours(von: string | null, bis: string | null, pauseMin: number = 0)
 }
 function eur(n: number) { return n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }); }
 
+// ---- COLORING HELPERS ----
+// Layer 1: Per-row markup highlighting (VK vs EK)
+function getMarkupColor(ek: number, vk: number): string {
+    if (ek === 0 && vk === 0) return '';
+    if (ek === 0) return vk > 0 ? 'bg-emerald-50 text-emerald-700' : '';
+    const ratio = vk / ek;
+    if (ratio < 1.0) return 'bg-red-50 text-red-700 font-semibold';
+    if (ratio <= 1.001) return 'bg-amber-50 text-amber-700';
+    if (ratio > 1.20) return 'bg-emerald-50 text-emerald-700';
+    return '';
+}
+
+// Layer 3: Personnel hours deviation coloring
+function getHoursDeviationColor(lisStd: number, kdStd: number): string {
+    if (lisStd === 0 && kdStd === 0) return '';
+    if (lisStd === 0) return kdStd > 0 ? 'bg-emerald-50' : '';
+    const ratio = kdStd / lisStd;
+    if (ratio < 0.95) return 'bg-red-50';
+    if (ratio > 1.20) return 'bg-emerald-50';
+    if (ratio > 1.005) return 'bg-amber-50';
+    return '';
+}
+
+// Layer 4: KPI card tiered margin severity
+function getMarginTierColor(pct: number): { color: string; bgColor: string; ring?: string } {
+    if (pct >= 25) return { color: 'text-emerald-800', bgColor: 'bg-emerald-100' };
+    if (pct >= 10) return { color: 'text-green-700', bgColor: 'bg-green-50' };
+    if (pct >= 0) return { color: 'text-amber-700', bgColor: 'bg-amber-50' };
+    if (pct >= -10) return { color: 'text-red-600', bgColor: 'bg-red-50' };
+    return { color: 'text-red-800', bgColor: 'bg-red-100', ring: 'ring-2 ring-red-300 animate-pulse' };
+}
+
+// Layer 5: KV/FP deviation coloring (actual vs estimated)
+function getKvDeviationBorder(actual: number, estimated: number): string {
+    if (estimated === 0) return '';
+    const pct = ((actual - estimated) / estimated) * 100;
+    if (pct > 20) return 'border-l-4 border-l-red-400';
+    if (pct > 5) return 'border-l-4 border-l-amber-400';
+    if (pct > -5) return 'border-l-4 border-l-green-400';
+    return 'border-l-4 border-l-blue-400';
+}
+
+// Layer 6: Summary row gradient based on margin
+function getSummaryGradient(marginValue: number): string {
+    if (marginValue > 100) return 'bg-gradient-to-r from-emerald-50 to-green-50';
+    if (marginValue > 0) return 'bg-gradient-to-r from-green-50 to-emerald-50/50';
+    if (marginValue === 0) return 'bg-gradient-to-r from-amber-50 to-yellow-50/50';
+    return 'bg-gradient-to-r from-red-50 to-rose-50';
+}
+
+// ---- INLINE-STYLE COLORING FOR EXPORTS ----
+// Layer 1 (Export): Markup coloring — returns inline style string for VK/Erlöse cells
+function getMarkupStyleInline(ek: number, vk: number): string {
+    if (ek === 0 && vk === 0) return '';
+    if (ek === 0) return vk > 0 ? 'background-color:#ecfdf5; color:#047857;' : '';
+    const ratio = vk / ek;
+    if (ratio < 1.0) return 'background-color:#fef2f2; color:#b91c1c; font-weight:700;';
+    if (ratio <= 1.001) return 'background-color:#fffbeb; color:#b45309;';
+    if (ratio > 1.20) return 'background-color:#ecfdf5; color:#047857;';
+    return '';
+}
+
+// Layer 4 (Export): Tiered margin badge — returns inline style for the margin % badge
+function getMarginBadgeStyle(pct: number): string {
+    if (pct >= 25) return 'background-color:#a7f3d0; color:#064e3b; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #34d399;';
+    if (pct >= 10) return 'background-color:#dcfce7; color:#166534; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #86efac;';
+    if (pct >= 0) return 'background-color:#fef3c7; color:#92400e; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #fbbf24;';
+    if (pct >= -10) return 'background-color:#fee2e2; color:#991b1b; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #fca5a5;';
+    return 'background-color:#fecaca; color:#7f1d1d; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:2px solid #f87171;';
+}
+
+// Layer 6 (Export): Summary row gradient — returns inline bg style
+function getSummaryGradientInline(marginValue: number): string {
+    if (marginValue > 0) return 'background: linear-gradient(90deg, #f0fdf4, #dcfce7);';
+    if (marginValue === 0) return 'background: linear-gradient(90deg, #fffbeb, #fef3c7);';
+    return 'background: linear-gradient(90deg, #fef2f2, #fecaca);';
+}
+
 export default function CalculationPage() {
     const { toast } = useToast();
     const [projects, setProjects] = useState<Project[]>([]);
@@ -91,6 +169,7 @@ export default function CalculationPage() {
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(false);
     const [isKvMode, setIsKvMode] = useState(false);
+    const [isFpMode, setIsFpMode] = useState(false);
     const [kvValues, setKvValues] = useState<Record<string, number>>({});
     // Multi-select mode
     const [multiSelectMode, setMultiSelectMode] = useState(false);
@@ -282,12 +361,12 @@ export default function CalculationPage() {
                 adjustedPersonnel: adjustedPersonnel,
                 materials, vehicles, services, revenue, extraCosts, discounts,
                 hvzCosts, bnkCosts,
-                isKvMode, kvValues,
+                isKvMode, isFpMode, kvValues, fpRevenue, istRevenue,
                 totalCosts, totalRevenue, margin, marginPct,
                 personalKosten, personalErloes, materialKosten, materialErloes,
                 vehicleKosten, vehicleErloes, serviceKosten, serviceErloes,
                 hvzKosten, hvzErloes, bnkKosten, bnkErloes,
-                extraKosten, discountTotal,
+                extraKosten, extraErloes, discountTotal,
             };
 
             const { error } = await supabase.from('t_nachkalkulation_submissions').insert({
@@ -314,7 +393,7 @@ export default function CalculationPage() {
         isFirstMetadataRender.current = true;
         isFirstKvRender.current = true;
         if (!selectedProjectId) {
-            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setKvValues({}); setPerRowKundenSatz({}); setPerRowKundenStd({}); setGlobalKdSatz(null); setSubmissionStatus('none'); setKundennummer(''); setAngebotsnummer('');
+            setSelectedProject(null); setPersonnel([]); setMaterials([]); setVehicles([]); setServices([]); setRevenue([]); setExtraCosts([]); setDiscounts([]); setIsKvMode(false); setIsFpMode(false); setKvValues({}); setPerRowKundenSatz({}); setPerRowKundenStd({}); setGlobalKdSatz(null); setSubmissionStatus('none'); setKundennummer(''); setAngebotsnummer('');
             return;
         }
         setMergedProjectNames([]);
@@ -351,6 +430,7 @@ export default function CalculationPage() {
         if (proj) {
             setSelectedProject(proj);
             setIsKvMode((proj as any).offer_type === 'Kostenvoranschlag');
+            setIsFpMode((proj as any).offer_type === 'Festpreis');
             setKundennummer((proj as any).kundennummer || '');
             setAngebotsnummer((proj as any).angebotsnummer || '');
         }
@@ -493,9 +573,20 @@ export default function CalculationPage() {
         if (mode === 'percent') return s + (baseRevenue * ((d.value || 0) / 100)); // Apply % to revenue
         return s + (d.value || 0);
     }, 0), [discounts, baseRevenue]);
-    const totalRevenue = baseRevenue - discountTotal;
+    // In FP mode: revenue = sum of agreed FP values (kvValues), not the actual calculated revenue
+    const fpRevenue = useMemo(() => (Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0), [kvValues]);
+    const istRevenue = baseRevenue - discountTotal; // actual calculated revenue (always available)
+    const totalRevenue = isFpMode ? fpRevenue : istRevenue;
     const margin = totalRevenue - totalCosts;
     const marginPct = totalRevenue > 0 ? (margin / totalRevenue) * 100 : 0;
+    // Kalk. Marge: hypothetical margin if billed on actuals instead of FP
+    const kalkMargin = istRevenue - totalCosts;
+    const kalkMarginPct = istRevenue > 0 ? (kalkMargin / istRevenue) * 100 : 0;
+    // KV comparison: how accurate was the estimate?
+    const kvAbweichung = istRevenue - fpRevenue; // positive = billed more than estimated
+    const kvAbweichungPct = fpRevenue > 0 ? (kvAbweichung / fpRevenue) * 100 : 0;
+    const kvMarge = fpRevenue - totalCosts; // margin if only KV amount was billed
+    const kvMargePct = fpRevenue > 0 ? (kvMarge / fpRevenue) * 100 : 0;
 
     // ---- MATERIAL CRUD ----
     const addMaterial = async () => {
@@ -692,8 +783,8 @@ export default function CalculationPage() {
             if (toDelete.length > 0) {
                 await supabase.from('t_project_kv_values').delete().eq('project_id', selectedProjectId).in('kv_key', toDelete);
             }
-            if (!silent) toast('KV-Werte gespeichert', 'success');
-        } catch { if (!silent) toast('Fehler beim Speichern der KV-Werte', 'error'); }
+            if (!silent) toast(isFpMode ? 'FP-Werte gespeichert' : 'KV-Werte gespeichert', 'success');
+        } catch { if (!silent) toast(isFpMode ? 'Fehler beim Speichern der FP-Werte' : 'Fehler beim Speichern der KV-Werte', 'error'); }
     };
 
     // ---- KUNDENNUMMER / ANGEBOTSNUMMER SAVE ----
@@ -789,15 +880,15 @@ export default function CalculationPage() {
         <div class="kpi"><div class="kpi-card"><div class="kpi-label">Gesamtkosten</div><div class="kpi-value">${eur(totalCosts)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Gesamterlöse</div><div class="kpi-value">${eur(totalRevenue)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Marge</div><div class="kpi-value ${margin >= 0 ? 'positive' : 'negative'}">${eur(margin)}</div></div>
-        <div class="kpi-card"><div class="kpi-label">Marge %</div><div class="kpi-value ${marginPct >= 0 ? 'positive' : 'negative'}">${marginPct.toFixed(1)}%</div></div></div>
+        <div class="kpi-card"><div class="kpi-label">Marge %</div><div class="kpi-value"><span style="${getMarginBadgeStyle(marginPct)}">${marginPct.toFixed(1)}%</span></div></div></div>
         <h2>1. Personal – Kosten (${eur(personalKosten)}) / Erlöse (${eur(personalErloes)})</h2><table><tr><th>Datum</th><th>Mitarbeiter</th><th class="right" style="color:#1d4ed8">LiS Std.</th><th class="right" style="color:#15803d">Kd Std.</th><th class="right" style="color:#1d4ed8">LiS Satz</th><th class="right" style="color:#15803d">Kd Satz</th><th class="right" style="color:#1d4ed8">Kosten (LiS)</th><th class="right" style="color:#15803d">Erlöse (Kd)</th></tr>
-        ${adjustedPersonnel.map((p: any) => `<tr><td>${p.datum}</td><td>${p.mitarbeiter}</td><td class="right" style="font-weight:700;color:#1d4ed8">${p.lis_stunden.toFixed(2)}</td><td class="right" style="font-weight:700;color:#15803d">${p.kunden_stunden.toFixed(2)}</td><td class="right" style="color:#1d4ed8">${eur(p.satz)}</td><td class="right" style="color:#15803d">${eur(p.kunden_satz)}</td><td class="right" style="color:#1d4ed8">${eur(p.kosten)}</td><td class="right" style="color:#15803d">${eur(p.erloes)}</td></tr>`).join('')}
+        ${adjustedPersonnel.map((p: any) => `<tr><td>${p.datum}</td><td>${p.mitarbeiter}</td><td class="right" style="font-weight:700;color:#1d4ed8">${p.lis_stunden.toFixed(2)}</td><td class="right" style="font-weight:700;color:#15803d">${p.kunden_stunden.toFixed(2)}</td><td class="right" style="color:#1d4ed8">${eur(p.satz)}</td><td class="right" style="color:#15803d">${eur(p.kunden_satz)}</td><td class="right" style="color:#1d4ed8">${eur(p.kosten)}</td><td class="right" style="${getMarkupStyleInline(p.kosten, p.erloes) || 'color:#15803d;'}">${eur(p.erloes)}</td></tr>`).join('')}
         <tr><th colspan="6">Summe</th><th class="right" style="color:#1d4ed8">${eur(personalKosten)}</th><th class="right" style="color:#15803d">${eur(personalErloes)}</th></tr></table>
         <h2>2. Material (${eur(materialKosten)})</h2><table><tr><th>Material</th><th>Menge</th><th>Einheit</th><th class="right">EK</th><th class="right">VK</th><th class="right">Kosten</th><th class="right">Erlöse</th></tr>
-        ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.price_per_unit)}</td><td class="right">${eur(m.total_cost)}</td><td class="right">${eur(m.total_price)}</td></tr>`).join('')}
+        ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.price_per_unit)}</td><td class="right">${eur(m.total_cost)}</td><td class="right" style="${getMarkupStyleInline(m.cost_per_unit, m.price_per_unit)}">${eur(m.total_price)}</td></tr>`).join('')}
         <tr><th colspan="5">Summe</th><th class="right">${eur(materialKosten)}</th><th class="right">${eur(materialErloes)}</th></tr></table>
         <h2>3. Fahrzeug (LiS: ${eur(vehicleKosten)} / Kunde: ${eur(vehicleErloes)})</h2><table><tr><th>Beschreibung</th><th>Menge</th><th class="right">EK-Preis</th><th class="right">VK-Preis</th><th class="right">LiS Kosten</th><th class="right">Kunden-Kosten</th></tr>
-        ${vehicles.map(v => `<tr><td>${v.fahrzeug}</td><td>${v.usage_value}</td><td class="right">${eur(v.cost_per_unit)}</td><td class="right">${eur(v.total_cost)}</td><td class="right">${eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td><td class="right">${eur((v.usage_value || 0) * (v.total_cost || 0))}</td></tr>`).join('')}
+        ${vehicles.map(v => `<tr><td>${v.fahrzeug}</td><td>${v.usage_value}</td><td class="right">${eur(v.cost_per_unit)}</td><td class="right">${eur(v.total_cost)}</td><td class="right">${eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td><td class="right" style="${getMarkupStyleInline(v.cost_per_unit, v.total_cost)}">${eur((v.usage_value || 0) * (v.total_cost || 0))}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(vehicleKosten)}</th><th class="right">${eur(vehicleErloes)}</th></tr></table>
         <h2>HVZ (EK: ${eur(hvzKosten)} / VK: ${eur(hvzErloes)})</h2><table><tr><th>Von</th><th>Bis</th><th>Tage</th><th class="right">EK</th><th class="right">VK</th></tr>
         ${hvzCosts.map(h => `<tr><td>${h.datum_von ? new Date(h.datum_von).toLocaleDateString('de-DE') : '—'}</td><td>${h.datum_bis ? new Date(h.datum_bis).toLocaleDateString('de-DE') : '—'}</td><td>${h.tage || '—'}</td><td class="right">${eur(h.ek_preis)}</td><td class="right">${eur(h.vk_preis)}</td></tr>`).join('')}
@@ -809,7 +900,7 @@ export default function CalculationPage() {
         ${services.map(s => `<tr><td>${s.service_name}</td><td>${s.supplier}</td><td>${s.quantity}</td><td class="right">${eur(s.cost_per_unit)}</td><td class="right">${eur(s.total_cost)}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(serviceKosten)}</th></tr></table>
         <h2>5. Sonstige Kosten (EK: ${eur(extraKosten)} / VK: ${eur(extraErloes)})</h2><table><tr><th>Beschreibung</th><th>Menge</th><th class="right">EK</th><th class="right">VK</th><th class="right">LiS Kosten</th><th class="right">Kunden-Kosten</th></tr>
-        ${extraCosts.map(e => `<tr><td>${e.beschreibung || '—'}</td><td>${e.menge || '—'}</td><td class="right">${eur(e.ek_preis)}</td><td class="right">${eur(e.vk_preis)}</td><td class="right">${eur((e.menge||0)*(e.ek_preis||0))}</td><td class="right">${eur((e.menge||0)*(e.vk_preis||0))}</td></tr>`).join('')}
+        ${extraCosts.map(e => `<tr><td>${e.beschreibung || '—'}</td><td>${e.menge || '—'}</td><td class="right">${eur(e.ek_preis)}</td><td class="right">${eur(e.vk_preis)}</td><td class="right">${eur((e.menge||0)*(e.ek_preis||0))}</td><td class="right" style="${getMarkupStyleInline(e.ek_preis, e.vk_preis)}">${eur((e.menge||0)*(e.vk_preis||0))}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(extraKosten)}</th><th class="right">${eur(extraErloes)}</th></tr></table>
         <h2>6. Rabatte / Nachlässe (${eur(discountTotal)})</h2><table><tr><th>Bezeichnung</th><th>Typ</th><th class="right">Wert</th><th class="right">Betrag</th></tr>
         ${discounts.map((d: any) => `<tr><td>${d.description || ''}</td><td>${d.mode === 'percent' ? 'Prozent' : 'Pauschal'}</td><td class="right">${d.mode === 'percent' ? `${d.value}%` : eur(d.value)}</td><td class="right">${eur(d.mode === 'percent' ? baseRevenue * (d.value / 100) : d.value)}</td></tr>`).join('')}
@@ -913,7 +1004,7 @@ export default function CalculationPage() {
         <div style="border:1px solid #cbd5e1; border-radius:6px; padding:16px; background:#f8fafc; display:flex; flex-direction:column; gap:12px; justify-content:center;">
             <div style="display:flex; align-items:center; justify-content:space-between;">
                 <span style="font-size:10px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.06em;">KV oder FP</span>
-                <span style="background-color:${isKvMode ? '#86efac' : '#fde68a'}; color:${isKvMode ? '#166534' : '#92400e'}; font-size:11px; font-weight:800; padding:4px 18px; border-radius:20px; border:1px solid ${isKvMode ? '#4ade80' : '#fbbf24'}; letter-spacing:0.05em;">${isKvMode ? 'KV' : 'FP'}</span>
+                <span style="background-color:${isKvMode ? '#86efac' : isFpMode ? '#fde68a' : '#e2e8f0'}; color:${isKvMode ? '#166534' : isFpMode ? '#92400e' : '#475569'}; font-size:11px; font-weight:800; padding:4px 18px; border-radius:20px; border:1px solid ${isKvMode ? '#4ade80' : isFpMode ? '#fbbf24' : '#cbd5e1'}; letter-spacing:0.05em;">${isKvMode ? 'KV' : isFpMode ? 'FP' : '—'}</span>
             </div>
             <div style="height:1px; background:#e2e8f0;"></div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
@@ -938,87 +1029,126 @@ export default function CalculationPage() {
             <th style="text-align:left;">Kosten:</th>
             <th style="width:28%;">Land in Sicht</th>
             <th style="width:28%;">Kunde</th>
-            ${isKvMode ? '<th class="bg-green" style="width:18%;">KV</th>' : ''}
+            ${(isKvMode || isFpMode) ? `<th class="bg-green" style="width:18%;">${isKvMode ? 'KV' : 'Kalk. Erlöse'}</th>` : ''}
         </tr>
         <tr>
             <td class="text-orange" style="background:#fff7ed;">Gesamt Std</td>
             <td class="center text-orange" style="background:#fff7ed;">${gesamtStd.toFixed(2)}</td>
-            <td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>
-            ${isKvMode ? `<td class="center" style="background:#fff7ed;">${kvValues['stunden'] ? (+kvValues['stunden']).toFixed(2) : ''}</td>` : ''}
+            ${isFpMode
+              ? `<td class="center" style="background:#fff7ed;">${kvValues['stunden'] ? (+kvValues['stunden']).toFixed(2) : ''}</td>
+                 <td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>`
+              : `<td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>
+                 ${isKvMode ? `<td class="center" style="background:#fff7ed;">${kvValues['stunden'] ? (+kvValues['stunden']).toFixed(2) : ''}</td>` : ''}`
+            }
         </tr>
         ${(() => {
                 const rateEntries = Array.from(rateMap.values());
                 let personnelKvShown = false;
                 return rateEntries.map(data => {
-                    const kvCell = isKvMode ? (personnelKvShown ? '<td></td>' : `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>`) : '';
+                    const kvCellContent = personnelKvShown ? '' : (kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : '');
+                    const kundeCell = `<td class="center"><div class="val-container"><span>${data.kd_std.toFixed(2)} x ${numFormat(data.kd_satz)} =</span><span style="color:#15803d;">${numFormat(data.erloes)}</span></div></td>`;
+                    const fpCell = personnelKvShown ? '<td></td>' : `<td class="right">${kvCellContent}</td>`;
                     personnelKvShown = true;
+                    if (isFpMode) {
+                        return `<tr>
+            <td style="font-weight:600; color:#475569;">Stunden ${data.names.join(', ')} <span style="color:#94a3b8; font-weight:400;">(${data.std.toFixed(2)} Std.)</span></td>
+            <td class="center"><div class="val-container"><span>${data.std.toFixed(2)} x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td>
+            ${fpCell}
+            ${kundeCell}
+        </tr>`;
+                    }
                     return `<tr>
             <td style="font-weight:600; color:#475569;">Stunden ${data.names.join(', ')} <span style="color:#94a3b8; font-weight:400;">(${data.std.toFixed(2)} Std.)</span></td>
             <td class="center"><div class="val-container"><span>${data.std.toFixed(2)} x ${numFormat(data.satz)} =</span><span>${numFormat(data.kosten)}</span></div></td>
-            <td class="center"><div class="val-container"><span>${data.kd_std.toFixed(2)} x ${numFormat(data.kd_satz)} =</span><span style="color:#15803d;">${numFormat(data.erloes)}</span></div></td>
-            ${kvCell}
+            ${kundeCell}
+            ${isKvMode ? fpCell : ''}
         </tr>`;
                 }).join('');
             })()}
-        ${rateMap.size === 0 ? `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td><td class="center"><div class="val-container"><span></span><span class="cur">- €</span></div></td>${isKvMode ? `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>` : ''}</tr>` : ''}
+        ${rateMap.size === 0 ? (() => {
+            const emptyKunde = `<td class="center"><div class="val-container"><span></span><span class="cur">- €</span></div></td>`;
+            const emptyFpCell = `<td class="right">${kvValues['personalkosten'] ? numFormat(kvValues['personalkosten']) : ''}</td>`;
+            if (isFpMode) return `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td>${emptyFpCell}${emptyKunde}</tr>`;
+            return `<tr><td style="font-weight:600; color:#475569;">Stunden LiS</td><td class="center"><div class="val-container"><span>x 0,00 € =</span><span class="cur">- €</span></div></td>${emptyKunde}${isKvMode ? emptyFpCell : ''}</tr>`;
+        })() : ''}
         ${(() => {
                 const totalServiceKosten = services.reduce((s, x) => s + x.total_cost, 0);
                 const totalServiceErloes = services.reduce((s, x) => s + ((x as any).total_price || x.total_cost), 0);
-                const kvServiceCell = isKvMode ? `<td class="right">${kvValues['service_total'] ? numFormat(kvValues['service_total']) : ''}</td>` : '';
-                if (services.length > 0) return `<tr>
+                const kundeServiceCell = `<td><div class="val-container"><span></span><span>${numFormat(totalServiceErloes)}</span></div></td>`;
+                const fpServiceCell = `<td class="right">${kvValues['service_total'] ? numFormat(kvValues['service_total']) : ''}</td>`;
+                const emptyKundeCell = `<td><div class="val-container"><span></span><span class="cur">- €</span></div></td>`;
+                if (services.length > 0) {
+                    if (isFpMode) return `<tr>
             <td style="font-weight:600; color:#475569;">Entsorgungen</td>
             <td><div class="val-container"><span></span><span>${numFormat(totalServiceKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(totalServiceErloes)}</span></div></td>
-            ${kvServiceCell}
+            ${fpServiceCell}
+            ${kundeServiceCell}
+        </tr>`;
+                    return `<tr>
+            <td style="font-weight:600; color:#475569;">Entsorgungen</td>
+            <td><div class="val-container"><span></span><span>${numFormat(totalServiceKosten)}</span></div></td>
+            ${kundeServiceCell}
+            ${isKvMode ? fpServiceCell : ''}
+        </tr>`;
+                }
+                if (isFpMode) return `<tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Entsorgungen</td>
+            <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
+            ${fpServiceCell}
+            ${emptyKundeCell}
         </tr>`;
                 return `<tr>
             <td style="font-weight:600; color:#475569; height:28px;">Entsorgungen</td>
             <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
-            <td><div class="val-container"><span></span><span class="cur">- €</span></div></td>
-            ${kvServiceCell}
+            ${emptyKundeCell}
+            ${isKvMode ? fpServiceCell : ''}
         </tr>`;
             })()}
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">HVZ</td>
-            <td><div class="val-container"><span></span><span>${numFormat(hvzKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(hvzErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['hvz'] ? numFormat(kvValues['hvz']) : ''}</td>` : ''}
-        </tr>
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">LKW</td>
-            <td><div class="val-container"><span></span><span>${numFormat(lkwKosten)}</span></div></td><td><div class="val-container"><span></span><span>${numFormat(lkwErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['lkw'] ? numFormat(kvValues['lkw']) : ''}</td>` : ''}
-        </tr>
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Diesel / BNK</td>
-            <td><div class="val-container"><span></span><span>${numFormat(bnkKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(bnkErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['diesel'] ? numFormat(kvValues['diesel']) : ''}</td>` : ''}
-        </tr>
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Material</td>
-            <td><div class="val-container"><span></span><span>${numFormat(materialKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(materialErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['material'] ? numFormat(kvValues['material']) : ''}</td>` : ''}
-        </tr>
-        <tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
-            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td>
-            <td><div class="val-container"><span></span><span>${numFormat(extraErloes)}</span></div></td>
-            ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
-        </tr>
-        <tr>
+        ${(() => {
+            const rows = [
+                { label: 'HVZ', lis: numFormat(hvzKosten), kunde: numFormat(hvzErloes), fp: kvValues['hvz'] ? numFormat(kvValues['hvz']) : '' },
+                { label: 'LKW', lis: numFormat(lkwKosten), kunde: numFormat(lkwErloes), fp: kvValues['lkw'] ? numFormat(kvValues['lkw']) : '' },
+                { label: 'Diesel / BNK', lis: numFormat(bnkKosten), kunde: numFormat(bnkErloes), fp: kvValues['diesel'] ? numFormat(kvValues['diesel']) : '' },
+                { label: 'Material', lis: numFormat(materialKosten), kunde: numFormat(materialErloes), fp: kvValues['material'] ? numFormat(kvValues['material']) : '' },
+                { label: 'Sonstige Kosten', lis: numFormat(extraKosten), kunde: numFormat(extraErloes), fp: kvValues['extra'] ? numFormat(kvValues['extra']) : '' },
+            ];
+            return rows.map(r => {
+                if (isFpMode) return `<tr>
+            <td style="font-weight:600; color:#475569; height:28px;">${r.label}</td>
+            <td><div class="val-container"><span></span><span>${r.lis}</span></div></td>
+            <td class="right">${r.fp}</td>
+            <td><div class="val-container"><span></span><span>${r.kunde}</span></div></td>
+        </tr>`;
+                return `<tr>
+            <td style="font-weight:600; color:#475569; height:28px;">${r.label}</td>
+            <td><div class="val-container"><span></span><span>${r.lis}</span></div></td>
+            <td><div class="val-container"><span></span><span>${r.kunde}</span></div></td>
+            ${isKvMode ? `<td class="right">${r.fp}</td>` : ''}
+        </tr>`;
+            }).join('');
+        })()}
+        ${isFpMode ? `<tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
+            <td></td>
+            <td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
+        </tr>` : `<tr>
             <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
             <td></td>
             <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
             ${isKvMode ? '<td></td>' : ''}
-        </tr>
-        <tr style="border-top:3px double #334155; background:#f1f5f9;">
+        </tr>`}
+        ${isFpMode ? `<tr style="border-top:3px double #334155; ${getSummaryGradientInline(margin)}">
+            <td style="font-weight:700; color:#0f172a;">Summe</td>
+            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>
+            <td style="font-weight:700; text-align:right; color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}</td>
+            <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(istRevenue)}</td>
+        </tr>` : `<tr style="border-top:3px double #334155; ${getSummaryGradientInline(margin)}">
             <td style="font-weight:700; color:#0f172a;">Summe</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalRevenue)}</td>
             ${isKvMode ? `<td style="font-weight:700; text-align:right; color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}</td>` : ''}
-        </tr>
+        </tr>`}
     </table>
 
     <div class="flex-tables">
@@ -1059,12 +1189,20 @@ export default function CalculationPage() {
 
     <div class="no-break">
     <table class="summary-table">
-        <tr><td class="label">KV vorher</td><td class="val${isKvMode ? '' : ' cur'}">${isKvMode ? numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0)) : '- €'}</td></tr>
-        <tr><td class="label">Nettoumsatz</td><td class="val">${numFormat(totalRevenue)}</td></tr>
+        ${isFpMode
+          ? `<tr><td class="label">Kalk. Erlöse</td><td class="val">${numFormat(istRevenue)}</td></tr>`
+          : `<tr><td class="label">${isKvMode ? 'KV' : 'FP'} vorher</td><td class="val${isKvMode ? '' : ' cur'}">${isKvMode ? numFormat(fpRevenue) : '- €'}</td></tr>`
+        }
+        <tr><td class="label">${isFpMode ? 'Nettoumsatz (FP)' : 'Nettoumsatz'}</td><td class="val">${numFormat(totalRevenue)}</td></tr>
         <tr class="total"><td class="label">Bruttoumsatz</td><td class="val">${numFormat(totalRevenue * 1.19)}</td></tr>
         <tr><td class="label">Gesamtkosten netto</td><td class="val">${numFormat(totalCosts)}</td></tr>
         <tr class="total"><td class="label">Nettoeinnahme</td><td class="val">${numFormat(margin)}</td></tr>
-        <tr><td class="label">Prozent</td><td class="val" style="padding-top: 12px;"><span style="background-color:#86efac; color:#166534; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #4ade80;">${marginPct >= 0 || marginPct < 0 ? marginPct.toFixed(1) + '%' : '#DIV/0!'}</span></td></tr>
+        <tr><td class="label">Prozent</td><td class="val" style="padding-top: 12px;"><span style="${getMarginBadgeStyle(marginPct)}">${marginPct >= 0 || marginPct < 0 ? marginPct.toFixed(1) + '%' : '#DIV/0!'}</span></td></tr>
+        ${isFpMode ? `<tr style="border-top:2px solid #e2e8f0;"><td class="label">Kalk. Marge</td><td class="val">${numFormat(kalkMargin)}</td></tr>
+        <tr><td class="label">Kalk. Marge %</td><td class="val" style="padding-top: 12px;"><span style="${getMarginBadgeStyle(kalkMarginPct)}">${kalkMarginPct.toFixed(1)}%</span></td></tr>` : ''}
+        ${isKvMode ? `<tr style="border-top:2px solid #e2e8f0;"><td class="label">Abweichung</td><td class="val">${kvAbweichung >= 0 ? '+' : ''}${numFormat(kvAbweichung)} (${kvAbweichungPct >= 0 ? '+' : ''}${kvAbweichungPct.toFixed(1)}%)</td></tr>
+        <tr><td class="label">KV-Marge</td><td class="val">${numFormat(kvMarge)}</td></tr>
+        <tr><td class="label">KV-Marge %</td><td class="val" style="padding-top: 12px;"><span style="${getMarginBadgeStyle(kvMargePct)}">${kvMargePct.toFixed(1)}%</span></td></tr>` : ''}
     </table>
     </div>
 </body></html>`;
@@ -1333,6 +1471,7 @@ export default function CalculationPage() {
                                     ? `${mergedProjectNames.length} Projekte zusammengeführt`
                                     : selectedProject ? (selectedProject.name || 'Unbenannt') : 'Nachkalkulation'}
                                 {isKvMode && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-300">KV</span>}
+                                {isFpMode && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-300">FP</span>}
                             </h1>
                             {mergedProjectNames.length > 1 ? (
                                 <p className="text-xs text-blue-600 flex items-center gap-1 flex-wrap">
@@ -1412,6 +1551,12 @@ export default function CalculationPage() {
                                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-green-50 border border-green-100 text-xs font-medium text-green-700">
                                     <span className="font-bold">Kd Std.</span> = Kunden-Kosten
                                 </span>
+                                {/* Layer 7: Color Legend */}
+                                <div className="flex items-center gap-1.5 ml-2 border-l border-slate-200 pl-3">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-50 border border-red-100 text-[10px] font-medium text-red-700">Verlust</span>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 border border-amber-100 text-[10px] font-medium text-amber-700">Kein Aufschlag</span>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-100 text-[10px] font-medium text-emerald-700">Guter Aufschlag</span>
+                                </div>
                                 {/* Global Kd Satz */}
                                 <div className="flex items-center gap-2 ml-auto bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
                                     <span className="text-xs font-semibold text-green-700 whitespace-nowrap">Kd Satz (alle):</span>
@@ -1435,15 +1580,40 @@ export default function CalculationPage() {
                                 </div>
                             </div>
 
-                            {/* KPI Cards */}
+                            {/* KPI Cards — Layer 4: tiered margin severity */}
                             <div className="grid grid-cols-4 gap-4">
                                 <KpiCard label="Gesamtkosten" value={eur(totalCosts)} icon={<DollarSign className="h-5 w-5" />} color="text-slate-800" bgColor="bg-slate-100" />
-                                <KpiCard label="Gesamterlöse" value={eur(totalRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-blue-700" bgColor="bg-blue-50" />
+                                <KpiCard label={isFpMode ? "Erlöse (FP)" : "Gesamterlöse"} value={eur(totalRevenue)} icon={<TrendingUp className="h-5 w-5" />}
+                                    color={isFpMode ? "text-amber-700" : "text-blue-700"} bgColor={isFpMode ? "bg-amber-50" : "bg-blue-50"} />
                                 <KpiCard label="Marge (€)" value={eur(margin)} icon={<TrendingUp className="h-5 w-5" />}
-                                    color={margin >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={margin >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                    {...getMarginTierColor(marginPct)} />
                                 <KpiCard label="Marge (%)" value={`${marginPct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
-                                    color={marginPct >= 0 ? 'text-green-700' : 'text-red-600'} bgColor={marginPct >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                    {...getMarginTierColor(marginPct)} />
                             </div>
+                            {isFpMode && (
+                                <div className="grid grid-cols-4 gap-4">
+                                    <KpiCard label="Kalk. Erlöse" value={eur(istRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-slate-600" bgColor="bg-slate-50" />
+                                    <KpiCard label="Differenz" value={eur(fpRevenue - istRevenue)} icon={<TrendingUp className="h-5 w-5" />}
+                                        color={fpRevenue - istRevenue >= 0 ? 'text-green-700' : 'text-red-600'}
+                                        bgColor={fpRevenue - istRevenue >= 0 ? 'bg-green-50' : 'bg-red-50'} />
+                                    <KpiCard label="Kalk. Marge (€)" value={eur(kalkMargin)} icon={<TrendingUp className="h-5 w-5" />}
+                                        {...getMarginTierColor(kalkMarginPct)} />
+                                    <KpiCard label="Kalk. Marge (%)" value={`${kalkMarginPct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
+                                        {...getMarginTierColor(kalkMarginPct)} />
+                                </div>
+                            )}
+                            {isKvMode && (
+                                <div className="grid grid-cols-4 gap-4">
+                                    <KpiCard label="KV-Wert" value={eur(fpRevenue)} icon={<TrendingUp className="h-5 w-5" />} color="text-green-700" bgColor="bg-green-50" />
+                                    <KpiCard label="Abweichung" value={`${kvAbweichung >= 0 ? '+' : ''}${eur(kvAbweichung)} (${kvAbweichungPct >= 0 ? '+' : ''}${kvAbweichungPct.toFixed(1)}%)`} icon={<TrendingUp className="h-5 w-5" />}
+                                        color={kvAbweichung >= 0 ? 'text-amber-700' : 'text-green-700'}
+                                        bgColor={kvAbweichung >= 0 ? 'bg-amber-50' : 'bg-green-50'} />
+                                    <KpiCard label="KV-Marge (€)" value={eur(kvMarge)} icon={<TrendingUp className="h-5 w-5" />}
+                                        {...getMarginTierColor(kvMargePct)} />
+                                    <KpiCard label="KV-Marge (%)" value={`${kvMargePct.toFixed(1)}%`} icon={<TrendingUp className="h-5 w-5" />}
+                                        {...getMarginTierColor(kvMargePct)} />
+                                </div>
+                            )}
 
                             {/* Kundennummer & Angebotsnummer */}
                             <div className="flex items-end gap-4 bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4">
@@ -1475,21 +1645,21 @@ export default function CalculationPage() {
                                 </button>
                             </div>
 
-                            {/* KV Input Panel */}
-                            {isKvMode && (
-                                <div className="bg-green-50 border border-green-200 rounded-xl p-5 shadow-sm">
+                            {/* KV / FP Input Panel */}
+                            {(isKvMode || isFpMode) && (
+                                <div className={cn("rounded-xl p-5 shadow-sm border", isKvMode ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200")}>
                                     <div className="flex items-center gap-2 mb-4">
-                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-300">KV</span>
-                                        <h3 className="text-sm font-semibold text-green-800">Kostenvoranschlag – Werte</h3>
-                                        <span className="text-xs text-green-600 ml-auto font-medium">
-                                            Gesamt KV: {eur((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}
+                                        <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border", isKvMode ? "bg-green-100 text-green-700 border-green-300" : "bg-amber-100 text-amber-700 border-amber-300")}>{isKvMode ? 'KV' : 'FP'}</span>
+                                        <h3 className={cn("text-sm font-semibold", isKvMode ? "text-green-800" : "text-amber-800")}>{isKvMode ? 'Kostenvoranschlag – Werte' : 'Festpreis-Werte'}</h3>
+                                        <span className={cn("text-xs ml-auto font-medium", isKvMode ? "text-green-600" : "text-amber-600")}>
+                                            Gesamt {isKvMode ? 'KV' : 'FP'}: {eur((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}
                                         </span>
                                     </div>
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Stunden</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Stunden</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['stunden'] || ''}
                                                 onChange={e => {
                                                     const stunden = e.target.value === '' ? 0 : +e.target.value;
@@ -1500,9 +1670,9 @@ export default function CalculationPage() {
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Stundensatz</label>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Stundensatz</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['stundensatz'] || ''}
                                                 onChange={e => {
                                                     const satz = e.target.value === '' ? 0 : +e.target.value;
@@ -1512,67 +1682,67 @@ export default function CalculationPage() {
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider flex items-center gap-1">
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['personalkosten'] ? getKvDeviationBorder(personalErloes, kvValues['personalkosten']) : '')}>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider flex items-center gap-1", isKvMode ? "text-green-700" : "text-amber-700")}>
                                                 Personalkosten
-                                                <span className="text-[9px] font-normal text-green-500 normal-case">= Std × Satz</span>
+                                                <span className={cn("text-[9px] font-normal normal-case", isKvMode ? "text-green-500" : "text-amber-500")}>= Std × Satz</span>
                                             </label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-sm text-right text-green-800 font-semibold focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300 cursor-default"
+                                                className={cn("rounded-lg border px-3 py-1.5 text-sm text-right font-semibold focus:outline-none focus:ring-1 cursor-default", isKvMode ? "border-green-300 bg-green-50 text-green-800 focus:border-green-500 focus:ring-green-300" : "border-amber-300 bg-amber-50 text-amber-800 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['personalkosten'] || ''}
                                                 readOnly
                                                 tabIndex={-1}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Material</label>
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['material'] ? getKvDeviationBorder(materialErloes, kvValues['material']) : '')}>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Material</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['material'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, material: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Entsorgungen</label>
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['service_total'] ? getKvDeviationBorder(serviceErloes, kvValues['service_total']) : '')}>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Entsorgungen</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['service_total'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, service_total: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">LKW</label>
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['lkw'] ? getKvDeviationBorder(vehicleErloes, kvValues['lkw']) : '')}>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>LKW</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['lkw'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, lkw: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">HVZ</label>
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['hvz'] ? getKvDeviationBorder(hvzErloes, kvValues['hvz']) : '')}>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>HVZ</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['hvz'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, hvz: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Diesel / BNK</label>
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['diesel'] ? getKvDeviationBorder(bnkErloes, kvValues['diesel']) : '')}>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Diesel / BNK</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['diesel'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, diesel: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Sonstige Kosten</label>
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['extra'] ? getKvDeviationBorder(extraErloes, kvValues['extra']) : '')}>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Sonstige Kosten</label>
                                             <input type="number" step="0.01" placeholder="0,00"
-                                                className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-sm text-right focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-300"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['extra'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, extra: e.target.value === '' ? 0 : +e.target.value }))}
                                                 onBlur={() => saveKvValues(true)}
@@ -1580,8 +1750,8 @@ export default function CalculationPage() {
                                         </div>
                                     </div>
                                     <div className="flex justify-end mt-4">
-                                        <button onClick={() => saveKvValues(false)} className="flex items-center gap-1.5 px-4 py-2 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm font-semibold">
-                                            <Save className="h-3.5 w-3.5" /> KV-Werte speichern
+                                        <button onClick={() => saveKvValues(false)} className={cn("flex items-center gap-1.5 px-4 py-2 text-xs text-white rounded-lg transition-colors shadow-sm font-semibold", isKvMode ? "bg-green-600 hover:bg-green-700" : "bg-amber-600 hover:bg-amber-700")}>
+                                            <Save className="h-3.5 w-3.5" /> {isKvMode ? 'KV' : 'FP'}-Werte speichern
                                         </button>
                                     </div>
                                 </div>
@@ -1595,7 +1765,7 @@ export default function CalculationPage() {
                                             case 'personnel':
                                                 return (
                                                     <SortableCostSection key="personnel" id="personnel">
-                                                        <CostSection title="Personalkosten" icon={<Users className="h-5 w-5" />} total={personalKosten} color="blue">
+                                                        <CostSection title="Personalkosten" icon={<Users className="h-5 w-5" />} total={personalKosten} color="blue" kosten={personalKosten} erloes={personalErloes}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
                                                                     <tr>
@@ -1616,8 +1786,8 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-slate-600">{p.datum}</td>
                                                                             <td className="px-4 py-2 font-medium">{p.mitarbeiter}</td>
                                                                             <td className="px-4 py-2 text-slate-500">{p.role || '—'}</td>
-                                                                            <td className="px-4 py-2 text-right font-mono font-semibold text-blue-700">{p.lis_stunden.toFixed(2)}</td>
-                                                                            <td className="px-2 py-1">
+                                                                            <td className={cn('px-4 py-2 text-right font-mono font-semibold text-blue-700', getHoursDeviationColor(p.lis_stunden, p.kunden_stunden) && 'rounded-l')}>{p.lis_stunden.toFixed(2)}</td>
+                                                                            <td className={cn('px-2 py-1', getHoursDeviationColor(p.lis_stunden, p.kunden_stunden))}>
                                                                                 <input
                                                                                     type="number"
                                                                                     step="0.01"
@@ -1625,12 +1795,12 @@ export default function CalculationPage() {
                                                                                         "w-full border rounded px-2 py-1 text-xs text-right font-mono focus:outline-none transition-colors",
                                                                                         perRowKundenStd[p.pair_id] !== undefined
                                                                                             ? "bg-amber-50 border-amber-300 text-amber-800 focus:ring-1 focus:ring-amber-400"
-                                                                                            : "bg-green-50 border-green-200 hover:border-green-400 text-green-800 focus:ring-1 focus:ring-green-300"
+                                                                                            : "bg-transparent border-green-200 hover:border-green-400 text-green-800 focus:ring-1 focus:ring-green-300"
                                                                                     )}
                                                                                     value={p.kunden_stunden === 0 ? '' : (p.kunden_stunden ?? '')}
                                                                                     onChange={e => setPerRowKundenStd(prev => ({ ...prev, [p.pair_id]: e.target.value === '' ? 0 : +e.target.value }))}
                                                                                     onFocus={e => e.target.select()}
-                                                                                    title={perRowKundenStd[p.pair_id] !== undefined ? 'Individuell überschrieben' : 'Standard (LiS Std.)'}
+                                                                                    title={perRowKundenStd[p.pair_id] !== undefined ? 'Individuell überschrieben' : `Standard (LiS Std.) ${p.lis_stunden !== p.kunden_stunden ? `| Δ ${(p.kunden_stunden - p.lis_stunden).toFixed(2)} Std.` : ''}`}
                                                                                 />
                                                                             </td>
                                                                             {/* LiS Satz — read-only, from employee master */}
@@ -1658,7 +1828,7 @@ export default function CalculationPage() {
                                                                                 </div>
                                                                             </td>
                                                                             <td className="px-4 py-2 text-right font-semibold text-blue-700">{eur(p.kosten)}</td>
-                                                                            <td className="px-4 py-2 text-right font-semibold text-green-700">{eur(p.erloes)}</td>
+                                                                            <td className={cn('px-4 py-2 text-right font-semibold text-green-700', getMarkupColor(p.kosten, p.erloes))}>{eur(p.erloes)}</td>
                                                                         </tr>
                                                                     ))}
                                                                 </tbody>
@@ -1669,7 +1839,7 @@ export default function CalculationPage() {
                                             case 'material':
                                                 return (
                                                     <SortableCostSection key="material" id="material">
-                                                        <CostSection title="Material" icon={<Package className="h-5 w-5" />} total={materialKosten} color="amber"
+                                                        <CostSection title="Material" icon={<Package className="h-5 w-5" />} total={materialKosten} color="amber" kosten={materialKosten} erloes={materialErloes}
                                                             actions={<div className="flex gap-2">
                                                                 <button onClick={() => { setAddMatForm({ material_id: '', quantity: 0 }); setAddMatModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Material</button>
                                                                 <button onClick={saveMaterials} className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
@@ -1687,7 +1857,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-slate-500">{m.unit}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(m.cost_per_unit)}</td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={(m.price_per_unit ?? 0) === 0 ? '' : (m.price_per_unit ?? '')} onChange={e => updateMaterialVkPrice(m.id, e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
-                                                                            <td className="px-4 py-2 text-right font-semibold">{eur(m.total_cost)}</td><td className="px-4 py-2 text-right text-green-700">{eur(m.total_price)}</td>
+                                                                            <td className="px-4 py-2 text-right font-semibold">{eur(m.total_cost)}</td><td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(m.cost_per_unit, m.price_per_unit))}>{eur(m.total_price)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteMaterial(m.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1699,7 +1869,7 @@ export default function CalculationPage() {
                                             case 'vehicle':
                                                 return (
                                                     <SortableCostSection key="vehicle" id="vehicle">
-                                                        <CostSection title="Fahrzeug" icon={<Truck className="h-5 w-5" />} total={vehicleErloes} color="green"
+                                                        <CostSection title="Fahrzeug" icon={<Truck className="h-5 w-5" />} total={vehicleErloes} color="green" kosten={vehicleKosten} erloes={vehicleErloes}
                                                             actions={<div className="flex gap-2">
                                                                 <button onClick={() => { setAddVehForm({ vehicle_id: '', usage_type: 'Pauschal', usage_value: 1, cost_per_unit: 0, total_cost: 0, notes: '' }); setAddVehModal(true); }} className="flex items-center gap-1 text-xs text-sky-700 hover:text-sky-900"><Plus className="h-3.5 w-3.5" /> Fahrzeug</button>
                                                                 <button onClick={saveVehicleCosts} className="flex items-center gap-1 text-xs bg-sky-600 text-white px-2 py-1 rounded hover:bg-sky-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
@@ -1724,7 +1894,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.cost_per_unit === 0 ? '' : (v.cost_per_unit ?? '')} onChange={e => updateVehicleCost(v.id, 'cost_per_unit', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.total_cost === 0 ? '' : (v.total_cost ?? '')} onChange={e => updateVehicleCost(v.id, 'total_cost', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700 font-semibold">{eur((v.usage_value || 0) * (v.total_cost || 0))}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700 font-semibold', getMarkupColor(v.cost_per_unit, v.total_cost))}>{eur((v.usage_value || 0) * (v.total_cost || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteVehicleCost(v.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1736,7 +1906,7 @@ export default function CalculationPage() {
                                             case 'service':
                                                 return (
                                                     <SortableCostSection key="service" id="service">
-                                                        <CostSection title="Dienstleistungskosten" icon={<Wrench className="h-5 w-5" />} total={serviceKosten} color="purple"
+                                                        <CostSection title="Dienstleistungskosten" icon={<Wrench className="h-5 w-5" />} total={serviceKosten} color="purple" kosten={serviceKosten} erloes={serviceErloes}
                                                             actions={<button onClick={() => { setAddSvcForm({ service_id: '', quantity: 0, unit: 'Std', cost_per_unit: 0, supplier: '' }); setAddSvcModal(true); }} className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"><Plus className="h-3.5 w-3.5" /> Leistung</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
@@ -1750,7 +1920,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-right">{eur(s.cost_per_unit)}</td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={(s.price_per_unit ?? 0) === 0 ? '' : (s.price_per_unit ?? '')} onChange={e => updateServiceCost(s.id!, 'price_per_unit', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur(s.total_cost)}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700">{eur(s.total_price ?? 0)}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(s.cost_per_unit, s.price_per_unit ?? 0))}>{eur(s.total_price ?? 0)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteServiceCost(s.id!)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1762,7 +1932,7 @@ export default function CalculationPage() {
                                             case 'hvz':
                                                 return (
                                                     <SortableCostSection key="hvz" id="hvz">
-                                                        <CostSection title="HVZ" icon={<Truck className="h-5 w-5" />} total={hvzKosten} color="orange"
+                                                        <CostSection title="HVZ" icon={<Truck className="h-5 w-5" />} total={hvzKosten} color="orange" kosten={hvzKosten} erloes={hvzErloes}
                                                             actions={<button onClick={() => { setAddHvzForm({ datum_von: '', datum_bis: '', tage: 0, ek_preis: 0, vk_preis: 0 }); setAddHvzModal(true); }} className="flex items-center gap-1 text-xs text-orange-700 hover:text-orange-900"><Plus className="h-3.5 w-3.5" /> HVZ</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
@@ -1777,7 +1947,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-right">{eur(h.ek_preis)}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(h.vk_preis)}</td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((h.tage || 0) * (h.ek_preis || 0))}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700">{eur((h.tage || 0) * (h.vk_preis || 0))}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(h.ek_preis, h.vk_preis))}>{eur((h.tage || 0) * (h.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteHvzCost(h.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1789,7 +1959,7 @@ export default function CalculationPage() {
                                             case 'bnk':
                                                 return (
                                                     <SortableCostSection key="bnk" id="bnk">
-                                                        <CostSection title="Diesel / BNK" icon={<Truck className="h-5 w-5" />} total={bnkKosten} color="blue"
+                                                        <CostSection title="Diesel / BNK" icon={<Truck className="h-5 w-5" />} total={bnkKosten} color="blue" kosten={bnkKosten} erloes={bnkErloes}
                                                             actions={<button onClick={() => { setAddBnkForm({ beschreibung: 'Diesel', menge: 0, ek_preis: 0, vk_preis: 0 }); setAddBnkModal(true); }} className="flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900"><Plus className="h-3.5 w-3.5" /> Diesel / BNK</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
@@ -1803,7 +1973,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-right">{eur(b.ek_preis)}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(b.vk_preis)}</td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((b.menge || 0) * (b.ek_preis || 0))}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700">{eur((b.menge || 0) * (b.vk_preis || 0))}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(b.ek_preis, b.vk_preis))}>{eur((b.menge || 0) * (b.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteBnkCost(b.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1815,7 +1985,7 @@ export default function CalculationPage() {
                                             case 'extra':
                                                 return (
                                                     <SortableCostSection key="extra" id="extra">
-                                                        <CostSection title="Sonstige Kosten" icon={<AlertCircle className="h-5 w-5" />} total={extraKosten} color="amber"
+                                                        <CostSection title="Sonstige Kosten" icon={<AlertCircle className="h-5 w-5" />} total={extraKosten} color="amber" kosten={extraKosten} erloes={extraErloes}
                                                             actions={<div className="flex gap-2">
                                                                 <button onClick={() => { setAddExtraForm({ beschreibung: '', menge: 0, ek_preis: 0, vk_preis: 0 }); setAddExtraModal(true); }} className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900"><Plus className="h-3.5 w-3.5" /> Kosten</button>
                                                                 <button onClick={saveExtraCosts} className="flex items-center gap-1 text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
@@ -1832,7 +2002,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.ek_preis === 0 ? '' : (e.ek_preis ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'ek_preis', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
                                                                             <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.vk_preis === 0 ? '' : (e.vk_preis ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'vk_preis', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((e.menge || 0) * (e.ek_preis || 0))}</td>
-                                                                            <td className="px-4 py-2 text-right text-green-700 font-semibold">{eur((e.menge || 0) * (e.vk_preis || 0))}</td>
+                                                                            <td className={cn('px-4 py-2 text-right text-green-700 font-semibold', getMarkupColor(e.ek_preis, e.vk_preis))}>{eur((e.menge || 0) * (e.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteExtraCost(e.cost_id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
                                                                     ))}
@@ -1848,6 +2018,43 @@ export default function CalculationPage() {
                                     })}
                                 </SortableContext>
                             </DndContext>
+
+                            {/* Layer 6: Summary Gradient Footer */}
+                            {selectedProject && (
+                                <div className={cn('rounded-xl border shadow-sm overflow-hidden', margin >= 0 ? 'border-green-200' : 'border-red-200')}>
+                                    <div className={cn('px-6 py-4', getSummaryGradient(margin))}>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-6">
+                                                <div>
+                                                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Gesamtkosten</div>
+                                                    <div className="text-lg font-bold text-slate-800">{eur(totalCosts)}</div>
+                                                </div>
+                                                <div className="text-slate-300 text-xl font-light">→</div>
+                                                <div>
+                                                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Gesamterlöse</div>
+                                                    <div className="text-lg font-bold text-slate-800">{eur(totalRevenue)}</div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-4">
+                                                <div className="text-right">
+                                                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Netto-Marge</div>
+                                                    <div className={cn('text-2xl font-bold', getMarginTierColor(marginPct).color)}>{eur(margin)}</div>
+                                                </div>
+                                                <div className={cn(
+                                                    'px-4 py-2 rounded-xl text-lg font-black',
+                                                    marginPct >= 25 ? 'bg-emerald-200 text-emerald-900' :
+                                                    marginPct >= 10 ? 'bg-green-100 text-green-800' :
+                                                    marginPct >= 0 ? 'bg-amber-100 text-amber-800' :
+                                                    marginPct >= -10 ? 'bg-red-100 text-red-700' :
+                                                    'bg-red-200 text-red-900 animate-pulse'
+                                                )}>
+                                                    {marginPct.toFixed(1)}%
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -1991,20 +2198,49 @@ export default function CalculationPage() {
 }
 
 // -- Helper Components --
-function KpiCard({ label, value, icon, color, bgColor }: { label: string; value: string; icon: React.ReactNode; color: string; bgColor: string }) {
-    return (<div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+function KpiCard({ label, value, icon, color, bgColor, ring }: { label: string; value: string; icon: React.ReactNode; color: string; bgColor: string; ring?: string }) {
+    return (<div className={cn('rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all duration-300', ring)}>
         <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-slate-500 uppercase tracking-wider">{label}</span><div className={cn('p-2 rounded-lg', bgColor, color)}>{icon}</div></div>
         <div className={cn('text-2xl font-bold', color)}>{value}</div>
     </div>);
 }
 
-function CostSection({ title, icon, total, color, children, actions }: { title: string; icon: React.ReactNode; total: number; color: string; children: React.ReactNode; actions?: React.ReactNode }) {
+// Layer 2: Category-level delta bar
+function DeltaBar({ kosten, erloes }: { kosten: number; erloes: number }) {
+    const delta = erloes - kosten;
+    const pct = kosten > 0 ? (delta / kosten) * 100 : 0;
+    if (kosten === 0 && erloes === 0) return null;
+    const isPositive = delta >= 0;
+    const barWidth = Math.min(Math.abs(pct), 100);
+    return (
+        <div className="flex items-center gap-3 px-5 py-2.5 bg-slate-50/80 border-t border-slate-100">
+            <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-500 font-medium">Δ</span>
+                <span className={cn('font-bold', isPositive ? 'text-green-700' : 'text-red-600')}>
+                    {isPositive ? '+' : ''}{eur(delta)}
+                </span>
+                <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-full', isPositive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600')}>
+                    {isPositive ? '+' : ''}{pct.toFixed(1)}%
+                </span>
+            </div>
+            <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                    className={cn('h-full rounded-full transition-all duration-500', isPositive ? 'bg-gradient-to-r from-green-400 to-emerald-500' : 'bg-gradient-to-r from-red-400 to-rose-500')}
+                    style={{ width: `${barWidth}%` }}
+                />
+            </div>
+        </div>
+    );
+}
+
+function CostSection({ title, icon, total, color, children, actions, kosten, erloes }: { title: string; icon: React.ReactNode; total: number; color: string; children: React.ReactNode; actions?: React.ReactNode; kosten?: number; erloes?: number }) {
     const colorMap: Record<string, string> = { blue: 'border-l-blue-500', amber: 'border-l-amber-500', sky: 'border-l-sky-500', green: 'border-l-green-500', purple: 'border-l-purple-500', red: 'border-l-red-500', orange: 'border-l-orange-500' };
     return (<div className={cn('bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden border-l-4', colorMap[color] || 'border-l-slate-300')}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <div className="flex items-center gap-2 text-slate-700">{icon}<span className="font-semibold">{title}</span></div>
             <div className="flex items-center gap-4">{actions}<span className="text-lg font-bold text-slate-800">{eur(total)}</span></div>
         </div>{children}
+        {kosten !== undefined && erloes !== undefined && <DeltaBar kosten={kosten} erloes={erloes} />}
     </div>);
 }
 

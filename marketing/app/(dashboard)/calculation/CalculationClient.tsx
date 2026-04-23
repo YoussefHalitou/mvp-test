@@ -559,6 +559,25 @@ export default function CalculationPage() {
     }, 0), [discounts, baseRevenue]);
     // In FP mode: revenue = sum of agreed FP values (kvValues), not the actual calculated revenue
     const fpRevenue = useMemo(() => calcKvTotal(kvValues), [kvValues, calcKvTotal]);
+
+    const kvMaterialsToDisplay = useMemo(() => {
+        const list: { material_id: string, name: string, isActual: boolean }[] = [];
+        materials.forEach(m => {
+            if (!list.find(x => x.material_id === m.material_id)) {
+                list.push({ material_id: m.material_id, name: m.material_name, isActual: true });
+            }
+        });
+        Object.keys(kvValues).forEach(k => {
+            if (k.startsWith('mat_kv_')) {
+                const matId = k.replace('mat_kv_', '');
+                if (!list.find(x => x.material_id === matId)) {
+                    const catItem = materialCatalog.find(c => c.material_id === matId);
+                    list.push({ material_id: matId, name: catItem ? catItem.name : 'Unbekanntes Material', isActual: false });
+                }
+            }
+        });
+        return list.sort((a, b) => a.name.localeCompare(b.name));
+    }, [materials, kvValues, materialCatalog]);
     const istRevenue = baseRevenue - discountTotal; // actual calculated revenue (always available)
     const totalRevenue = isFpMode ? fpRevenue : istRevenue;
     const margin = totalRevenue - totalCosts;
@@ -1692,9 +1711,9 @@ export default function CalculationPage() {
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['material'] ? getKvDeviationBorder(materialErloes, kvValues['material']) : '')}>
                                             <div className="flex items-center justify-between">
                                                 <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Material</label>
-                                                {materials.length > 0 && <span className={cn("text-[9px] font-bold", isKvMode ? "text-green-600" : "text-amber-600")}>Gesamt: {eur(kvValues['material'] || 0)}</span>}
+                                                {kvMaterialsToDisplay.length > 0 && <span className={cn("text-[9px] font-bold", isKvMode ? "text-green-600" : "text-amber-600")}>Gesamt: {eur(kvValues['material'] || 0)}</span>}
                                             </div>
-                                            {materials.length === 0 ? (
+                                            {kvMaterialsToDisplay.length === 0 ? (
                                                 <input type="number" step="0.01" placeholder="0,00"
                                                     className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                     value={kvValues['material'] || ''}
@@ -1703,19 +1722,19 @@ export default function CalculationPage() {
                                                 />
                                             ) : (
                                                 <div className="flex flex-col gap-1.5 mt-0.5">
-                                                    {materials.map(m => (
-                                                        <div key={m.id} className="flex items-center justify-between gap-2">
-                                                            <span className="text-[11px] truncate flex-1 text-slate-600 font-medium" title={m.material_name}>{m.material_name}</span>
+                                                    {kvMaterialsToDisplay.map(km => (
+                                                        <div key={km.material_id} className="flex items-center justify-between gap-1 group">
+                                                            <span className="text-[11px] truncate flex-1 text-slate-600 font-medium" title={km.name}>{km.name}</span>
                                                             <input type="number" step="0.01" placeholder="0,00"
-                                                                className={cn("w-20 rounded border bg-white px-2 py-1 text-[11px] text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                                value={kvValues[`mat_kv_${m.id}`] || ''}
+                                                                className={cn("w-16 rounded border bg-white px-2 py-1 text-[11px] text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
+                                                                value={kvValues[`mat_kv_${km.material_id}`] || ''}
                                                                 onChange={e => {
                                                                     const val = e.target.value === '' ? 0 : +e.target.value;
                                                                     setKvValues(prev => {
-                                                                        const next = { ...prev, [`mat_kv_${m.id}`]: val };
+                                                                        const next = { ...prev, [`mat_kv_${km.material_id}`]: val };
                                                                         let total = 0;
-                                                                        materials.forEach(mat => {
-                                                                            total += (mat.id === m.id ? val : (next[`mat_kv_${mat.id}`] || 0));
+                                                                        kvMaterialsToDisplay.forEach(mat => {
+                                                                            total += (mat.material_id === km.material_id ? val : (next[`mat_kv_${mat.material_id}`] || 0));
                                                                         });
                                                                         next.material = total;
                                                                         return next;
@@ -1723,10 +1742,45 @@ export default function CalculationPage() {
                                                                 }}
                                                                 onBlur={() => saveKvValues(true)}
                                                             />
+                                                            {!km.isActual && (
+                                                                <button onClick={() => {
+                                                                    setKvValues(prev => {
+                                                                        const next = { ...prev };
+                                                                        delete next[`mat_kv_${km.material_id}`];
+                                                                        let total = 0;
+                                                                        kvMaterialsToDisplay.filter(x => x.material_id !== km.material_id).forEach(x => {
+                                                                            total += (next[`mat_kv_${x.material_id}`] || 0);
+                                                                        });
+                                                                        next.material = total;
+                                                                        return next;
+                                                                    });
+                                                                }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Material entfernen"><X className="h-3 w-3" /></button>
+                                                            )}
                                                         </div>
                                                     ))}
                                                 </div>
                                             )}
+                                            <div className="mt-1">
+                                                <select 
+                                                    className={cn("w-full text-[10px] rounded border bg-transparent px-1 py-1 focus:outline-none", isKvMode ? "border-green-200 text-green-700" : "border-amber-200 text-amber-700")}
+                                                    value=""
+                                                    onChange={e => {
+                                                        const matId = e.target.value;
+                                                        if (matId) {
+                                                            setKvValues(prev => ({ ...prev, [`mat_kv_${matId}`]: 0 }));
+                                                        }
+                                                    }}
+                                                >
+                                                    <option value="">+ Material hinzufügen...</option>
+                                                    {materialCatalog
+                                                        .filter(c => !kvMaterialsToDisplay.find(k => k.material_id === c.material_id))
+                                                        .sort((a, b) => a.name.localeCompare(b.name))
+                                                        .map(c => (
+                                                            <option key={c.material_id} value={c.material_id}>{c.name}</option>
+                                                        ))
+                                                    }
+                                                </select>
+                                            </div>
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['service_total'] ? getKvDeviationBorder(serviceErloes, kvValues['service_total']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Entsorgungen</label>

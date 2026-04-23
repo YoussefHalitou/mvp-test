@@ -134,34 +134,6 @@ function getSummaryGradient(marginValue: number): string {
     return 'bg-gradient-to-r from-red-50 to-rose-50';
 }
 
-// ---- INLINE-STYLE COLORING FOR EXPORTS ----
-// Layer 1 (Export): Markup coloring — returns inline style string for VK/Erlöse cells
-function getMarkupStyleInline(ek: number, vk: number): string {
-    if (ek === 0 && vk === 0) return '';
-    if (ek === 0) return vk > 0 ? 'background-color:#ecfdf5; color:#047857;' : '';
-    const ratio = vk / ek;
-    if (ratio < 1.0) return 'background-color:#fef2f2; color:#b91c1c; font-weight:700;';
-    if (ratio <= 1.001) return 'background-color:#fffbeb; color:#b45309;';
-    if (ratio > 1.20) return 'background-color:#ecfdf5; color:#047857;';
-    return '';
-}
-
-// Layer 4 (Export): Tiered margin badge — returns inline style for the margin % badge
-function getMarginBadgeStyle(pct: number): string {
-    if (pct >= 25) return 'background-color:#a7f3d0; color:#064e3b; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #34d399;';
-    if (pct >= 10) return 'background-color:#dcfce7; color:#166534; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #86efac;';
-    if (pct >= 0) return 'background-color:#fef3c7; color:#92400e; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #fbbf24;';
-    if (pct >= -10) return 'background-color:#fee2e2; color:#991b1b; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #fca5a5;';
-    return 'background-color:#fecaca; color:#7f1d1d; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:2px solid #f87171;';
-}
-
-// Layer 6 (Export): Summary row gradient — returns inline bg style
-function getSummaryGradientInline(marginValue: number): string {
-    if (marginValue > 0) return 'background: linear-gradient(90deg, #f0fdf4, #dcfce7);';
-    if (marginValue === 0) return 'background: linear-gradient(90deg, #fffbeb, #fef3c7);';
-    return 'background: linear-gradient(90deg, #fef2f2, #fecaca);';
-}
-
 export default function CalculationPage() {
     const { toast } = useToast();
     const [projects, setProjects] = useState<Project[]>([]);
@@ -171,6 +143,18 @@ export default function CalculationPage() {
     const [isKvMode, setIsKvMode] = useState(false);
     const [isFpMode, setIsFpMode] = useState(false);
     const [kvValues, setKvValues] = useState<Record<string, number>>({});
+
+    // Helper to calculate total KV/FP value with discount and avoiding summing 'stunden' etc
+    const calcKvTotal = useCallback((kv: Record<string, number>) => {
+        const keys = ['personalkosten', 'material', 'service_total', 'lkw', 'hvz', 'diesel', 'extra'];
+        const gross = keys.reduce((sum, key) => sum + (kv[key] || 0), 0);
+        let net = gross;
+        const r_tot = kv['rabatt_total'] || 0;
+        const r_pct = kv['rabatt_percent'] || 0;
+        if (r_tot > 0) net -= r_tot;
+        else if (r_pct > 0) net -= (gross * r_pct / 100);
+        return net;
+    }, []);
     // Multi-select mode
     const [multiSelectMode, setMultiSelectMode] = useState(false);
     const [checkedProjectIds, setCheckedProjectIds] = useState<Set<string>>(new Set());
@@ -574,7 +558,7 @@ export default function CalculationPage() {
         return s + (d.value || 0);
     }, 0), [discounts, baseRevenue]);
     // In FP mode: revenue = sum of agreed FP values (kvValues), not the actual calculated revenue
-    const fpRevenue = useMemo(() => (Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0), [kvValues]);
+    const fpRevenue = useMemo(() => calcKvTotal(kvValues), [kvValues, calcKvTotal]);
     const istRevenue = baseRevenue - discountTotal; // actual calculated revenue (always available)
     const totalRevenue = isFpMode ? fpRevenue : istRevenue;
     const margin = totalRevenue - totalCosts;
@@ -880,15 +864,15 @@ export default function CalculationPage() {
         <div class="kpi"><div class="kpi-card"><div class="kpi-label">Gesamtkosten</div><div class="kpi-value">${eur(totalCosts)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Gesamterlöse</div><div class="kpi-value">${eur(totalRevenue)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Marge</div><div class="kpi-value ${margin >= 0 ? 'positive' : 'negative'}">${eur(margin)}</div></div>
-        <div class="kpi-card"><div class="kpi-label">Marge %</div><div class="kpi-value"><span style="${getMarginBadgeStyle(marginPct)}">${marginPct.toFixed(1)}%</span></div></div></div>
+        <div class="kpi-card"><div class="kpi-label">Marge %</div><div class="kpi-value ${marginPct >= 0 ? 'positive' : 'negative'}">${marginPct.toFixed(1)}%</div></div></div>
         <h2>1. Personal – Kosten (${eur(personalKosten)}) / Erlöse (${eur(personalErloes)})</h2><table><tr><th>Datum</th><th>Mitarbeiter</th><th class="right" style="color:#1d4ed8">LiS Std.</th><th class="right" style="color:#15803d">Kd Std.</th><th class="right" style="color:#1d4ed8">LiS Satz</th><th class="right" style="color:#15803d">Kd Satz</th><th class="right" style="color:#1d4ed8">Kosten (LiS)</th><th class="right" style="color:#15803d">Erlöse (Kd)</th></tr>
-        ${adjustedPersonnel.map((p: any) => `<tr><td>${p.datum}</td><td>${p.mitarbeiter}</td><td class="right" style="font-weight:700;color:#1d4ed8">${p.lis_stunden.toFixed(2)}</td><td class="right" style="font-weight:700;color:#15803d">${p.kunden_stunden.toFixed(2)}</td><td class="right" style="color:#1d4ed8">${eur(p.satz)}</td><td class="right" style="color:#15803d">${eur(p.kunden_satz)}</td><td class="right" style="color:#1d4ed8">${eur(p.kosten)}</td><td class="right" style="${getMarkupStyleInline(p.kosten, p.erloes) || 'color:#15803d;'}">${eur(p.erloes)}</td></tr>`).join('')}
+        ${adjustedPersonnel.map((p: any) => `<tr><td>${p.datum}</td><td>${p.mitarbeiter}</td><td class="right" style="font-weight:700;color:#1d4ed8">${p.lis_stunden.toFixed(2)}</td><td class="right" style="font-weight:700;color:#15803d">${p.kunden_stunden.toFixed(2)}</td><td class="right" style="color:#1d4ed8">${eur(p.satz)}</td><td class="right" style="color:#15803d">${eur(p.kunden_satz)}</td><td class="right" style="color:#1d4ed8">${eur(p.kosten)}</td><td class="right" style="color:#15803d">${eur(p.erloes)}</td></tr>`).join('')}
         <tr><th colspan="6">Summe</th><th class="right" style="color:#1d4ed8">${eur(personalKosten)}</th><th class="right" style="color:#15803d">${eur(personalErloes)}</th></tr></table>
         <h2>2. Material (${eur(materialKosten)})</h2><table><tr><th>Material</th><th>Menge</th><th>Einheit</th><th class="right">EK</th><th class="right">VK</th><th class="right">Kosten</th><th class="right">Erlöse</th></tr>
-        ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.price_per_unit)}</td><td class="right">${eur(m.total_cost)}</td><td class="right" style="${getMarkupStyleInline(m.cost_per_unit, m.price_per_unit)}">${eur(m.total_price)}</td></tr>`).join('')}
+        ${materials.map(m => `<tr><td>${m.material_name}</td><td>${m.quantity}</td><td>${m.unit}</td><td class="right">${eur(m.cost_per_unit)}</td><td class="right">${eur(m.price_per_unit)}</td><td class="right">${eur(m.total_cost)}</td><td class="right">${eur(m.total_price)}</td></tr>`).join('')}
         <tr><th colspan="5">Summe</th><th class="right">${eur(materialKosten)}</th><th class="right">${eur(materialErloes)}</th></tr></table>
         <h2>3. Fahrzeug (LiS: ${eur(vehicleKosten)} / Kunde: ${eur(vehicleErloes)})</h2><table><tr><th>Beschreibung</th><th>Menge</th><th class="right">EK-Preis</th><th class="right">VK-Preis</th><th class="right">LiS Kosten</th><th class="right">Kunden-Kosten</th></tr>
-        ${vehicles.map(v => `<tr><td>${v.fahrzeug}</td><td>${v.usage_value}</td><td class="right">${eur(v.cost_per_unit)}</td><td class="right">${eur(v.total_cost)}</td><td class="right">${eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td><td class="right" style="${getMarkupStyleInline(v.cost_per_unit, v.total_cost)}">${eur((v.usage_value || 0) * (v.total_cost || 0))}</td></tr>`).join('')}
+        ${vehicles.map(v => `<tr><td>${v.fahrzeug}</td><td>${v.usage_value}</td><td class="right">${eur(v.cost_per_unit)}</td><td class="right">${eur(v.total_cost)}</td><td class="right">${eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td><td class="right">${eur((v.usage_value || 0) * (v.total_cost || 0))}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(vehicleKosten)}</th><th class="right">${eur(vehicleErloes)}</th></tr></table>
         <h2>HVZ (EK: ${eur(hvzKosten)} / VK: ${eur(hvzErloes)})</h2><table><tr><th>Von</th><th>Bis</th><th>Tage</th><th class="right">EK</th><th class="right">VK</th></tr>
         ${hvzCosts.map(h => `<tr><td>${h.datum_von ? new Date(h.datum_von).toLocaleDateString('de-DE') : '—'}</td><td>${h.datum_bis ? new Date(h.datum_bis).toLocaleDateString('de-DE') : '—'}</td><td>${h.tage || '—'}</td><td class="right">${eur(h.ek_preis)}</td><td class="right">${eur(h.vk_preis)}</td></tr>`).join('')}
@@ -900,7 +884,7 @@ export default function CalculationPage() {
         ${services.map(s => `<tr><td>${s.service_name}</td><td>${s.supplier}</td><td>${s.quantity}</td><td class="right">${eur(s.cost_per_unit)}</td><td class="right">${eur(s.total_cost)}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(serviceKosten)}</th></tr></table>
         <h2>5. Sonstige Kosten (EK: ${eur(extraKosten)} / VK: ${eur(extraErloes)})</h2><table><tr><th>Beschreibung</th><th>Menge</th><th class="right">EK</th><th class="right">VK</th><th class="right">LiS Kosten</th><th class="right">Kunden-Kosten</th></tr>
-        ${extraCosts.map(e => `<tr><td>${e.beschreibung || '—'}</td><td>${e.menge || '—'}</td><td class="right">${eur(e.ek_preis)}</td><td class="right">${eur(e.vk_preis)}</td><td class="right">${eur((e.menge||0)*(e.ek_preis||0))}</td><td class="right" style="${getMarkupStyleInline(e.ek_preis, e.vk_preis)}">${eur((e.menge||0)*(e.vk_preis||0))}</td></tr>`).join('')}
+        ${extraCosts.map(e => `<tr><td>${e.beschreibung || '—'}</td><td>${e.menge || '—'}</td><td class="right">${eur(e.ek_preis)}</td><td class="right">${eur(e.vk_preis)}</td><td class="right">${eur((e.menge||0)*(e.ek_preis||0))}</td><td class="right">${eur((e.menge||0)*(e.vk_preis||0))}</td></tr>`).join('')}
         <tr><th colspan="4">Summe</th><th class="right">${eur(extraKosten)}</th><th class="right">${eur(extraErloes)}</th></tr></table>
         <h2>6. Rabatte / Nachlässe (${eur(discountTotal)})</h2><table><tr><th>Bezeichnung</th><th>Typ</th><th class="right">Wert</th><th class="right">Betrag</th></tr>
         ${discounts.map((d: any) => `<tr><td>${d.description || ''}</td><td>${d.mode === 'percent' ? 'Prozent' : 'Pauschal'}</td><td class="right">${d.mode === 'percent' ? `${d.value}%` : eur(d.value)}</td><td class="right">${eur(d.mode === 'percent' ? baseRevenue * (d.value / 100) : d.value)}</td></tr>`).join('')}
@@ -1127,27 +1111,38 @@ export default function CalculationPage() {
         </tr>`;
             }).join('');
         })()}
-        ${isFpMode ? `<tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
-            <td></td>
-            <td></td>
-            <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
-        </tr>` : `<tr>
-            <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
-            <td></td>
-            <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
-            ${isKvMode ? '<td></td>' : ''}
-        </tr>`}
-        ${isFpMode ? `<tr style="border-top:3px double #334155; ${getSummaryGradientInline(margin)}">
+        ${(() => {
+            const keys = ['personalkosten', 'material', 'service_total', 'lkw', 'hvz', 'diesel', 'extra'];
+            const grossFp = keys.reduce((sum, key) => sum + (kvValues[key] || 0), 0);
+            const r_tot = kvValues['rabatt_total'] || 0;
+            const r_pct = kvValues['rabatt_percent'] || 0;
+            const fpRabattAmt = r_tot > 0 ? r_tot : (r_pct > 0 ? (grossFp * r_pct / 100) : 0);
+            
+            if (isFpMode) {
+                return `<tr>
+                    <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
+                    <td></td>
+                    <td class="right">${fpRabattAmt > 0 ? numFormat(fpRabattAmt) : ''}</td>
+                    <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
+                </tr>`;
+            }
+            return `<tr>
+                <td style="font-weight:600; color:#475569; height:28px;">Rabatt / Nachlässe</td>
+                <td></td>
+                <td><div class="val-container"><span></span><span>${numFormat(discountTotal)}</span></div></td>
+                ${isKvMode ? `<td class="right">${fpRabattAmt > 0 ? numFormat(fpRabattAmt) : ''}</td>` : ''}
+            </tr>`;
+        })()}
+        ${isFpMode ? `<tr style="border-top:3px double #334155; background:#f1f5f9;">
             <td style="font-weight:700; color:#0f172a;">Summe</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>
-            <td style="font-weight:700; text-align:right; color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}</td>
+            <td style="font-weight:700; text-align:right; color:#166534;">${numFormat(calcKvTotal(kvValues))}</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(istRevenue)}</td>
-        </tr>` : `<tr style="border-top:3px double #334155; ${getSummaryGradientInline(margin)}">
+        </tr>` : `<tr style="border-top:3px double #334155; background:#f1f5f9;">
             <td style="font-weight:700; color:#0f172a;">Summe</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalCosts)}</td>
             <td style="font-weight:700; text-align:right; color:#0f172a;">${numFormat(totalRevenue)}</td>
-            ${isKvMode ? `<td style="font-weight:700; text-align:right; color:#166534;">${numFormat((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}</td>` : ''}
+            ${isKvMode ? `<td style="font-weight:700; text-align:right; color:#166534;">${numFormat(calcKvTotal(kvValues))}</td>` : ''}
         </tr>`}
     </table>
 
@@ -1197,12 +1192,12 @@ export default function CalculationPage() {
         <tr class="total"><td class="label">Bruttoumsatz</td><td class="val">${numFormat(totalRevenue * 1.19)}</td></tr>
         <tr><td class="label">Gesamtkosten netto</td><td class="val">${numFormat(totalCosts)}</td></tr>
         <tr class="total"><td class="label">Nettoeinnahme</td><td class="val">${numFormat(margin)}</td></tr>
-        <tr><td class="label">Prozent</td><td class="val" style="padding-top: 12px;"><span style="${getMarginBadgeStyle(marginPct)}">${marginPct >= 0 || marginPct < 0 ? marginPct.toFixed(1) + '%' : '#DIV/0!'}</span></td></tr>
+        <tr><td class="label">Prozent</td><td class="val" style="padding-top: 12px;"><span style="background-color:#86efac; color:#166534; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #4ade80;">${marginPct >= 0 || marginPct < 0 ? marginPct.toFixed(1) + '%' : '#DIV/0!'}</span></td></tr>
         ${isFpMode ? `<tr style="border-top:2px solid #e2e8f0;"><td class="label">Kalk. Marge</td><td class="val">${numFormat(kalkMargin)}</td></tr>
-        <tr><td class="label">Kalk. Marge %</td><td class="val" style="padding-top: 12px;"><span style="${getMarginBadgeStyle(kalkMarginPct)}">${kalkMarginPct.toFixed(1)}%</span></td></tr>` : ''}
+        <tr><td class="label">Kalk. Marge %</td><td class="val" style="padding-top: 12px;"><span style="background-color:#e2e8f0; color:#475569; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #cbd5e1;">${kalkMarginPct.toFixed(1)}%</span></td></tr>` : ''}
         ${isKvMode ? `<tr style="border-top:2px solid #e2e8f0;"><td class="label">Abweichung</td><td class="val">${kvAbweichung >= 0 ? '+' : ''}${numFormat(kvAbweichung)} (${kvAbweichungPct >= 0 ? '+' : ''}${kvAbweichungPct.toFixed(1)}%)</td></tr>
         <tr><td class="label">KV-Marge</td><td class="val">${numFormat(kvMarge)}</td></tr>
-        <tr><td class="label">KV-Marge %</td><td class="val" style="padding-top: 12px;"><span style="${getMarginBadgeStyle(kvMargePct)}">${kvMargePct.toFixed(1)}%</span></td></tr>` : ''}
+        <tr><td class="label">KV-Marge %</td><td class="val" style="padding-top: 12px;"><span style="background-color:#e2e8f0; color:#475569; padding:6px 12px; border-radius:4px; font-weight:700; font-size:14px; border:1px solid #cbd5e1;">${kvMargePct.toFixed(1)}%</span></td></tr>` : ''}
     </table>
     </div>
 </body></html>`;
@@ -1652,7 +1647,7 @@ export default function CalculationPage() {
                                         <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border", isKvMode ? "bg-green-100 text-green-700 border-green-300" : "bg-amber-100 text-amber-700 border-amber-300")}>{isKvMode ? 'KV' : 'FP'}</span>
                                         <h3 className={cn("text-sm font-semibold", isKvMode ? "text-green-800" : "text-amber-800")}>{isKvMode ? 'Kostenvoranschlag – Werte' : 'Festpreis-Werte'}</h3>
                                         <span className={cn("text-xs ml-auto font-medium", isKvMode ? "text-green-600" : "text-amber-600")}>
-                                            Gesamt {isKvMode ? 'KV' : 'FP'}: {eur((Object.values(kvValues) as number[]).reduce((a, b) => a + b, 0))}
+                                            Gesamt {isKvMode ? 'KV' : 'FP'}: {eur(calcKvTotal(kvValues))}
                                         </span>
                                     </div>
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1695,13 +1690,43 @@ export default function CalculationPage() {
                                             />
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['material'] ? getKvDeviationBorder(materialErloes, kvValues['material']) : '')}>
-                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Material</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
-                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['material'] || ''}
-                                                onChange={e => setKvValues(prev => ({ ...prev, material: e.target.value === '' ? 0 : +e.target.value }))}
-                                                onBlur={() => saveKvValues(true)}
-                                            />
+                                            <div className="flex items-center justify-between">
+                                                <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Material</label>
+                                                {materials.length > 0 && <span className={cn("text-[9px] font-bold", isKvMode ? "text-green-600" : "text-amber-600")}>Gesamt: {eur(kvValues['material'] || 0)}</span>}
+                                            </div>
+                                            {materials.length === 0 ? (
+                                                <input type="number" step="0.01" placeholder="0,00"
+                                                    className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
+                                                    value={kvValues['material'] || ''}
+                                                    onChange={e => setKvValues(prev => ({ ...prev, material: e.target.value === '' ? 0 : +e.target.value }))}
+                                                    onBlur={() => saveKvValues(true)}
+                                                />
+                                            ) : (
+                                                <div className="flex flex-col gap-1.5 mt-0.5">
+                                                    {materials.map(m => (
+                                                        <div key={m.id} className="flex items-center justify-between gap-2">
+                                                            <span className="text-[11px] truncate flex-1 text-slate-600 font-medium" title={m.material_name}>{m.material_name}</span>
+                                                            <input type="number" step="0.01" placeholder="0,00"
+                                                                className={cn("w-20 rounded border bg-white px-2 py-1 text-[11px] text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
+                                                                value={kvValues[`mat_kv_${m.id}`] || ''}
+                                                                onChange={e => {
+                                                                    const val = e.target.value === '' ? 0 : +e.target.value;
+                                                                    setKvValues(prev => {
+                                                                        const next = { ...prev, [`mat_kv_${m.id}`]: val };
+                                                                        let total = 0;
+                                                                        materials.forEach(mat => {
+                                                                            total += (mat.id === m.id ? val : (next[`mat_kv_${mat.id}`] || 0));
+                                                                        });
+                                                                        next.material = total;
+                                                                        return next;
+                                                                    });
+                                                                }}
+                                                                onBlur={() => saveKvValues(true)}
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['service_total'] ? getKvDeviationBorder(serviceErloes, kvValues['service_total']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Entsorgungen</label>
@@ -1745,6 +1770,24 @@ export default function CalculationPage() {
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
                                                 value={kvValues['extra'] || ''}
                                                 onChange={e => setKvValues(prev => ({ ...prev, extra: e.target.value === '' ? 0 : +e.target.value }))}
+                                                onBlur={() => saveKvValues(true)}
+                                            />
+                                        </div>
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['rabatt_total'] ? 'border border-amber-300 bg-amber-50 p-1 -m-1' : '')}>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Rabatt (€)</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
+                                                value={kvValues['rabatt_total'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, rabatt_total: e.target.value === '' ? 0 : +e.target.value, rabatt_percent: 0 }))}
+                                                onBlur={() => saveKvValues(true)}
+                                            />
+                                        </div>
+                                        <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['rabatt_percent'] ? 'border border-amber-300 bg-amber-50 p-1 -m-1' : '')}>
+                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Rabatt (%)</label>
+                                            <input type="number" step="0.01" placeholder="0,00"
+                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
+                                                value={kvValues['rabatt_percent'] || ''}
+                                                onChange={e => setKvValues(prev => ({ ...prev, rabatt_percent: e.target.value === '' ? 0 : +e.target.value, rabatt_total: 0 }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>

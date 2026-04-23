@@ -1071,7 +1071,7 @@ export default function TrackingPage() {
                                                             <td className={cn("px-2 py-2 text-center text-sm font-semibold text-green-700 bg-green-50/20", isReplaced && "line-through text-slate-400")}>{calculateHours(row.kunde_von, row.kunde_bis)}</td>
                                                             <td className={cn("px-2 py-2", isReplaced && "line-through")}>
                                                                 <input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-1 text-center text-sm disabled:text-slate-400"
-                                                                    value={row.pause_min ?? ''} disabled={isReplaced}
+                                                                    value={row.pause_min === 0 ? '' : (row.pause_min ?? '')} disabled={isReplaced}
                                                                     onChange={(e) => updateRow(row._tempId, 'pause_min', e.target.value)}
                                                                     onFocus={(e) => e.target.select()} />
                                                             </td>
@@ -1266,7 +1266,7 @@ export default function TrackingPage() {
                                                                         <td className="px-2 py-1.5">
                                                                             <input type="number" min="0" step="0.1"
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                                value={row.quantity ?? ''}
+                                                                                value={row.quantity === 0 ? '' : (row.quantity ?? '')}
                                                                                 onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', e.target.value)}
                                                                                 onFocus={e => e.target.select()} />
                                                                         </td>
@@ -1366,7 +1366,7 @@ export default function TrackingPage() {
                                                                         <td className="px-2 py-1.5">
                                                                             <input type="number" min="0" step="0.1"
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                                value={row.quantity ?? ''}
+                                                                                value={row.quantity === 0 ? '' : (row.quantity ?? '')}
                                                                                 onChange={e => updateServiceRow(projectId, row._localId, 'quantity', e.target.value)}
                                                                                 onFocus={e => e.target.select()} />
                                                                         </td>
@@ -1463,7 +1463,7 @@ export default function TrackingPage() {
                                                                                 type="number"
                                                                                 min="0"
                                                                                 step="0.01"
-                                                                                value={row.cost ?? ''}
+                                                                                value={row.cost === 0 ? '' : (row.cost ?? '')}
                                                                                 onChange={e => updateExtraRow(projectId, row._localId, 'cost', e.target.value)}
                                                                                 onFocus={e => e.target.select()}
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
@@ -1933,7 +1933,7 @@ export default function TrackingPage() {
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Pause (min)</label>
                                         <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                            value={waForm.break_minutes ?? ''}
+                                            value={waForm.break_minutes === 0 ? '' : (waForm.break_minutes ?? '')}
                                             onChange={e => setWaForm({ ...waForm, break_minutes: e.target.value })}
                                             onFocus={e => e.target.select()} />
                                     </div>
@@ -1942,7 +1942,7 @@ export default function TrackingPage() {
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Geschätzte Stunden</label>
                                         <input type="number" step="0.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                            value={waForm.hours_estimated ?? ''}
+                                            value={waForm.hours_estimated === 0 ? '' : (waForm.hours_estimated ?? '')}
                                             onChange={e => setWaForm({ ...waForm, hours_estimated: e.target.value })}
                                             onFocus={e => e.target.select()} />
                                     </div>

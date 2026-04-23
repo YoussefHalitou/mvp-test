@@ -607,6 +607,7 @@ export default function TrackingPage() {
                     pause_min: row.pause_min,
                     replaced_by: row.replaced_by,
                     is_replacement: row.is_replacement,
+                    notes: row.notes,
                     updated_at: new Date().toISOString(),
                 };
                 return supabase.from('t_time_pairs').upsert(record, { onConflict: 'pair_id' });

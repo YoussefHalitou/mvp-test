@@ -401,7 +401,7 @@ export default function TrackingPage() {
             await Promise.all(items.map(async r => {
                 if (r.isNew) {
                     const { data, error } = await supabase.from('t_project_material_usage').insert({
-                        project_id: projectId, material_id: r.material_id, quantity: r.quantity,
+                        project_id: projectId, material_id: r.material_id, quantity: Number(r.quantity) || 0,
                     }).select().single();
                     if (!error && data) {
                         setProjectMaterials(prev => ({
@@ -412,7 +412,7 @@ export default function TrackingPage() {
                         }));
                     }
                 } else if (r.id) {
-                    await supabase.from('t_project_material_usage').update({ quantity: r.quantity }).eq('id', r.id);
+                    await supabase.from('t_project_material_usage').update({ quantity: Number(r.quantity) || 0 }).eq('id', r.id);
                 }
             }));
             toast('Material gespeichert');
@@ -495,7 +495,7 @@ export default function TrackingPage() {
             await Promise.all(items.map(async r => {
                 if (r.isNew) {
                     const { data, error } = await supabase.from('t_project_service_usage').insert({
-                        project_id: projectId, service_id: r.service_id, quantity: r.quantity,
+                        project_id: projectId, service_id: r.service_id, quantity: Number(r.quantity) || 0,
                         supplier: r.supplier || null,
                     }).select().single();
                     if (!error && data) {
@@ -507,7 +507,7 @@ export default function TrackingPage() {
                         }));
                     }
                 } else if (r.id) {
-                    await supabase.from('t_project_service_usage').update({ quantity: r.quantity, supplier: r.supplier || null }).eq('id', r.id);
+                    await supabase.from('t_project_service_usage').update({ quantity: Number(r.quantity) || 0, supplier: r.supplier || null }).eq('id', r.id);
                 }
             }));
             toast('Dienstleistungen gespeichert');
@@ -556,7 +556,7 @@ export default function TrackingPage() {
             await Promise.all(items.map(async r => {
                 if (r.isNew) {
                     const { data, error } = await supabase.from('t_project_costs_extra').insert({
-                        project_id: projectId, cost_type: r.cost_type, description: r.description, cost: r.cost,
+                        project_id: projectId, cost_type: r.cost_type, description: r.description, cost: Number(r.cost) || 0,
                     }).select().single();
                     if (!error && data) {
                         setProjectExtraCosts(prev => ({
@@ -567,7 +567,7 @@ export default function TrackingPage() {
                         }));
                     }
                 } else if (r.id) {
-                    await supabase.from('t_project_costs_extra').update({ cost_type: r.cost_type, description: r.description, cost: r.cost }).eq('id', r.id);
+                    await supabase.from('t_project_costs_extra').update({ cost_type: r.cost_type, description: r.description, cost: Number(r.cost) || 0 }).eq('id', r.id);
                 }
             }));
             toast('Sonderkosten gespeichert');
@@ -604,7 +604,7 @@ export default function TrackingPage() {
                     lis_bis: row.lis_bis ? `${row.lis_bis}:00` : null,
                     kunde_von: row.kunde_von ? `${row.kunde_von}:00` : null,
                     kunde_bis: row.kunde_bis ? `${row.kunde_bis}:00` : null,
-                    pause_min: row.pause_min,
+                    pause_min: Number(row.pause_min) || 0,
                     replaced_by: row.replaced_by,
                     is_replacement: row.is_replacement,
                     notes: row.notes,
@@ -660,7 +660,7 @@ export default function TrackingPage() {
             lis_bis: row.lis_bis ? `${row.lis_bis}:00` : null,
             kunde_von: row.kunde_von ? `${row.kunde_von}:00` : null,
             kunde_bis: row.kunde_bis ? `${row.kunde_bis}:00` : null,
-            pause_min: row.pause_min,
+            pause_min: Number(row.pause_min) || 0,
             is_replacement: true,
             updated_at: new Date().toISOString(),
         }, { onConflict: 'pair_id' });
@@ -749,8 +749,8 @@ export default function TrackingPage() {
                 assignment_date: waForm.assignment_date,
                 start_time: waForm.start_time ? `${waForm.start_time}:00` : null,
                 end_time: waForm.end_time ? `${waForm.end_time}:00` : null,
-                break_minutes: waForm.break_minutes,
-                hours_estimated: waForm.hours_estimated,
+                break_minutes: Number(waForm.break_minutes) || 0,
+                hours_estimated: Number(waForm.hours_estimated) || 0,
                 status: waForm.status,
                 notes: waForm.notes || null,
                 project_id: waForm.project_id || null,
@@ -1072,7 +1072,7 @@ export default function TrackingPage() {
                                                             <td className={cn("px-2 py-2", isReplaced && "line-through")}>
                                                                 <input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-1 text-center text-sm disabled:text-slate-400"
                                                                     value={row.pause_min === 0 ? '' : (row.pause_min ?? '')} disabled={isReplaced}
-                                                                    onChange={(e) => updateRow(row._tempId, 'pause_min', e.target.value === '' ? 0 : parseInt(e.target.value))}
+                                                                    onChange={(e) => updateRow(row._tempId, 'pause_min', e.target.value)}
                                                                     onFocus={(e) => e.target.select()} />
                                                             </td>
                                                             <td className={cn("px-2 py-2", isReplaced && "line-through")}>
@@ -1267,7 +1267,7 @@ export default function TrackingPage() {
                                                                             <input type="number" min="0" step="0.1"
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
                                                                                 value={row.quantity === 0 ? '' : (row.quantity ?? '')}
-                                                                                onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                                                                onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', e.target.value)}
                                                                                 onFocus={e => e.target.select()} />
                                                                         </td>
                                                                         <td className="px-2 py-1.5 text-slate-500">{row.unit}</td>
@@ -1367,7 +1367,7 @@ export default function TrackingPage() {
                                                                             <input type="number" min="0" step="0.1"
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
                                                                                 value={row.quantity === 0 ? '' : (row.quantity ?? '')}
-                                                                                onChange={e => updateServiceRow(projectId, row._localId, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                                                                onChange={e => updateServiceRow(projectId, row._localId, 'quantity', e.target.value)}
                                                                                 onFocus={e => e.target.select()} />
                                                                         </td>
 
@@ -1464,7 +1464,7 @@ export default function TrackingPage() {
                                                                                 min="0"
                                                                                 step="0.01"
                                                                                 value={row.cost === 0 ? '' : (row.cost ?? '')}
-                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'cost', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'cost', e.target.value)}
                                                                                 onFocus={e => e.target.select()}
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
                                                                             />
@@ -1934,7 +1934,7 @@ export default function TrackingPage() {
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Pause (min)</label>
                                         <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                                             value={waForm.break_minutes === 0 ? '' : (waForm.break_minutes ?? '')}
-                                            onChange={e => setWaForm({ ...waForm, break_minutes: e.target.value === '' ? 0 : parseInt(e.target.value) })}
+                                            onChange={e => setWaForm({ ...waForm, break_minutes: e.target.value })}
                                             onFocus={e => e.target.select()} />
                                     </div>
                                 </div>
@@ -1943,7 +1943,7 @@ export default function TrackingPage() {
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Geschätzte Stunden</label>
                                         <input type="number" step="0.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                                             value={waForm.hours_estimated === 0 ? '' : (waForm.hours_estimated ?? '')}
-                                            onChange={e => setWaForm({ ...waForm, hours_estimated: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                                            onChange={e => setWaForm({ ...waForm, hours_estimated: e.target.value })}
                                             onFocus={e => e.target.select()} />
                                     </div>
                                     <div>

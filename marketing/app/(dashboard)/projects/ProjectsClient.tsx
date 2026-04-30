@@ -621,7 +621,20 @@ export default function ProjectsPage() {
 
             {/* Modal */}
             {modalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalOpen(false)}>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => {
+                    // Check if any field has been modified from the empty default
+                    const hasData = Object.keys(empty).some(key => {
+                        const k = key as keyof ProjectInsert;
+                        const current = editingProject[k];
+                        const original = isEditing ? undefined : empty[k]; // for edit mode, always ask
+                        if (isEditing) return true; // always confirm when editing
+                        return current !== null && current !== '' && current !== original;
+                    });
+                    if (hasData) {
+                        if (!confirm('Eingaben verwerfen? Alle nicht gespeicherten Änderungen gehen verloren.')) return;
+                    }
+                    setModalOpen(false);
+                }}>
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between border-b px-6 py-4">
                             <h2 className="text-lg font-bold text-slate-800">{isEditing ? 'Projekt bearbeiten' : 'Neues Projekt'}</h2>

@@ -425,6 +425,15 @@ export default function CalculationPage() {
         if (kvData && kvData.length > 0) {
             const loaded: Record<string, number> = {};
             kvData.forEach((kv: any) => { loaded[kv.kv_key] = kv.kv_value || 0; });
+            // Migrate legacy single stunden/stundensatz to indexed format
+            if (loaded['stunden'] !== undefined && loaded['stunden_0'] === undefined) {
+                loaded['stunden_0'] = loaded['stunden'];
+                delete loaded['stunden'];
+            }
+            if (loaded['stundensatz'] !== undefined && loaded['stundensatz_0'] === undefined) {
+                loaded['stundensatz_0'] = loaded['stundensatz'];
+                delete loaded['stundensatz'];
+            }
             setKvValues(loaded);
         }
 
@@ -779,6 +788,8 @@ export default function CalculationPage() {
                 project_id: selectedProjectId, kv_key: k, kv_value: v, updated_at: new Date().toISOString()
             }));
             const toDelete = entries.filter(([, v]) => v === 0).map(([k]) => k);
+            // Also clean up legacy non-indexed keys
+            toDelete.push('stunden', 'stundensatz');
 
             if (toUpsert.length > 0) {
                 await supabase.from('t_project_kv_values').upsert(toUpsert, { onConflict: 'project_id,kv_key' });
@@ -1037,12 +1048,19 @@ export default function CalculationPage() {
         <tr>
             <td class="text-orange" style="background:#fff7ed;">Gesamt Std</td>
             <td class="center text-orange" style="background:#fff7ed;">${gesamtStd.toFixed(2)}</td>
-            ${isFpMode
-              ? `<td class="center" style="background:#fff7ed;">${kvValues['stunden'] ? (+kvValues['stunden']).toFixed(2) : ''}</td>
-                 <td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>`
-              : `<td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>
-                 ${isKvMode ? `<td class="center" style="background:#fff7ed;">${kvValues['stunden'] ? (+kvValues['stunden']).toFixed(2) : ''}</td>` : ''}`
-            }
+            ${(() => {
+                // Collect all stunden pairs for export
+                const pairIndices = new Set<number>();
+                Object.keys(kvValues).forEach(k => { const m = k.match(/^stunden_(\d+)$/); if (m) pairIndices.add(+m[1]); });
+                const totalKvStd = Array.from(pairIndices).reduce((s, i) => s + (kvValues[`stunden_${i}`] || 0), 0);
+                const kvStdStr = totalKvStd ? totalKvStd.toFixed(2) : '';
+                if (isFpMode) {
+                    return `<td class="center" style="background:#fff7ed;">${kvStdStr}</td>
+                            <td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>`;
+                }
+                return `<td class="center" style="background:#fff7ed; color:#15803d; font-weight:600;">${gesamtKdStd.toFixed(2)}</td>
+                        ${isKvMode ? `<td class="center" style="background:#fff7ed;">${kvStdStr}</td>` : ''}`;
+            })()}
         </tr>
         ${(() => {
                 const rateEntries = Array.from(rateMap.values());
@@ -1670,36 +1688,116 @@ export default function CalculationPage() {
                                         </span>
                                     </div>
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                                        <div className="flex flex-col gap-1">
-                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Stunden</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
-                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['stunden'] || ''}
-                                                onChange={e => {
-                                                    const stunden = e.target.value === '' ? 0 : +e.target.value;
-                                                    const satz = kvValues['stundensatz'] || 0;
-                                                    setKvValues(prev => ({ ...prev, stunden, personalkosten: +(stunden * satz).toFixed(2) }));
-                                                }}
-                                                onBlur={() => saveKvValues(true)}
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Stundensatz</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
-                                                className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['stundensatz'] || ''}
-                                                onChange={e => {
-                                                    const satz = e.target.value === '' ? 0 : +e.target.value;
-                                                    const stunden = kvValues['stunden'] || 0;
-                                                    setKvValues(prev => ({ ...prev, stundensatz: satz, personalkosten: +(stunden * satz).toFixed(2) }));
-                                                }}
-                                                onBlur={() => saveKvValues(true)}
-                                            />
+                                        {/* Multiple Stunden/Stundensatz pairs */}
+                                        <div className="col-span-2 lg:col-span-3 flex flex-col gap-2">
+                                            <div className="flex items-center justify-between">
+                                                <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Stunden / Stundensatz</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        // Find next available index
+                                                        let nextIdx = 0;
+                                                        while (kvValues[`stunden_${nextIdx}`] !== undefined || kvValues[`stundensatz_${nextIdx}`] !== undefined) nextIdx++;
+                                                        setKvValues(prev => ({ ...prev, [`stunden_${nextIdx}`]: 0, [`stundensatz_${nextIdx}`]: 0 }));
+                                                    }}
+                                                    className={cn("flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-colors", isKvMode ? "text-green-700 border-green-300 hover:bg-green-100" : "text-amber-700 border-amber-300 hover:bg-amber-100")}
+                                                >
+                                                    <Plus className="h-3 w-3" /> Paar hinzufügen
+                                                </button>
+                                            </div>
+                                            {(() => {
+                                                // Collect all pair indices from kvValues
+                                                const pairIndices = new Set<number>();
+                                                Object.keys(kvValues).forEach(k => {
+                                                    const m = k.match(/^stunden_(\d+)$/) || k.match(/^stundensatz_(\d+)$/);
+                                                    if (m) pairIndices.add(+m[1]);
+                                                });
+                                                // If no pairs exist yet, show one empty pair (index 0)
+                                                if (pairIndices.size === 0) pairIndices.add(0);
+                                                const sortedIndices = Array.from(pairIndices).sort((a, b) => a - b);
+                                                return sortedIndices.map((idx, arrPos) => (
+                                                    <div key={idx} className="flex items-end gap-2">
+                                                        <div className="flex-1">
+                                                            {arrPos === 0 && <span className={cn("text-[9px] font-medium", isKvMode ? "text-green-600" : "text-amber-600")}>Stunden</span>}
+                                                            <input type="number" step="0.01" placeholder="0,00"
+                                                                className={cn("w-full rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
+                                                                value={kvValues[`stunden_${idx}`] || ''}
+                                                                onChange={e => {
+                                                                    const stunden = e.target.value === '' ? 0 : +e.target.value;
+                                                                    setKvValues(prev => {
+                                                                        const next = { ...prev, [`stunden_${idx}`]: stunden };
+                                                                        // Recompute personalkosten from all pairs
+                                                                        let total = 0;
+                                                                        Object.keys(next).forEach(k => {
+                                                                            const m2 = k.match(/^stunden_(\d+)$/);
+                                                                            if (m2) total += (next[k] || 0) * (next[`stundensatz_${m2[1]}`] || 0);
+                                                                        });
+                                                                        next.personalkosten = +total.toFixed(2);
+                                                                        return next;
+                                                                    });
+                                                                }}
+                                                                onBlur={() => saveKvValues(true)}
+                                                            />
+                                                        </div>
+                                                        <div className="flex-1">
+                                                            {arrPos === 0 && <span className={cn("text-[9px] font-medium", isKvMode ? "text-green-600" : "text-amber-600")}>Stundensatz</span>}
+                                                            <input type="number" step="0.01" placeholder="0,00"
+                                                                className={cn("w-full rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
+                                                                value={kvValues[`stundensatz_${idx}`] || ''}
+                                                                onChange={e => {
+                                                                    const satz = e.target.value === '' ? 0 : +e.target.value;
+                                                                    setKvValues(prev => {
+                                                                        const next = { ...prev, [`stundensatz_${idx}`]: satz };
+                                                                        let total = 0;
+                                                                        Object.keys(next).forEach(k => {
+                                                                            const m2 = k.match(/^stunden_(\d+)$/);
+                                                                            if (m2) total += (next[k] || 0) * (next[`stundensatz_${m2[1]}`] || 0);
+                                                                        });
+                                                                        next.personalkosten = +total.toFixed(2);
+                                                                        return next;
+                                                                    });
+                                                                }}
+                                                                onBlur={() => saveKvValues(true)}
+                                                            />
+                                                        </div>
+                                                        <div className="flex-shrink-0 flex items-center">
+                                                            {arrPos === 0 && <span className={cn("text-[9px] font-medium block invisible", isKvMode ? "text-green-600" : "text-amber-600")}>= Ergebnis</span>}
+                                                            <span className={cn("text-xs font-semibold tabular-nums min-w-[70px] text-right", isKvMode ? "text-green-800" : "text-amber-800")}>
+                                                                = {((kvValues[`stunden_${idx}`] || 0) * (kvValues[`stundensatz_${idx}`] || 0)).toFixed(2)} €
+                                                            </span>
+                                                        </div>
+                                                        {sortedIndices.length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setKvValues(prev => {
+                                                                        const next = { ...prev };
+                                                                        delete next[`stunden_${idx}`];
+                                                                        delete next[`stundensatz_${idx}`];
+                                                                        // Recompute personalkosten
+                                                                        let total = 0;
+                                                                        Object.keys(next).forEach(k => {
+                                                                            const m2 = k.match(/^stunden_(\d+)$/);
+                                                                            if (m2) total += (next[k] || 0) * (next[`stundensatz_${m2[1]}`] || 0);
+                                                                        });
+                                                                        next.personalkosten = +total.toFixed(2);
+                                                                        return next;
+                                                                    });
+                                                                }}
+                                                                className={cn("p-1 rounded-md transition-colors", isKvMode ? "text-green-400 hover:text-red-500 hover:bg-red-50" : "text-amber-400 hover:text-red-500 hover:bg-red-50")}
+                                                                title="Paar entfernen"
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ));
+                                            })()}
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['personalkosten'] ? getKvDeviationBorder(personalErloes, kvValues['personalkosten']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider flex items-center gap-1", isKvMode ? "text-green-700" : "text-amber-700")}>
                                                 Personalkosten
-                                                <span className={cn("text-[9px] font-normal normal-case", isKvMode ? "text-green-500" : "text-amber-500")}>= Std × Satz</span>
+                                                <span className={cn("text-[9px] font-normal normal-case", isKvMode ? "text-green-500" : "text-amber-500")}>= Σ Std × Satz</span>
                                             </label>
                                             <input type="number" step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border px-3 py-1.5 text-sm text-right font-semibold focus:outline-none focus:ring-1 cursor-default", isKvMode ? "border-green-300 bg-green-50 text-green-800 focus:border-green-500 focus:ring-green-300" : "border-amber-300 bg-amber-50 text-amber-800 focus:border-amber-500 focus:ring-amber-300")}

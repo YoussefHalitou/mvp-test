@@ -1943,7 +1943,7 @@ export default function TrackingPage() {
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Geschätzte Stunden</label>
                                         <input type="number" step="0.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                                             value={waForm.hours_estimated === 0 ? '' : (waForm.hours_estimated ?? '')}
-                                            onChange={e => setWaForm({ ...waForm, hours_estimated: e.target.value })}
+                                            onChange={e => setWaForm({ ...waForm, hours_estimated: e.target.value === '' ? 0 : +e.target.value })}
                                             onFocus={e => e.target.select()} />
                                     </div>
                                     <div>

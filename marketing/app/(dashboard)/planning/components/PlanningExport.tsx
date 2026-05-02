@@ -303,13 +303,13 @@ export function PlanningExport() {
                 cards.forEach(card => {
                     const nameLine = [card.anrede, card.name].filter(Boolean).join(' ');
                     const service = card.service_type || '';
-                    const headerLine = (nameLine || service) ?
-                        `${nameLine}${nameLine && service ? ' – ' + service : service}` : 'Einsatz';
+                    const offer = card.offer_type || '';
+                    const headerParts = [nameLine, service, offer].filter(Boolean);
+                    const headerLine = headerParts.length > 0 ? headerParts.join(' – ') : 'Einsatz';
 
                     const serviceBadge = service ? `<span class="badge-service-type">${escapeHtml(service)}</span>` : '';
 
                     const addrLines = [
-                        [card.anrede, card.name].filter(Boolean).join(' '),
                         [card.strasse, card.nr].filter(Boolean).join(' '),
                         [card.plz, card.ort].filter(Boolean).join(' ')
                     ].filter(l => l.trim().length > 0);
@@ -334,16 +334,12 @@ export function PlanningExport() {
                                     <div class="pill-box"><div class="pill-label">Startzeit</div><div class="pill-value">${escapeHtml(card.start_time?.substring(0, 5))}</div></div>
                                     <div class="pill-box"><div class="pill-label">Fahrzeug</div><div class="pill-value">${escapeHtml(card.vehicle_name)}</div></div>
                                 </div>
-                                <div class="pill-row">
-                                    <div class="pill-box"><div class="pill-label">Angebotsart</div><div class="pill-value">${escapeHtml(card.offer_type)}</div></div>
-                                </div>
                             </div>
                         </div>
                     `;
 
                     let teamHtml = `
-                        <div class="card-team-title">Team</div>
-                        <table class="team-table">
+                        <table class="team-table" style="margin-top: 8px;">
                             <thead><tr><th style="width: 40%;">Mitarbeiter</th><th style="width: 20%;">Start</th><th>Notizen</th></tr></thead>
                             <tbody>
                     `;

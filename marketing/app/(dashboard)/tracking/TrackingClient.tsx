@@ -1934,7 +1934,7 @@ export default function TrackingPage() {
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Pause (min)</label>
                                         <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                                             value={waForm.break_minutes === 0 ? '' : (waForm.break_minutes ?? '')}
-                                            onChange={e => setWaForm({ ...waForm, break_minutes: e.target.value })}
+                                            onChange={e => setWaForm({ ...waForm, break_minutes: e.target.value === '' ? 0 : +e.target.value })}
                                             onFocus={e => e.target.select()} />
                                     </div>
                                 </div>

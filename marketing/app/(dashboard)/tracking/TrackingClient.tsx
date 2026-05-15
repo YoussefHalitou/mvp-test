@@ -634,6 +634,22 @@ export default function TrackingPage() {
     // Work assignment replace/cross-out state
     const [waReplaceDropdown, setWaReplaceDropdown] = useState<string | null>(null);
     const [waReplaceDropdownPos, setWaReplaceDropdownPos] = useState<{ top: number; left: number; openUp: boolean } | null>(null);
+    const waReplacementModeRef = useRef<'unknown' | 'split' | 'inplace'>('unknown');
+
+    const detectWaReplacementMode = useCallback(async (): Promise<'split' | 'inplace'> => {
+        if (waReplacementModeRef.current !== 'unknown') {
+            return waReplacementModeRef.current;
+        }
+
+        const { error } = await supabase
+            .from('t_work_assignments')
+            .select('assignment_id, replaced_by')
+            .limit(1);
+
+        const mode = error ? 'inplace' : 'split';
+        waReplacementModeRef.current = mode;
+        return mode;
+    }, []);
 
     const handleReplace = async (row: TrackingRow, replacementEmployeeId: string) => {
         const emp = employees.find(e => e.employee_id === replacementEmployeeId);
@@ -798,31 +814,64 @@ export default function TrackingPage() {
         const emp = employees.find(e => e.employee_id === replacementEmployeeId);
         if (!emp) return;
         setWaReplaceDropdown(null);
+        setWaReplaceDropdownPos(null);
 
-        const newAssignmentId = `replace-wa-${wa.assignment_id}-${Date.now()}`;
+        try {
+            const replacementMode = await detectWaReplacementMode();
 
-        // Mark original as replaced
-        await supabase.from('t_work_assignments').update({ replaced_by: newAssignmentId }).eq('assignment_id', wa.assignment_id);
+            if (replacementMode === 'inplace') {
+                const { error: updateError } = await supabase
+                    .from('t_work_assignments')
+                    .update({
+                        employee_name: emp.name,
+                        employee_code: emp.employee_code || null,
+                    })
+                    .eq('assignment_id', wa.assignment_id);
 
-        // Insert replacement
-        await supabase.from('t_work_assignments').insert({
-            assignment_id: newAssignmentId,
-            work_type: wa.work_type,
-            employee_name: emp.name,
-            employee_code: emp.employee_code || null,
-            assignment_date: wa.assignment_date,
-            start_time: wa.start_time,
-            end_time: wa.end_time,
-            break_minutes: wa.break_minutes,
-            hours_estimated: wa.hours_estimated,
-            status: wa.status,
-            notes: wa.notes,
-            project_id: wa.project_id,
-            is_replacement: true,
-        });
+                if (updateError) throw updateError;
 
-        fetchData();
-        toast(`${wa.employee_name} ersetzt durch ${emp.name}`);
+                await fetchData();
+                toast(`${wa.employee_name} ersetzt durch ${emp.name}`);
+                return;
+            }
+
+            const { data: insertedReplacement, error: insertError } = await supabase
+                .from('t_work_assignments')
+                .insert({
+                    work_type: wa.work_type,
+                    employee_name: emp.name,
+                    employee_code: emp.employee_code || null,
+                    assignment_date: wa.assignment_date,
+                    start_time: wa.start_time,
+                    end_time: wa.end_time,
+                    break_minutes: wa.break_minutes,
+                    hours_estimated: wa.hours_estimated,
+                    status: wa.status,
+                    notes: wa.notes,
+                    project_id: wa.project_id,
+                })
+                .select('assignment_id')
+                .single();
+
+            if (insertError) throw insertError;
+            if (!insertedReplacement?.assignment_id) throw new Error('Keine ID fuer Ersatz-Arbeitseinsatz erhalten');
+
+            const { error: updateError } = await supabase
+                .from('t_work_assignments')
+                .update({ replaced_by: insertedReplacement.assignment_id })
+                .eq('assignment_id', wa.assignment_id);
+
+            if (updateError) {
+                await supabase.from('t_work_assignments').delete().eq('assignment_id', insertedReplacement.assignment_id);
+                throw updateError;
+            }
+
+            await fetchData();
+            toast(`${wa.employee_name} ersetzt durch ${emp.name}`);
+        } catch (error) {
+            console.error('Failed to replace work assignment employee', error);
+            toast('Fehler beim Ersetzen des Mitarbeiters', 'error');
+        }
     };
 
     const calcWaHours = (st: string | null, et: string | null, brk: number | null) => {

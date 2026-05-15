@@ -238,8 +238,9 @@ export function PlanningClient() {
             const [movedItem] = newStaff.splice(oldIndex, 1);
             newStaff.splice(newIndex, 0, movedItem);
 
-            // Update UI optimistically
-            setPlans(prev => prev.map(p => p.plan_id === plan.plan_id ? { ...p, staff: newStaff } : p));
+            // Update UI optimistically — update sort_order so the render sorts correctly
+            const newStaffWithOrder = newStaff.map((s, idx) => ({ ...s, sort_order: idx + 1 }));
+            setPlans(prev => prev.map(p => p.plan_id === plan.plan_id ? { ...p, staff: newStaffWithOrder } : p));
 
             // Persist to DB
             try {

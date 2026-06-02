@@ -90,6 +90,11 @@ function normalizeDate(value?: string | null): string | null {
     return value.substring(0, 10);
 }
 
+function formatGermanDate(value?: string | null): string {
+    const date = normalizeDate(value);
+    return date ? new Date(`${date}T00:00:00`).toLocaleDateString('de-DE') : '';
+}
+
 function expandDateRange(start?: string | null, end?: string | null): string[] {
     const startDate = normalizeDate(start);
     const endDate = normalizeDate(end);
@@ -967,6 +972,14 @@ export default function CalculationPage() {
     };
 
     const exportAuftragsnachkalkulationHTML = async () => {
+        const projectExportDates = selectedProject ? getProjectDayDates(selectedProject, projectDayEntries) : [];
+        const fallbackDate = selectedProject?.project_date || null;
+        const exportDateLabel = selectedPlanDate
+            ? formatGermanDate(selectedPlanDate)
+            : projectExportDates.length > 1
+                ? `${formatGermanDate(projectExportDates[0])} - ${formatGermanDate(projectExportDates[projectExportDates.length - 1])}`
+                : formatGermanDate(projectExportDates[0] || fallbackDate);
+
         // Prepare personnel grouping by rate (merge employees with same rate)
         // LiS Std = costs, Kd Std = revenue
         const rateMap = new Map<number, { names: string[], std: number, satz: number, kosten: number, erloes: number, kd_std: number, kd_satz: number }>();
@@ -1074,7 +1087,7 @@ export default function CalculationPage() {
     <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
         <div class="field-row" style="width: 50%;"><div class="label">Telefonnummer Kunde:</div><div class="value">${selectedProject?.telefon || ''}</div></div>
     </div>
-    <div class="field-row"><div class="label">Auftragsdatum</div><div class="value">${selectedProject?.project_date ? new Date(selectedProject.project_date).toLocaleDateString('de-DE') : ''}</div></div>
+    <div class="field-row"><div class="label">Auftragsdatum</div><div class="value">${exportDateLabel}</div></div>
     <div class="field-row"><div class="label">Aufgaben</div><div class="value">${selectedProject?.dienstleistungen || ''}</div></div>
     <div class="field-row"><div class="label">Sonstige Infos</div><div class="value"></div></div>
 
@@ -1285,7 +1298,7 @@ export default function CalculationPage() {
         document.body.appendChild(container);
         await html2pdf().set({
             margin: 10,
-            filename: `Nachkalkulation ${selectedProject?.anrede || ''} ${selectedProject?.name || 'Projekt'} ${selectedProject?.project_date ? new Date(selectedProject.project_date).toLocaleDateString('de-DE') : ''}.pdf`.trim(),
+            filename: `Nachkalkulation ${selectedProject?.anrede || ''} ${selectedProject?.name || 'Projekt'} ${exportDateLabel}.pdf`.trim(),
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },

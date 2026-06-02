@@ -74,6 +74,7 @@ interface BnkCostRow {
     id: string; beschreibung: string | null; menge: number | null;
     ek_preis: number; vk_preis: number; isNew?: boolean;
 }
+type ProjectDayEntry = { project_id: string | null; date: string | null };
 
 function calcHours(von: string | null, bis: string | null, pauseMin: number = 0): number {
     if (!von || !bis) return 0;
@@ -83,6 +84,37 @@ function calcHours(von: string | null, bis: string | null, pauseMin: number = 0)
     return totalMin > 0 ? +(totalMin / 60).toFixed(2) : 0;
 }
 function eur(n: number) { return n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }); }
+
+function normalizeDate(value?: string | null): string | null {
+    if (!value) return null;
+    return value.substring(0, 10);
+}
+
+function expandDateRange(start?: string | null, end?: string | null): string[] {
+    const startDate = normalizeDate(start);
+    const endDate = normalizeDate(end);
+    if (!startDate || !endDate || endDate < startDate) return startDate ? [startDate] : [];
+
+    const days: string[] = [];
+    const cursor = new Date(`${startDate}T00:00:00`);
+    const last = new Date(`${endDate}T00:00:00`);
+    while (cursor <= last && days.length < 370) {
+        days.push(format(cursor, 'yyyy-MM-dd'));
+        cursor.setDate(cursor.getDate() + 1);
+    }
+    return days;
+}
+
+function getProjectDayDates(project: Project, dayEntries: ProjectDayEntry[]): string[] {
+    const dates = new Set<string>();
+    dayEntries.forEach(entry => {
+        if (entry.project_id !== project.project_id) return;
+        const date = normalizeDate(entry.date);
+        if (date) dates.add(date);
+    });
+    expandDateRange(project.project_start_date, project.project_end_date).forEach(date => dates.add(date));
+    return Array.from(dates).sort();
+}
 
 // ---- COLORING HELPERS ----
 // Layer 1: Per-row markup highlighting (VK vs EK)
@@ -160,8 +192,8 @@ export default function CalculationPage() {
     const [checkedProjectIds, setCheckedProjectIds] = useState<Set<string>>(new Set());
     const [mergedProjectNames, setMergedProjectNames] = useState<string[]>([]);
 
-    // Morningplan per-date entries
-    const [morningPlanEntries, setMorningPlanEntries] = useState<{ plan_id: string; project_id: string; plan_date: string }[]>([]);
+    // Per-project dates from planning, tracking, assignments, and explicit multiday ranges.
+    const [projectDayEntries, setProjectDayEntries] = useState<ProjectDayEntry[]>([]);
     const [selectedPlanDate, setSelectedPlanDate] = useState<string | null>(null);
 
     const [personnel, setPersonnel] = useState<TimePairWithRate[]>([]);
@@ -303,18 +335,26 @@ export default function CalculationPage() {
 
     useEffect(() => {
         (async () => {
-            const [projRes, matRes, vehRes, svcRes, mpRes] = await Promise.all([
+            const [projRes, matRes, vehRes, svcRes, mpRes, tpDateRes, waDateRes] = await Promise.all([
                 supabase.from('t_projects').select('*').order('created_at', { ascending: false }),
                 supabase.from('t_materials').select('*, prices:t_material_prices(cost_per_unit, price_per_unit)').eq('is_active', true).order('name'),
                 supabase.from('t_vehicles').select('*').eq('is_deleted', false).order('nickname'),
                 supabase.from('t_services').select('*, prices:t_service_prices(*)').eq('is_active', true).order('name'),
                 supabase.from('t_morningplan').select('plan_id, project_id, plan_date').order('plan_date', { ascending: false }),
+                supabase.from('t_time_pairs').select('project_id, datum, pause, replaced_by'),
+                supabase.from('t_work_assignments').select('project_id, assignment_date'),
             ]);
             setProjects(projRes.data || []);
             setMaterialCatalog(matRes.data || []);
             setVehicleCatalog(vehRes.data || []);
             setServiceCatalog(svcRes.data || []);
-            setMorningPlanEntries(mpRes.data || []);
+            setProjectDayEntries([
+                ...(mpRes.data || []).map((mp: any) => ({ project_id: mp.project_id, date: mp.plan_date })),
+                ...(tpDateRes.data || [])
+                    .filter((tp: any) => tp.pause !== 'deleted' && !tp.replaced_by)
+                    .map((tp: any) => ({ project_id: tp.project_id, date: tp.datum })),
+                ...(waDateRes.data || []).map((wa: any) => ({ project_id: wa.project_id, date: wa.assignment_date })),
+            ]);
         })();
     }, []);
 
@@ -1351,12 +1391,7 @@ export default function CalculationPage() {
                                                 const isPast = p.project_date ? new Date(p.project_date).getTime() < new Date().setHours(0, 0, 0, 0) : true;
                                                 const isUnassigned = (!p.project_date && !p.ort);
 
-                                                // Get unique plan dates for this project from morningplan
-                                                const projectPlanDates = Array.from(new Set(
-                                                    morningPlanEntries
-                                                        .filter(mp => mp.project_id === p.project_id)
-                                                        .map(mp => mp.plan_date)
-                                                )).sort();
+                                                const projectPlanDates = getProjectDayDates(p, projectDayEntries);
                                                 const hasMultipleDates = projectPlanDates.length > 1;
                                                 const isThisProjectSelected = !multiSelectMode && selectedProjectId === p.project_id;
 
@@ -1431,7 +1466,7 @@ export default function CalculationPage() {
                                                                         </div>
                                                                         {p.project_date && (
                                                                             <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono">
-                                                                                {format(new Date(p.project_date), 'dd.MM.yy')}
+                                                                                {format(new Date(`${normalizeDate(p.project_date)}T00:00:00`), 'dd.MM.yy')}
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -1466,7 +1501,7 @@ export default function CalculationPage() {
                                                                         )}
                                                                     >
                                                                         <Calendar className="h-3 w-3" />
-                                                                        {format(new Date(pd), 'EEE dd.MM.yy', { locale: de })}
+                                                                        {format(new Date(`${pd}T00:00:00`), 'EEE dd.MM.yy', { locale: de })}
                                                                     </button>
                                                                 ))}
                                                             </div>
@@ -1517,7 +1552,11 @@ export default function CalculationPage() {
                                 <p className="text-xs text-slate-500 flex items-center gap-2">
                                     {selectedProject.project_code && <span>{selectedProject.project_code}</span>}
                                     {selectedProject.ort && <span>• {selectedProject.ort}</span>}
-                                    {selectedProject.project_date && <span>• {format(new Date(selectedProject.project_date), 'dd.MM.yyyy')}</span>}
+                                    {(selectedPlanDate || selectedProject.project_date) && (
+                                        <span>
+                                            • {selectedPlanDate ? 'Tag ' : ''}{format(new Date(`${selectedPlanDate || normalizeDate(selectedProject.project_date)}T00:00:00`), 'dd.MM.yyyy')}
+                                        </span>
+                                    )}
                                 </p>
                             )}
                         </div>

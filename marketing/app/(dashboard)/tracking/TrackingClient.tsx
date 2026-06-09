@@ -77,15 +77,26 @@ interface ProjectSvcRow {
 interface ProjectExtraRow {
     _localId: string;
     id?: string;
+    cost_id?: string;
     project_id: string;
     cost_date?: string | null;
     cost_type: string;
     description: string;
     cost: number;
+    beschreibung: string;
+    menge: number;
+    ek_preis: number;
+    vk_preis: number;
     isNew: boolean;
 }
 
 const WORK_TYPES = ['Büroarbeit', 'Lager', 'Werkstatt', 'Reinigung', 'Fahrt', 'Schulung', 'Entrümpelung', 'Sonstiges'];
+const toNumber = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+const getExtraLisTotal = (row: Pick<ProjectExtraRow, 'menge' | 'ek_preis'>) => +(toNumber(row.menge) * toNumber(row.ek_preis)).toFixed(2);
+const getExtraCustomerTotal = (row: Pick<ProjectExtraRow, 'menge' | 'vk_preis'>) => +(toNumber(row.menge) * toNumber(row.vk_preis)).toFixed(2);
 
 export default function TrackingPage() {
     const { toast } = useToast();
@@ -330,14 +341,28 @@ export default function TrackingPage() {
         const extras: Record<string, ProjectExtraRow[]> = {};
         (extraRes.data || []).filter((e: any) => !costDate || e.cost_date === costDate).forEach((e: any) => {
             if (!extras[e.project_id]) extras[e.project_id] = [];
+            const menge = e.menge === null || e.menge === undefined ? 1 : toNumber(e.menge);
+            const legacyCost = toNumber(e.cost);
+            const rawEkPreis = toNumber(e.ek_preis);
+            const ekPreis = (e.ek_preis === null || e.ek_preis === undefined || (rawEkPreis === 0 && legacyCost > 0))
+                ? +(legacyCost / (menge || 1)).toFixed(2)
+                : rawEkPreis;
+            const vkPreis = toNumber(e.vk_preis ?? 0);
+            const costId = e.cost_id || e.id;
+            const beschreibung = e.beschreibung || e.description || e.cost_type || '';
             extras[e.project_id].push({
-                _localId: e.id,
+                _localId: costId || `extra-${Math.random()}`,
                 id: e.id,
+                cost_id: costId,
                 project_id: e.project_id,
                 cost_date: e.cost_date || null,
-                cost_type: e.cost_type || '',
-                description: e.description || '',
-                cost: e.cost || 0,
+                cost_type: e.cost_type || beschreibung,
+                description: e.description || beschreibung,
+                cost: +(menge * ekPreis).toFixed(2),
+                beschreibung,
+                menge,
+                ek_preis: ekPreis,
+                vk_preis: vkPreis,
                 isNew: false,
             });
         });
@@ -542,9 +567,13 @@ export default function TrackingPage() {
                 _localId: `new-${Math.random()}`,
                 project_id: projectId,
                 cost_date: costDate,
-                cost_type: 'Sonstiges',
+                cost_type: '',
                 description: '',
                 cost: 0,
+                beschreibung: '',
+                menge: 1,
+                ek_preis: 0,
+                vk_preis: 0,
                 isNew: true,
             }],
         }));
@@ -555,14 +584,30 @@ export default function TrackingPage() {
             ...prev,
             [projectId]: (prev[projectId] || []).map(r => {
                 if (r._localId !== localId) return r;
-                return { ...r, [field]: value };
+                const updated = { ...r };
+                if (field === 'beschreibung') {
+                    const text = String(value);
+                    updated.beschreibung = text;
+                    updated.description = text;
+                    updated.cost_type = text;
+                } else if (['menge', 'ek_preis', 'vk_preis'].includes(field)) {
+                    (updated as any)[field] = toNumber(value);
+                } else if (field === 'cost') {
+                    updated.cost = toNumber(value);
+                    updated.ek_preis = updated.menge ? +(updated.cost / updated.menge).toFixed(2) : updated.cost;
+                } else {
+                    (updated as any)[field] = value;
+                }
+                updated.cost = getExtraLisTotal(updated);
+                return updated;
             }),
         }));
     };
 
     const deleteExtraRow = async (projectId: string, row: ProjectExtraRow) => {
-        if (!row.isNew && row.id) {
-            await supabase.from('t_project_costs_extra').delete().eq('id', row.id);
+        const persistedId = row.cost_id || row.id;
+        if (!row.isNew && persistedId) {
+            await supabase.from('t_project_costs_extra').delete().eq(row.cost_id ? 'cost_id' : 'id', persistedId);
         }
         setProjectExtraCosts(prev => ({
             ...prev,
@@ -571,25 +616,43 @@ export default function TrackingPage() {
     };
 
     const saveExtraCosts = async (projectId: string) => {
-        const items = (projectExtraCosts[projectId] || []).filter(r => r.cost_type && r.description);
+        const items = (projectExtraCosts[projectId] || []).filter(r => r.beschreibung);
         setSavingExtra(prev => ({ ...prev, [projectId]: true }));
         try {
             await Promise.all(items.map(async r => {
+                const beschreibung = r.beschreibung || r.description || r.cost_type;
+                const menge = toNumber(r.menge);
+                const ekPreis = toNumber(r.ek_preis);
+                const vkPreis = toNumber(r.vk_preis);
+                const cost = +(menge * ekPreis).toFixed(2);
+                const payload = {
+                    project_id: projectId,
+                    beschreibung,
+                    menge,
+                    ek_preis: ekPreis,
+                    vk_preis: vkPreis,
+                    cost_type: beschreibung,
+                    description: beschreibung,
+                    cost,
+                    ...(costDateColumnsAvailable ? { cost_date: r.cost_date || null } : {}),
+                };
                 if (r.isNew) {
-                    const { data, error } = await supabase.from('t_project_costs_extra').insert({
-                        project_id: projectId, cost_type: r.cost_type, description: r.description, cost: Number(r.cost) || 0,
-                        ...(costDateColumnsAvailable ? { cost_date: r.cost_date || null } : {}),
-                    }).select().single();
+                    const { data, error } = await supabase.from('t_project_costs_extra').insert(payload).select().single();
+                    if (error) throw error;
                     if (!error && data) {
                         setProjectExtraCosts(prev => ({
                             ...prev,
                             [projectId]: (prev[projectId] || []).map(x =>
-                                x._localId === r._localId ? { ...x, id: data.id, isNew: false } : x
+                                x._localId === r._localId ? { ...x, id: (data as any).id, cost_id: (data as any).cost_id || (data as any).id, isNew: false, ...payload } : x
                             ),
                         }));
                     }
-                } else if (r.id) {
-                    await supabase.from('t_project_costs_extra').update({ cost_type: r.cost_type, description: r.description, cost: Number(r.cost) || 0 }).eq('id', r.id);
+                } else {
+                    const persistedId = r.cost_id || r.id;
+                    if (persistedId) {
+                        const { error } = await supabase.from('t_project_costs_extra').update(payload).eq(r.cost_id ? 'cost_id' : 'id', persistedId);
+                        if (error) throw error;
+                    }
                 }
             }));
             toast('Sonderkosten gespeichert');
@@ -1456,7 +1519,7 @@ export default function TrackingPage() {
                                                 </div>
 
                                                 {/* --- Sonderkosten --- */}
-                                                <div className="bg-white border border-amber-200 rounded-xl overflow-hidden shadow-sm border-l-4 border-l-amber-500">
+                                                <div className="col-span-2 bg-white border border-amber-200 rounded-xl overflow-hidden shadow-sm border-l-4 border-l-amber-500">
                                                     <div
                                                         className="flex items-center justify-between px-4 py-3 border-b border-amber-100 cursor-pointer hover:bg-amber-50/50 transition-colors"
                                                         onClick={(e) => {
@@ -1470,12 +1533,13 @@ export default function TrackingPage() {
                                                             <span className="text-xs text-slate-400 ml-2">({(projectExtraCosts[projectId] || []).length})</span>
                                                         </div>
                                                         <div className="flex items-center gap-3">
-                                                            <span className="text-sm font-bold text-slate-700 whitespace-nowrap">
-                                                                {(projectExtraCosts[projectId] || []).reduce((a, r) => a + r.cost, 0).toFixed(2)} €
-                                                            </span>
+                                                            <div className="hidden md:flex items-center gap-2 text-xs font-semibold whitespace-nowrap">
+                                                                <span className="text-slate-700">LiS {(projectExtraCosts[projectId] || []).reduce((a, r) => a + getExtraLisTotal(r), 0).toFixed(2)} €</span>
+                                                                <span className="text-green-700">Kunde {(projectExtraCosts[projectId] || []).reduce((a, r) => a + getExtraCustomerTotal(r), 0).toFixed(2)} €</span>
+                                                            </div>
                                                             <button onClick={(e) => { e.stopPropagation(); addExtraRow(projectId); if (!expandedPanels[`${projectId}-extra`]) togglePanel(projectId, 'extra'); }}
                                                                 className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-1 rounded transition-colors">
-                                                                <Plus className="h-3 w-3" /> Zusatzkosten
+                                                                <Plus className="h-3 w-3" /> Kosten
                                                             </button>
                                                             <button onClick={(e) => { e.stopPropagation(); saveExtraCosts(projectId); }} disabled={savingExtra[projectId]}
                                                                 className="flex items-center gap-1 text-xs bg-amber-500 text-white hover:bg-amber-600 px-2 py-1 rounded transition-colors disabled:opacity-50">
@@ -1485,71 +1549,79 @@ export default function TrackingPage() {
                                                         </div>
                                                     </div>
                                                     {expandedPanels[`${projectId}-extra`] && (
-                                                        <table className="w-full text-xs">
-                                                            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
-                                                                <tr>
-                                                                    <th className="px-3 py-2 text-left w-36">Art</th>
-                                                                    <th className="px-3 py-2 text-left">Beschreibung</th>
-                                                                    <th className="px-3 py-2 text-right w-24">Kosten</th>
-                                                                    <th className="w-8"></th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody className="divide-y divide-slate-100">
-                                                                {(projectExtraCosts[projectId] || []).length === 0 ? (
-                                                                    <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">Keine Sonderkosten</td></tr>
-                                                                ) : (projectExtraCosts[projectId] || []).map(row => (
-                                                                    <tr key={row._localId} className="hover:bg-slate-50 group">
-                                                                        <td className="px-2 py-1.5">
-                                                                            <div className="relative">
+                                                        <div className="overflow-x-auto">
+                                                            <table className="w-full min-w-[760px] text-xs">
+                                                                <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
+                                                                    <tr>
+                                                                        <th className="px-3 py-2 text-left">Beschreibung</th>
+                                                                        <th className="px-3 py-2 text-right w-20">Menge</th>
+                                                                        <th className="px-3 py-2 text-right w-24">EK-Preis</th>
+                                                                        <th className="px-3 py-2 text-right w-24">VK-Preis</th>
+                                                                        <th className="px-3 py-2 text-right w-28">LiS Kosten</th>
+                                                                        <th className="px-3 py-2 text-right w-32">Kunden-Kosten</th>
+                                                                        <th className="w-8"></th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-slate-100">
+                                                                    {(projectExtraCosts[projectId] || []).length === 0 ? (
+                                                                        <tr><td colSpan={7} className="px-3 py-4 text-center text-slate-400">Keine Sonderkosten</td></tr>
+                                                                    ) : (projectExtraCosts[projectId] || []).map(row => (
+                                                                        <tr key={row._localId} className="hover:bg-slate-50 group">
+                                                                            <td className="px-2 py-1.5">
                                                                                 <input
                                                                                     type="text"
-                                                                                    list="extra-cost-types"
-                                                                                    value={row.cost_type}
-                                                                                    onChange={e => updateExtraRow(projectId, row._localId, 'cost_type', e.target.value)}
-                                                                                    className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
-                                                                                    placeholder="Art eingeben/wählen..."
+                                                                                    value={row.beschreibung}
+                                                                                    onChange={e => updateExtraRow(projectId, row._localId, 'beschreibung', e.target.value)}
+                                                                                    placeholder="z.B. Maut, Parkgebühr, Entsorgung..."
+                                                                                    className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-slate-300"
                                                                                 />
-                                                                                <datalist id="extra-cost-types">
-                                                                                    <option value="Material" />
-                                                                                    <option value="Dienstleistung" />
-                                                                                    <option value="Maut" />
-                                                                                    <option value="Parkgebühr" />
-                                                                                    <option value="Entsorgung" />
-                                                                                    <option value="Verpackung" />
-                                                                                    <option value="Sonstiges" />
-                                                                                </datalist>
-                                                                            </div>
-                                                                        </td>
-                                                                        <td className="px-2 py-1.5">
-                                                                            <input
-                                                                                type="text"
-                                                                                value={row.description}
-                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'description', e.target.value)}
-                                                                                placeholder="Beschreibung (z.B. Ticket #123)..."
-                                                                                className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-slate-300"
-                                                                            />
-                                                                        </td>
-                                                                        <td className="px-2 py-1.5">
-                                                                            <input
-                                                                                type="number"
-                                                                                min="0"
-                                                                                step="0.01"
-                                                                                value={row.cost === 0 ? '' : (row.cost ?? '')}
-                                                                                onChange={e => updateExtraRow(projectId, row._localId, 'cost', e.target.value)}
-                                                                                onFocus={e => e.target.select()}
-                                                                                className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                            />
-                                                                        </td>
-                                                                        <td className="px-1 text-center">
-                                                                            <button onClick={() => deleteExtraRow(projectId, row)}
-                                                                                className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                                <Trash2 className="h-3.5 w-3.5" />
-                                                                            </button>
-                                                                        </td>
-                                                                    </tr>
-                                                                ))}
-                                                            </tbody>
-                                                        </table>
+                                                                            </td>
+                                                                            <td className="px-2 py-1.5">
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    step="0.01"
+                                                                                    value={row.menge === 0 ? '' : (row.menge ?? '')}
+                                                                                    onChange={e => updateExtraRow(projectId, row._localId, 'menge', e.target.valueAsNumber)}
+                                                                                    onFocus={e => e.target.select()}
+                                                                                    className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
+                                                                                />
+                                                                            </td>
+                                                                            <td className="px-2 py-1.5">
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    step="0.01"
+                                                                                    value={row.ek_preis === 0 ? '' : (row.ek_preis ?? '')}
+                                                                                    onChange={e => updateExtraRow(projectId, row._localId, 'ek_preis', e.target.valueAsNumber)}
+                                                                                    onFocus={e => e.target.select()}
+                                                                                    className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
+                                                                                />
+                                                                            </td>
+                                                                            <td className="px-2 py-1.5">
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    step="0.01"
+                                                                                    value={row.vk_preis === 0 ? '' : (row.vk_preis ?? '')}
+                                                                                    onChange={e => updateExtraRow(projectId, row._localId, 'vk_preis', e.target.valueAsNumber)}
+                                                                                    onFocus={e => e.target.select()}
+                                                                                    className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
+                                                                                />
+                                                                            </td>
+                                                                            <td className="px-3 py-2 text-right font-semibold text-slate-700">{getExtraLisTotal(row).toFixed(2)} €</td>
+                                                                            <td className="px-3 py-2 text-right font-semibold text-green-700">{getExtraCustomerTotal(row).toFixed(2)} €</td>
+                                                                            <td className="px-1 text-center">
+                                                                                <button onClick={() => deleteExtraRow(projectId, row)}
+                                                                                    className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                                </button>
+                                                                            </td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
                                                     )}
                                                 </div>
 

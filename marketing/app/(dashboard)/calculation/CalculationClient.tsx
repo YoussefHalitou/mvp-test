@@ -88,6 +88,10 @@ function calcHours(von: string | null, bis: string | null, pauseMin: number = 0)
     return totalMin > 0 ? +(totalMin / 60).toFixed(2) : 0;
 }
 function eur(n: number) { return n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }); }
+function toFiniteNumber(value: unknown): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
 
 function escapeHtml(value: unknown): string {
     const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -618,7 +622,22 @@ export default function CalculationPage() {
         }));
 
 
-        setExtraCosts(filteredExtData.map((e: any) => ({ cost_id: e.cost_id, beschreibung: e.beschreibung || e.description || '', menge: e.menge ?? 1, ek_preis: e.ek_preis ?? (e.cost ?? 0), vk_preis: e.vk_preis ?? 0, cost_date: e.cost_date || null })));
+        setExtraCosts(filteredExtData.map((e: any) => {
+            const menge = e.menge === null || e.menge === undefined ? 1 : toFiniteNumber(e.menge);
+            const legacyCost = toFiniteNumber(e.cost);
+            const rawEkPreis = toFiniteNumber(e.ek_preis);
+            const ekPreis = (e.ek_preis === null || e.ek_preis === undefined || (rawEkPreis === 0 && legacyCost > 0))
+                ? +(legacyCost / (menge || 1)).toFixed(2)
+                : rawEkPreis;
+            return {
+                cost_id: e.cost_id || e.id || '',
+                beschreibung: e.beschreibung || e.description || e.cost_type || '',
+                menge,
+                ek_preis: ekPreis,
+                vk_preis: toFiniteNumber(e.vk_preis),
+                cost_date: e.cost_date || null,
+            };
+        }));
         setDiscounts(discData.map((d: any) => ({ id: d.id, mode: d.mode || 'flat', description: d.description || '', value: d.value || 0 })));
         setHvzCosts(filteredHvzData.map((h: any) => ({ id: h.id, datum_von: h.datum_von, datum_bis: h.datum_bis, tage: h.tage, ek_preis: h.ek_preis, vk_preis: h.vk_preis })));
         setBnkCosts(filteredBnkData.map((b: any) => ({ id: b.id, beschreibung: b.beschreibung, menge: b.menge, ek_preis: b.ek_preis, vk_preis: b.vk_preis, cost_date: b.cost_date || null })));

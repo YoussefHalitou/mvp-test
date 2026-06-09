@@ -484,6 +484,7 @@ export interface Database {
                     quantity: number | null
                     supplier: string | null
                     notes: string | null
+                    cost_date: string | null
                     created_at: string | null
                 }
                 Insert: {
@@ -493,6 +494,7 @@ export interface Database {
                     quantity?: number | null
                     supplier?: string | null
                     notes?: string | null
+                    cost_date?: string | null
                 }
                 Update: {
                     project_id?: string
@@ -500,6 +502,7 @@ export interface Database {
                     quantity?: number | null
                     supplier?: string | null
                     notes?: string | null
+                    cost_date?: string | null
                 }
             }
             t_materials: {
@@ -565,6 +568,7 @@ export interface Database {
                     quantity: number
                     phase: string | null
                     inspection_id: string | null
+                    cost_date: string | null
                     created_at: string | null
                 }
                 Insert: {
@@ -574,6 +578,7 @@ export interface Database {
                     quantity?: number
                     phase?: string | null
                     inspection_id?: string | null
+                    cost_date?: string | null
                 }
                 Update: {
                     project_id?: string | null
@@ -581,6 +586,7 @@ export interface Database {
                     quantity?: number
                     phase?: string | null
                     inspection_id?: string | null
+                    cost_date?: string | null
                 }
             }
             t_project_vehicle_costs: {
@@ -593,6 +599,7 @@ export interface Database {
                     cost_per_unit: number | null
                     total_cost: number | null
                     notes: string | null
+                    cost_date: string | null
                     created_at: string
                     updated_at: string
                 }
@@ -605,6 +612,7 @@ export interface Database {
                     cost_per_unit?: number | null
                     total_cost?: number | null
                     notes?: string | null
+                    cost_date?: string | null
                 }
                 Update: {
                     project_id?: string | null
@@ -614,6 +622,7 @@ export interface Database {
                     cost_per_unit?: number | null
                     total_cost?: number | null
                     notes?: string | null
+                    cost_date?: string | null
                 }
             }
             t_project_revenue_items: {
@@ -666,6 +675,7 @@ export interface Database {
                     description: string | null
                     cost: number
                     phase: string | null
+                    cost_date: string | null
                     created_at: string | null
                 }
                 Insert: {
@@ -675,6 +685,7 @@ export interface Database {
                     description?: string | null
                     cost: number
                     phase?: string | null
+                    cost_date?: string | null
                 }
                 Update: {
                     project_id?: string | null
@@ -682,6 +693,7 @@ export interface Database {
                     description?: string | null
                     cost?: number
                     phase?: string | null
+                    cost_date?: string | null
                 }
             }
             t_disposal_costs: {
@@ -955,6 +967,7 @@ export interface Database {
                     ek_preis: number
                     vk_preis: number
                     is_kv: boolean | null
+                    cost_date: string | null
                     created_at: string | null
                 }
                 Insert: {
@@ -965,6 +978,7 @@ export interface Database {
                     ek_preis?: number
                     vk_preis?: number
                     is_kv?: boolean | null
+                    cost_date?: string | null
                     created_at?: string | null
                 }
                 Update: {
@@ -975,6 +989,7 @@ export interface Database {
                     ek_preis?: number
                     vk_preis?: number
                     is_kv?: boolean | null
+                    cost_date?: string | null
                     created_at?: string | null
                 }
             }

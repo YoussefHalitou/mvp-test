@@ -46,6 +46,7 @@ interface ProjectMatRow {
     _localId: string;
     id?: string;
     project_id: string;
+    cost_date?: string | null;
     material_id: string;
     material_name: string;
     unit: string;
@@ -61,6 +62,7 @@ interface ProjectSvcRow {
     _localId: string;
     id?: string;
     project_id: string;
+    cost_date?: string | null;
     service_id: string;
     service_name: string;
     supplier: string;
@@ -76,6 +78,7 @@ interface ProjectExtraRow {
     _localId: string;
     id?: string;
     project_id: string;
+    cost_date?: string | null;
     cost_type: string;
     description: string;
     cost: number;
@@ -92,6 +95,7 @@ export default function TrackingPage() {
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [costDateColumnsAvailable, setCostDateColumnsAvailable] = useState(true);
 
     // Project View Mode
     const [viewMode, setViewMode] = useState<'day' | 'project'>('day');
@@ -258,7 +262,13 @@ export default function TrackingPage() {
         setServiceCatalog(svcRes.data || []);
     }, []);
 
-    const fetchProjectCosts = useCallback(async (projectIds: string[]) => {
+    useEffect(() => {
+        supabase.from('t_project_material_usage').select('cost_date').limit(1).then(({ error }) => {
+            setCostDateColumnsAvailable(error?.code !== '42703');
+        });
+    }, []);
+
+    const fetchProjectCosts = useCallback(async (projectIds: string[], costDate?: string | null) => {
         if (projectIds.length === 0) return;
         const [matRes, svcRes, extraRes] = await Promise.all([
             supabase.from('t_project_material_usage')
@@ -273,13 +283,14 @@ export default function TrackingPage() {
         ]);
 
         const mats: Record<string, ProjectMatRow[]> = {};
-        (matRes.data || []).forEach((m: any) => {
+        (matRes.data || []).filter((m: any) => !costDate || m.cost_date === costDate).forEach((m: any) => {
             if (!mats[m.project_id]) mats[m.project_id] = [];
             const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;
             mats[m.project_id].push({
                 _localId: m.id,
                 id: m.id,
                 project_id: m.project_id,
+                cost_date: m.cost_date || null,
                 material_id: m.material_id,
                 material_name: m.material?.name || m.material_id,
                 unit: m.material?.unit || '',
@@ -294,7 +305,7 @@ export default function TrackingPage() {
         setProjectMaterials(mats);
 
         const svcs: Record<string, ProjectSvcRow[]> = {};
-        (svcRes.data || []).forEach((s: any) => {
+        (svcRes.data || []).filter((s: any) => !costDate || s.cost_date === costDate).forEach((s: any) => {
             if (!svcs[s.project_id]) svcs[s.project_id] = [];
             const prices: any[] = s.service?.prices || [];
             const p = s.supplier ? prices.find((x: any) => x.supplier === s.supplier) || prices[0] : prices[0];
@@ -302,6 +313,7 @@ export default function TrackingPage() {
                 _localId: s.id,
                 id: s.id,
                 project_id: s.project_id,
+                cost_date: s.cost_date || null,
                 service_id: s.service_id,
                 service_name: s.service?.name || s.service_id,
                 supplier: s.supplier || p?.supplier || '',
@@ -316,12 +328,13 @@ export default function TrackingPage() {
         setProjectServices(svcs);
 
         const extras: Record<string, ProjectExtraRow[]> = {};
-        (extraRes.data || []).forEach((e: any) => {
+        (extraRes.data || []).filter((e: any) => !costDate || e.cost_date === costDate).forEach((e: any) => {
             if (!extras[e.project_id]) extras[e.project_id] = [];
             extras[e.project_id].push({
                 _localId: e.id,
                 id: e.id,
                 project_id: e.project_id,
+                cost_date: e.cost_date || null,
                 cost_type: e.cost_type || '',
                 description: e.description || '',
                 cost: e.cost || 0,
@@ -336,16 +349,19 @@ export default function TrackingPage() {
 
     useEffect(() => {
         const pids = Array.from(new Set(rows.map(r => r.project_id))).filter((id): id is string => id !== null);
-        if (pids.length > 0) fetchProjectCosts(pids);
-    }, [rows, fetchProjectCosts]);
+        const costDate = viewMode === 'day' && costDateColumnsAvailable ? format(currentDate, 'yyyy-MM-dd') : null;
+        if (pids.length > 0) fetchProjectCosts(pids, costDate);
+    }, [rows, fetchProjectCosts, currentDate, viewMode, costDateColumnsAvailable]);
 
     // ---- MATERIAL CRUD ----
     const addMaterialRow = (projectId: string) => {
+        const costDate = viewMode === 'day' && costDateColumnsAvailable ? format(currentDate, 'yyyy-MM-dd') : null;
         setProjectMaterials(prev => ({
             ...prev,
             [projectId]: [...(prev[projectId] || []), {
                 _localId: `new-${Math.random()}`,
                 project_id: projectId,
+                cost_date: costDate,
                 material_id: '',
                 material_name: '',
                 unit: '',
@@ -402,6 +418,7 @@ export default function TrackingPage() {
                 if (r.isNew) {
                     const { data, error } = await supabase.from('t_project_material_usage').insert({
                         project_id: projectId, material_id: r.material_id, quantity: Number(r.quantity) || 0,
+                        ...(costDateColumnsAvailable ? { cost_date: r.cost_date || null } : {}),
                     }).select().single();
                     if (!error && data) {
                         setProjectMaterials(prev => ({
@@ -422,11 +439,13 @@ export default function TrackingPage() {
 
     // ---- SERVICE CRUD ----
     const addServiceRow = (projectId: string) => {
+        const costDate = viewMode === 'day' && costDateColumnsAvailable ? format(currentDate, 'yyyy-MM-dd') : null;
         setProjectServices(prev => ({
             ...prev,
             [projectId]: [...(prev[projectId] || []), {
                 _localId: `new-${Math.random()}`,
                 project_id: projectId,
+                cost_date: costDate,
                 service_id: '',
                 service_name: '',
                 supplier: '',
@@ -496,7 +515,7 @@ export default function TrackingPage() {
                 if (r.isNew) {
                     const { data, error } = await supabase.from('t_project_service_usage').insert({
                         project_id: projectId, service_id: r.service_id, quantity: Number(r.quantity) || 0,
-                        supplier: r.supplier || null,
+                        supplier: r.supplier || null, ...(costDateColumnsAvailable ? { cost_date: r.cost_date || null } : {}),
                     }).select().single();
                     if (!error && data) {
                         setProjectServices(prev => ({
@@ -516,11 +535,13 @@ export default function TrackingPage() {
     };
     // ---- EXTRA COSTS CRUD ----
     const addExtraRow = (projectId: string) => {
+        const costDate = viewMode === 'day' && costDateColumnsAvailable ? format(currentDate, 'yyyy-MM-dd') : null;
         setProjectExtraCosts(prev => ({
             ...prev,
             [projectId]: [...(prev[projectId] || []), {
                 _localId: `new-${Math.random()}`,
                 project_id: projectId,
+                cost_date: costDate,
                 cost_type: 'Sonstiges',
                 description: '',
                 cost: 0,
@@ -557,6 +578,7 @@ export default function TrackingPage() {
                 if (r.isNew) {
                     const { data, error } = await supabase.from('t_project_costs_extra').insert({
                         project_id: projectId, cost_type: r.cost_type, description: r.description, cost: Number(r.cost) || 0,
+                        ...(costDateColumnsAvailable ? { cost_date: r.cost_date || null } : {}),
                     }).select().single();
                     if (!error && data) {
                         setProjectExtraCosts(prev => ({

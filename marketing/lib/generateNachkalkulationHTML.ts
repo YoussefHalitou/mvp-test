@@ -6,6 +6,17 @@
  */
 
 const numFormat = (n: number) => n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+const toNumber = (value: any) => Number(value) || 0;
+const escapeHtml = (value: any) => {
+    const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return String(value ?? '').replace(/[&<>"']/g, char => map[char]);
+};
+const getExtraCostLisTotal = (e: any) => {
+    const hasUnitPrice = e.ek_preis !== undefined && e.ek_preis !== null;
+    if (!hasUnitPrice) return toNumber(e.cost);
+    return toNumber(e.menge ?? 1) * toNumber(e.ek_preis);
+};
+const getExtraCostCustomerTotal = (e: any) => toNumber(e.menge ?? 1) * toNumber(e.vk_preis);
 
 export function generateAuftragsnachkalkulationHTML(snapshot: any): string {
     const s = snapshot;
@@ -47,12 +58,17 @@ export function generateAuftragsnachkalkulationHTML(snapshot: any): string {
     const hvzErloes = hvzCosts.reduce((a: number, h: any) => a + ((h.tage || 0) * (h.vk_preis || 0)), 0);
     const bnkKosten = bnkCosts.reduce((a: number, b: any) => a + ((b.menge || 0) * (b.ek_preis || 0)), 0);
     const bnkErloes = bnkCosts.reduce((a: number, b: any) => a + ((b.menge || 0) * (b.vk_preis || 0)), 0);
-    const extraKosten = extraCosts.reduce((a: number, e: any) => a + (e.cost || 0), 0);
+    const extraKosten = extraCosts.length > 0
+        ? extraCosts.reduce((a: number, e: any) => a + getExtraCostLisTotal(e), 0)
+        : toNumber(s.extraKosten);
+    const extraErloes = extraCosts.length > 0
+        ? extraCosts.reduce((a: number, e: any) => a + getExtraCostCustomerTotal(e), 0)
+        : toNumber(s.extraErloes);
     const revenueTotal = revenue.reduce((a: number, r: any) => a + (r.line_total || 0), 0);
     const personalKosten = adjustedPersonnel.reduce((a: number, p: any) => a + p.kosten, 0);
     const personalErloes = Array.from(rateMap.values()).reduce((a, d) => a + d.erloes, 0);
     const totalCosts = personalKosten + materialKosten + serviceKosten + extraKosten + hvzKosten + bnkKosten;
-    const baseRevenue = revenueTotal + personalErloes + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes;
+    const baseRevenue = revenueTotal + personalErloes + materialErloes + vehicleErloes + serviceErloes + hvzErloes + bnkErloes + extraErloes;
     const discountTotal = discounts.reduce((a: number, d: any) => {
         if ((d.mode || 'flat') === 'percent') return a + (baseRevenue * ((d.value || 0) / 100));
         return a + (d.value || 0);
@@ -201,11 +217,23 @@ export function generateAuftragsnachkalkulationHTML(snapshot: any): string {
             <td><div class="val-container"><span></span><span>${numFormat(bnkErloes)}</span></div></td>
             ${isKvMode ? `<td class="right">${kvValues['diesel'] ? numFormat(kvValues['diesel']) : ''}</td>` : ''}
         </tr>
-        <tr>
+        ${(() => {
+            if (extraCosts.length === 0) return `<tr>
             <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten</td>
-            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td><td></td>
+            <td><div class="val-container"><span></span><span>${numFormat(extraKosten)}</span></div></td>
+            <td><div class="val-container"><span></span><span>${numFormat(extraErloes)}</span></div></td>
             ${isKvMode ? `<td class="right">${kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
-        </tr>
+        </tr>`;
+            return extraCosts.map((extraCost: any, index: number) => {
+                const label = escapeHtml(extraCost.beschreibung || extraCost.description || extraCost.cost_type || `Position ${index + 1}`);
+                return `<tr>
+            <td style="font-weight:600; color:#475569; height:28px;">Sonstige Kosten: ${label}</td>
+            <td><div class="val-container"><span></span><span>${numFormat(getExtraCostLisTotal(extraCost))}</span></div></td>
+            <td><div class="val-container"><span></span><span>${numFormat(getExtraCostCustomerTotal(extraCost))}</span></div></td>
+            ${isKvMode ? `<td class="right">${index === 0 && kvValues['extra'] ? numFormat(kvValues['extra']) : ''}</td>` : ''}
+        </tr>`;
+            }).join('');
+        })()}
         <tr>
             <td style="font-weight:600; color:#475569; height:28px;">Material</td>
             <td><div class="val-container"><span></span><span>${numFormat(materialKosten)}</span></div></td>

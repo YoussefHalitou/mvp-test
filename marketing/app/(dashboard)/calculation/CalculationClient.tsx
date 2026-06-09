@@ -39,11 +39,13 @@ interface TimePairWithRate {
 interface MaterialRow {
     id: string; material_id: string; material_name: string; unit: string;
     quantity: number; cost_per_unit: number; price_per_unit: number; total_cost: number; total_price: number;
+    cost_date?: string | null;
     isNew?: boolean;
 }
 interface VehicleCostRow {
     id: string; vehicle_id: string; fahrzeug: string; usage_type: string;
     usage_value: number; cost_per_unit: number; total_cost: number; notes: string;
+    cost_date?: string | null;
     isNew?: boolean;
 }
 type ServiceCostRow = {
@@ -57,6 +59,7 @@ type ServiceCostRow = {
     total_cost: number;
     price_per_unit?: number;
     total_price?: number;
+    cost_date?: string | null;
     isNew?: boolean;
 };
 interface RevenueRow {
@@ -73,6 +76,7 @@ interface HvzCostRow {
 interface BnkCostRow {
     id: string; beschreibung: string | null; menge: number | null;
     ek_preis: number; vk_preis: number; isNew?: boolean;
+    cost_date?: string | null;
 }
 type ProjectDayEntry = { project_id: string | null; date: string | null };
 
@@ -84,6 +88,11 @@ function calcHours(von: string | null, bis: string | null, pauseMin: number = 0)
     return totalMin > 0 ? +(totalMin / 60).toFixed(2) : 0;
 }
 function eur(n: number) { return n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }); }
+
+function escapeHtml(value: unknown): string {
+    const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return String(value ?? '').replace(/[&<>"']/g, char => map[char]);
+}
 
 function normalizeDate(value?: string | null): string | null {
     if (!value) return null;
@@ -119,6 +128,19 @@ function getProjectDayDates(project: Project, dayEntries: ProjectDayEntry[]): st
     });
     expandDateRange(project.project_start_date, project.project_end_date).forEach(date => dates.add(date));
     return Array.from(dates).sort();
+}
+
+function matchesCostDate(row: { cost_date?: string | null }, selectedDate?: string | null): boolean {
+    if (!selectedDate) return true;
+    return normalizeDate(row.cost_date) === selectedDate;
+}
+
+function overlapsDateRange(row: { datum_von?: string | null; datum_bis?: string | null }, selectedDate?: string | null): boolean {
+    if (!selectedDate) return true;
+    const start = normalizeDate(row.datum_von);
+    const end = normalizeDate(row.datum_bis) || start;
+    if (!start && !end) return false;
+    return (!start || start <= selectedDate) && (!end || selectedDate <= end);
 }
 
 // ---- COLORING HELPERS ----
@@ -177,6 +199,7 @@ export default function CalculationPage() {
     const [selectedProjectId, setSelectedProjectId] = useState<string>('');
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
     const [loading, setLoading] = useState(false);
+    const [costDateColumnsAvailable, setCostDateColumnsAvailable] = useState(true);
     const [isKvMode, setIsKvMode] = useState(false);
     const [isFpMode, setIsFpMode] = useState(false);
     const [kvValues, setKvValues] = useState<Record<string, number>>({});
@@ -206,7 +229,7 @@ export default function CalculationPage() {
     const [vehicles, setVehicles] = useState<VehicleCostRow[]>([]);
     const [services, setServices] = useState<ServiceCostRow[]>([]);
     const [revenue, setRevenue] = useState<RevenueRow[]>([]);
-    const [extraCosts, setExtraCosts] = useState<{ cost_id: string; beschreibung: string; menge: number; ek_preis: number; vk_preis: number; isNew?: boolean }[]>([]);
+    const [extraCosts, setExtraCosts] = useState<{ cost_id: string; beschreibung: string; menge: number; ek_preis: number; vk_preis: number; cost_date?: string | null; isNew?: boolean }[]>([]);
     const [discounts, setDiscounts] = useState<DiscountRow[]>([]);
     const [hvzCosts, setHvzCosts] = useState<HvzCostRow[]>([]);
     const [bnkCosts, setBnkCosts] = useState<BnkCostRow[]>([]);
@@ -340,7 +363,7 @@ export default function CalculationPage() {
 
     useEffect(() => {
         (async () => {
-            const [projRes, matRes, vehRes, svcRes, mpRes, tpDateRes, waDateRes] = await Promise.all([
+            const [projRes, matRes, vehRes, svcRes, mpRes, tpDateRes, waDateRes, matDateRes, vehDateRes, svcDateRes, extDateRes, hvzDateRes, bnkDateRes] = await Promise.all([
                 supabase.from('t_projects').select('*').order('created_at', { ascending: false }),
                 supabase.from('t_materials').select('*, prices:t_material_prices(cost_per_unit, price_per_unit)').eq('is_active', true).order('name'),
                 supabase.from('t_vehicles').select('*').eq('is_deleted', false).order('nickname'),
@@ -348,17 +371,32 @@ export default function CalculationPage() {
                 supabase.from('t_morningplan').select('plan_id, project_id, plan_date').order('plan_date', { ascending: false }),
                 supabase.from('t_time_pairs').select('project_id, datum, pause, replaced_by'),
                 supabase.from('t_work_assignments').select('project_id, assignment_date'),
+                supabase.from('t_project_material_usage').select('project_id, cost_date'),
+                supabase.from('t_project_vehicle_costs').select('project_id, cost_date'),
+                supabase.from('t_project_service_usage').select('project_id, cost_date'),
+                supabase.from('t_project_costs_extra').select('project_id, cost_date'),
+                supabase.from('t_project_hvz_costs').select('project_id, datum_von, datum_bis'),
+                supabase.from('t_project_bnk_costs').select('project_id, cost_date'),
             ]);
             setProjects(projRes.data || []);
             setMaterialCatalog(matRes.data || []);
             setVehicleCatalog(vehRes.data || []);
             setServiceCatalog(svcRes.data || []);
+            setCostDateColumnsAvailable(![matDateRes, vehDateRes, svcDateRes, extDateRes, bnkDateRes].some((res: any) => res.error?.code === '42703'));
             setProjectDayEntries([
                 ...(mpRes.data || []).map((mp: any) => ({ project_id: mp.project_id, date: mp.plan_date })),
                 ...(tpDateRes.data || [])
                     .filter((tp: any) => tp.pause !== 'deleted' && !tp.replaced_by)
                     .map((tp: any) => ({ project_id: tp.project_id, date: tp.datum })),
                 ...(waDateRes.data || []).map((wa: any) => ({ project_id: wa.project_id, date: wa.assignment_date })),
+                ...(matDateRes.data || []).map((r: any) => ({ project_id: r.project_id, date: r.cost_date })),
+                ...(vehDateRes.data || []).map((r: any) => ({ project_id: r.project_id, date: r.cost_date })),
+                ...(svcDateRes.data || []).map((r: any) => ({ project_id: r.project_id, date: r.cost_date })),
+                ...(extDateRes.data || []).map((r: any) => ({ project_id: r.project_id, date: r.cost_date })),
+                ...(hvzDateRes.data || []).flatMap((r: any) =>
+                    expandDateRange(r.datum_von, r.datum_bis || r.datum_von).map(date => ({ project_id: r.project_id, date }))
+                ),
+                ...(bnkDateRes.data || []).map((r: any) => ({ project_id: r.project_id, date: r.cost_date })),
             ]);
         })();
     }, []);
@@ -513,6 +551,14 @@ export default function CalculationPage() {
         const bnkData = allResults.flatMap(r => r[8].data || []);
         const waData = allResults.flatMap(r => r[9].data || []);
 
+        const shouldFilterCostDates = !!planDate && costDateColumnsAvailable;
+        const filteredMatData = shouldFilterCostDates ? matData.filter((m: any) => matchesCostDate(m, planDate)) : matData;
+        const filteredVehData = shouldFilterCostDates ? vehData.filter((v: any) => matchesCostDate(v, planDate)) : vehData;
+        const filteredSvcData = shouldFilterCostDates ? svcData.filter((s: any) => matchesCostDate(s, planDate)) : svcData;
+        const filteredExtData = shouldFilterCostDates ? extData.filter((e: any) => matchesCostDate(e, planDate)) : extData;
+        const filteredHvzData = planDate ? hvzData.filter((h: any) => overlapsDateRange(h, planDate)) : hvzData;
+        const filteredBnkData = shouldFilterCostDates ? bnkData.filter((b: any) => matchesCostDate(b, planDate)) : bnkData;
+
         // Map time pairs to personnel rows — optionally filter by planDate
         const filteredTpData = planDate ? tpData.filter(tp => tp.datum === planDate) : tpData;
         const tpPersonnel: TimePairWithRate[] = filteredTpData.filter(tp => tp.pause !== 'deleted' && !tp.replaced_by).map(tp => {
@@ -541,22 +587,24 @@ export default function CalculationPage() {
 
         setPersonnel([...tpPersonnel, ...waPersonnel]);
 
-        setMaterials((matData as any || []).map((m: any) => {
+        setMaterials((filteredMatData as any || []).map((m: any) => {
             const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;
             return {
                 id: m.id, material_id: m.material_id, material_name: m.material?.name || m.material_id, unit: m.material?.unit || '',
                 quantity: m.quantity, cost_per_unit: p?.cost_per_unit || 0, price_per_unit: p?.price_per_unit || 0,
-                total_cost: +(m.quantity * (p?.cost_per_unit || 0)).toFixed(2), total_price: +(m.quantity * (p?.price_per_unit || 0)).toFixed(2)
+                total_cost: +(m.quantity * (p?.cost_per_unit || 0)).toFixed(2), total_price: +(m.quantity * (p?.price_per_unit || 0)).toFixed(2),
+                cost_date: m.cost_date || null,
             };
         }));
 
-        setVehicles((vehData as any || []).map((v: any) => ({
+        setVehicles((filteredVehData as any || []).map((v: any) => ({
             id: v.id, vehicle_id: v.vehicle_id, fahrzeug: v.vehicle?.nickname || v.vehicle_id, usage_type: v.usage_type || 'km',
             usage_value: v.usage_value || 0, cost_per_unit: v.cost_per_unit || 0,
             total_cost: v.total_cost || +(v.usage_value * (v.cost_per_unit || 0)).toFixed(2), notes: v.notes || '',
+            cost_date: v.cost_date || null,
         })));
 
-        setServices((svcData as any || []).map((s: any) => {
+        setServices((filteredSvcData as any || []).map((s: any) => {
             const prices: any[] = Array.isArray(s.service?.prices) ? s.service.prices : s.service?.prices ? [s.service.prices] : [];
             const p = s.supplier ? prices.find((x: any) => x.supplier === s.supplier) || prices[0] : prices[0];
             return {
@@ -564,15 +612,16 @@ export default function CalculationPage() {
                 quantity: s.quantity || 1, unit: s.service?.default_unit || 'Std', cost_per_unit: p?.cost_per_unit || 0,
                 total_cost: +((s.quantity || 1) * (p?.cost_per_unit || 0)).toFixed(2),
                 price_per_unit: p?.customer_price_per_unit || p?.cost_per_unit || 0,
-                total_price: +((s.quantity || 1) * (p?.customer_price_per_unit || p?.cost_per_unit || 0)).toFixed(2)
+                total_price: +((s.quantity || 1) * (p?.customer_price_per_unit || p?.cost_per_unit || 0)).toFixed(2),
+                cost_date: s.cost_date || null,
             };
         }));
 
 
-        setExtraCosts(extData.map((e: any) => ({ cost_id: e.cost_id, beschreibung: e.beschreibung || e.description || '', menge: e.menge ?? 1, ek_preis: e.ek_preis ?? (e.cost ?? 0), vk_preis: e.vk_preis ?? 0 })));
+        setExtraCosts(filteredExtData.map((e: any) => ({ cost_id: e.cost_id, beschreibung: e.beschreibung || e.description || '', menge: e.menge ?? 1, ek_preis: e.ek_preis ?? (e.cost ?? 0), vk_preis: e.vk_preis ?? 0, cost_date: e.cost_date || null })));
         setDiscounts(discData.map((d: any) => ({ id: d.id, mode: d.mode || 'flat', description: d.description || '', value: d.value || 0 })));
-        setHvzCosts(hvzData.map((h: any) => ({ id: h.id, datum_von: h.datum_von, datum_bis: h.datum_bis, tage: h.tage, ek_preis: h.ek_preis, vk_preis: h.vk_preis })));
-        setBnkCosts(bnkData.map((b: any) => ({ id: b.id, beschreibung: b.beschreibung, menge: b.menge, ek_preis: b.ek_preis, vk_preis: b.vk_preis })));
+        setHvzCosts(filteredHvzData.map((h: any) => ({ id: h.id, datum_von: h.datum_von, datum_bis: h.datum_bis, tage: h.tage, ek_preis: h.ek_preis, vk_preis: h.vk_preis })));
+        setBnkCosts(filteredBnkData.map((b: any) => ({ id: b.id, beschreibung: b.beschreibung, menge: b.menge, ek_preis: b.ek_preis, vk_preis: b.vk_preis, cost_date: b.cost_date || null })));
         setLoading(false);
     };
 
@@ -649,11 +698,11 @@ export default function CalculationPage() {
     const addMaterial = async () => {
         if (!addMatForm.material_id || !selectedProjectId) return;
         try {
-            const { error } = await supabase.from('t_project_material_usage').insert({ project_id: selectedProjectId, material_id: addMatForm.material_id, quantity: addMatForm.quantity });
+            const { error } = await supabase.from('t_project_material_usage').insert({ project_id: selectedProjectId, material_id: addMatForm.material_id, quantity: addMatForm.quantity, ...(costDateColumnsAvailable ? { cost_date: selectedPlanDate } : {}) });
             if (error) throw error;
             setAddMatModal(false);
             toast('Material hinzugefügt');
-            loadProjectData([selectedProjectId]);
+            loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const updateMaterialQty = (id: string, qty: number) => {
@@ -668,13 +717,13 @@ export default function CalculationPage() {
                 supabase.from('t_project_material_usage').update({ quantity: m.quantity, price_per_unit: m.price_per_unit }).eq('id', m.id)
             ));
             toast('Materialien gespeichert');
-            loadProjectData([selectedProjectId]);
+            loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteMaterial = async (id: string) => {
         setMaterials(prev => prev.filter(m => m.id !== id));
         const { error } = await supabase.from('t_project_material_usage').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId], selectedPlanDate); }
     };
 
     // ---- VEHICLE COST CRUD ----
@@ -692,11 +741,12 @@ export default function CalculationPage() {
             const { error } = await supabase.from('t_project_vehicle_costs').insert({
                 project_id: selectedProjectId, vehicle_id: addVehForm.vehicle_id, usage_type: 'Pauschal',
                 usage_value: addVehForm.usage_value, cost_per_unit: addVehForm.cost_per_unit, total_cost: total, notes: addVehForm.notes || null,
+                ...(costDateColumnsAvailable ? { cost_date: selectedPlanDate } : {}),
             });
             if (error) throw error;
             setAddVehModal(false);
             toast('Fahrzeugkosten hinzugefügt');
-            loadProjectData([selectedProjectId]);
+            loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const updateVehicleCost = (id: string, field: string, value: any) => {
@@ -711,13 +761,13 @@ export default function CalculationPage() {
                 supabase.from('t_project_vehicle_costs').update({ usage_type: v.usage_type, usage_value: v.usage_value, cost_per_unit: v.cost_per_unit, total_cost: v.total_cost, notes: v.notes }).eq('id', v.id)
             ));
             toast('Fahrzeugkosten gespeichert');
-            loadProjectData([selectedProjectId]);
+            loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteVehicleCost = async (id: string) => {
         setVehicles(prev => prev.filter(v => v.id !== id));
         const { error } = await supabase.from('t_project_vehicle_costs').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId], selectedPlanDate); }
     };
 
     // ---- SERVICE COST CRUD ----
@@ -727,17 +777,18 @@ export default function CalculationPage() {
             const { error } = await supabase.from('t_project_service_usage').insert({
                 project_id: selectedProjectId, service_id: addSvcForm.service_id,
                 quantity: addSvcForm.quantity, supplier: addSvcForm.supplier || null,
+                ...(costDateColumnsAvailable ? { cost_date: selectedPlanDate } : {}),
             });
             if (error) throw error;
             setAddSvcModal(false);
             toast('Leistung hinzugefügt');
-            loadProjectData([selectedProjectId]);
+            loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const deleteServiceCost = async (id: string) => {
         setServices(prev => prev.filter(s => s.id !== id));
         const { error } = await supabase.from('t_project_service_usage').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId], selectedPlanDate); }
     };
     const updateServiceCost = (id: string, field: string, value: any) => {
         setServices(prev => prev.map(s => {
@@ -771,11 +822,12 @@ export default function CalculationPage() {
                 cost_type: addExtraForm.beschreibung,
                 description: addExtraForm.beschreibung,
                 cost: addExtraForm.menge * addExtraForm.ek_preis,
+                ...(costDateColumnsAvailable ? { cost_date: selectedPlanDate } : {}),
             });
             if (error) throw error;
             setAddExtraModal(false);
             toast('Sonstige Kosten hinzugefügt');
-            loadProjectData([selectedProjectId]);
+            loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const updateExtraCost = (costId: string, field: string, value: any) => {
@@ -787,13 +839,13 @@ export default function CalculationPage() {
                 supabase.from('t_project_costs_extra').update({ beschreibung: e.beschreibung, menge: e.menge, ek_preis: e.ek_preis, vk_preis: e.vk_preis, cost_type: e.beschreibung, description: e.beschreibung, cost: (e.menge || 0) * (e.ek_preis || 0) }).eq('cost_id', e.cost_id)
             ));
             toast('Sonstige Kosten gespeichert');
-            loadProjectData([selectedProjectId]);
+            loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteExtraCost = async (costId: string) => {
         setExtraCosts(prev => prev.filter(e => e.cost_id !== costId));
         const { error } = await supabase.from('t_project_costs_extra').delete().eq('cost_id', costId);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId], selectedPlanDate); }
     };
 
     // ---- DISCOUNT CRUD ----
@@ -900,13 +952,13 @@ export default function CalculationPage() {
             if (error) throw error;
             setAddHvzModal(false);
             toast('HVZ hinzugefügt');
-            loadProjectData([selectedProjectId]);
+            loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const deleteHvzCost = async (id: string) => {
         setHvzCosts(prev => prev.filter(h => h.id !== id));
         const { error } = await supabase.from('t_project_hvz_costs').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId], selectedPlanDate); }
     };
 
     // ---- BNK CRUD ----
@@ -915,18 +967,18 @@ export default function CalculationPage() {
         try {
             const { error } = await supabase.from('t_project_bnk_costs').insert({
                 project_id: selectedProjectId, beschreibung: addBnkForm.beschreibung || null, menge: addBnkForm.menge || null,
-                ek_preis: addBnkForm.ek_preis, vk_preis: addBnkForm.vk_preis
+                ek_preis: addBnkForm.ek_preis, vk_preis: addBnkForm.vk_preis, ...(costDateColumnsAvailable ? { cost_date: selectedPlanDate } : {})
             });
             if (error) throw error;
             setAddBnkModal(false);
             toast('Diesel (BNK) hinzugefügt');
-            loadProjectData([selectedProjectId]);
+            loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Hinzufügen', 'error'); }
     };
     const deleteBnkCost = async (id: string) => {
         setBnkCosts(prev => prev.filter(b => b.id !== id));
         const { error } = await supabase.from('t_project_bnk_costs').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId], selectedPlanDate); }
     };
 
     // ---- EXPORT ----
@@ -1179,12 +1231,23 @@ export default function CalculationPage() {
         </tr>`;
             })()}
         ${(() => {
+            const extraRows = extraCosts.length > 0
+                ? extraCosts.map((extraCost, index) => {
+                    const label = escapeHtml(extraCost.beschreibung || `Position ${index + 1}`);
+                    return {
+                        label: `Sonstige Kosten: ${label}`,
+                        lis: numFormat((extraCost.menge || 0) * (extraCost.ek_preis || 0)),
+                        kunde: numFormat((extraCost.menge || 0) * (extraCost.vk_preis || 0)),
+                        fp: index === 0 && kvValues['extra'] ? numFormat(kvValues['extra']) : '',
+                    };
+                })
+                : [{ label: 'Sonstige Kosten', lis: numFormat(extraKosten), kunde: numFormat(extraErloes), fp: kvValues['extra'] ? numFormat(kvValues['extra']) : '' }];
             const rows = [
                 { label: 'HVZ', lis: numFormat(hvzKosten), kunde: numFormat(hvzErloes), fp: kvValues['hvz'] ? numFormat(kvValues['hvz']) : '' },
                 { label: 'LKW', lis: numFormat(lkwKosten), kunde: numFormat(lkwErloes), fp: kvValues['lkw'] ? numFormat(kvValues['lkw']) : '' },
                 { label: 'Diesel / BNK', lis: numFormat(bnkKosten), kunde: numFormat(bnkErloes), fp: kvValues['diesel'] ? numFormat(kvValues['diesel']) : '' },
                 { label: 'Material', lis: numFormat(materialKosten), kunde: numFormat(materialErloes), fp: kvValues['material'] ? numFormat(kvValues['material']) : '' },
-                { label: 'Sonstige Kosten', lis: numFormat(extraKosten), kunde: numFormat(extraErloes), fp: kvValues['extra'] ? numFormat(kvValues['extra']) : '' },
+                ...extraRows,
             ];
             return rows.map(r => {
                 if (isFpMode) return `<tr>
@@ -2180,7 +2243,7 @@ export default function CalculationPage() {
                                                 return (
                                                     <SortableCostSection key="hvz" id="hvz">
                                                         <CostSection title="HVZ" icon={<Truck className="h-5 w-5" />} total={hvzKosten} color="orange" kosten={hvzKosten} erloes={hvzErloes}
-                                                            actions={<button onClick={() => { setAddHvzForm({ datum_von: '', datum_bis: '', tage: 0, ek_preis: 0, vk_preis: 0 }); setAddHvzModal(true); }} className="flex items-center gap-1 text-xs text-orange-700 hover:text-orange-900"><Plus className="h-3.5 w-3.5" /> HVZ</button>}>
+                                                            actions={<button onClick={() => { setAddHvzForm({ datum_von: selectedPlanDate || '', datum_bis: selectedPlanDate || '', tage: selectedPlanDate ? 1 : 0, ek_preis: 0, vk_preis: 0 }); setAddHvzModal(true); }} className="flex items-center gap-1 text-xs text-orange-700 hover:text-orange-900"><Plus className="h-3.5 w-3.5" /> HVZ</button>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
                                                                     <tr><th className="px-4 py-2 text-left">Von</th><th className="px-4 py-2 text-left">Bis</th><th className="px-4 py-2 text-right">Tage</th><th className="px-4 py-2 text-right">EK-Preis</th><th className="px-4 py-2 text-right">VK-Preis</th><th className="px-4 py-2 text-right">LiS Kosten</th><th className="px-4 py-2 text-right">Kunden-Kosten</th><th className="w-10"></th></tr>

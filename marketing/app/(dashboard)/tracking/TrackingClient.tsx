@@ -934,6 +934,7 @@ export default function TrackingPage() {
                     status: wa.status,
                     notes: wa.notes,
                     project_id: wa.project_id,
+                    is_replacement: true,
                 })
                 .select('assignment_id')
                 .single();
@@ -965,6 +966,93 @@ export default function TrackingPage() {
         const [eh, em] = et.split(':').map(Number);
         const mins = (eh * 60 + em) - (sh * 60 + sm) - (brk || 0);
         return mins > 0 ? (mins / 60).toFixed(1) : '—';
+    };
+
+    const replacedWorkAssignments = viewMode === 'day' ? workAssignments.filter(wa => !!wa.replaced_by) : [];
+    const renderReplacedWorkAssignmentsSection = () => {
+        if (replacedWorkAssignments.length === 0) return null;
+
+        return (
+            <div className="mt-4">
+                <div className="flex items-center gap-2 mb-3 px-1">
+                    <ArrowLeftRight className="h-5 w-5 text-orange-400" />
+                    <h3 className="text-lg font-bold text-slate-800">Ersetzte Mitarbeiter</h3>
+                    <span className="text-xs text-orange-400 ml-1">
+                        Arbeitseinsätze: {replacedWorkAssignments.length} Ersetzungen / Streichungen
+                    </span>
+                </div>
+                <div className="bg-white rounded-xl border border-orange-100 shadow-sm overflow-hidden">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gradient-to-r from-orange-50/70 to-orange-50/30 border-b border-orange-100 text-orange-500 font-medium text-xs uppercase tracking-wide">
+                            <tr>
+                                <th className="px-4 py-3">Typ</th>
+                                <th className="px-4 py-3">Original Mitarbeiter</th>
+                                <th className="px-4 py-3">Projekt</th>
+                                <th className="px-3 py-3 text-center">Start</th>
+                                <th className="px-3 py-3 text-center">Ende</th>
+                                <th className="px-3 py-3 text-center">Pause</th>
+                                <th className="px-3 py-3 text-center">Stunden</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-3 py-3 text-center">Ersetzt durch</th>
+                                <th className="w-10"></th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-orange-50">
+                            {replacedWorkAssignments.map(wa => {
+                                const replacementWa = wa.replaced_by && wa.replaced_by !== 'crossed_out'
+                                    ? workAssignments.find(w => w.assignment_id === wa.replaced_by)
+                                    : null;
+                                const isCrossedOut = wa.replaced_by === 'crossed_out';
+                                return (
+                                    <tr key={`replaced-wa-${wa.assignment_id}`} className={cn(isCrossedOut ? "bg-amber-50/30" : "bg-orange-50/20", "hover:bg-orange-50/40")}>
+                                        <td className="px-4 py-2.5">
+                                            <span className="text-xs font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{wa.work_type}</span>
+                                        </td>
+                                        <td className="px-4 py-2.5 text-slate-700 font-medium">{wa.employee_name}</td>
+                                        <td className="px-4 py-2.5 text-slate-500 text-xs">{wa.project_id ? (projects.find(p => p.project_id === wa.project_id)?.name || '—') : '—'}</td>
+                                        <td className="px-3 py-2.5 text-center font-mono text-slate-500">{wa.start_time?.substring(0, 5) || '—'}</td>
+                                        <td className="px-3 py-2.5 text-center font-mono text-slate-500">{wa.end_time?.substring(0, 5) || '—'}</td>
+                                        <td className="px-3 py-2.5 text-center text-slate-500">{wa.break_minutes ? `${wa.break_minutes} min` : '—'}</td>
+                                        <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{calcWaHours(wa.start_time, wa.end_time, wa.break_minutes)}</td>
+                                        <td className="px-4 py-2.5">
+                                            <span className={cn("text-xs px-2 py-0.5 rounded-full", wa.status === 'Erledigt' ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700")}>{wa.status || 'Offen'}</span>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-center">
+                                            {isCrossedOut ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full text-xs font-semibold">✕ Gestrichen</span>
+                                            ) : replacementWa ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-semibold">→ {replacementWa.employee_name}</span>
+                                            ) : (
+                                                <span className="text-slate-400 text-xs">—</span>
+                                            )}
+                                        </td>
+                                        <td className="px-2 py-2.5 text-center">
+                                            {isCrossedOut ? (
+                                                <button
+                                                    onClick={() => handleWaUndoCrossOut(wa)}
+                                                    className="text-amber-400 hover:text-amber-700 transition-colors"
+                                                    title="Streichung rückgängig machen"
+                                                >
+                                                    <Undo2 className="h-4 w-4" />
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => deleteWa(wa.assignment_id)}
+                                                    className="text-red-300 hover:text-red-600 transition-colors"
+                                                    title="Ersetzten Einsatz löschen"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -1888,47 +1976,49 @@ export default function TrackingPage() {
                                 </div>
                             </div>
                         )}
+                        {renderReplacedWorkAssignmentsSection()}
                     </div>
                 ) : (
                     /* ===== WORK ASSIGNMENTS TABLE ===== */
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-medium">
-                                <tr >
-                                    <th className="px-4 py-3">Typ</th>
-                                    <th className="px-4 py-3">Mitarbeiter</th>
-                                    <th className="px-4 py-3">Projekt</th>
-                                    <th className="px-4 py-3 text-center">Start</th>
-                                    <th className="px-4 py-3 text-center">Ende</th>
-                                    <th className="px-4 py-3 text-center">Pause (min)</th>
-                                    <th className="px-4 py-3 text-center">Stunden</th>
-                                    <th className="px-4 py-3">Status</th>
-                                    <th className="px-4 py-3">Notizen</th>
-                                    <th className="w-20"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {workAssignments.length === 0 ? (
-                                    <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-400">
-                                        <Briefcase className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                                        <p>Keine Arbeitseinsätze für diesen Tag.</p>
-                                        <button onClick={openCreateWa} className="text-orange-600 hover:underline mt-2">Neuen Einsatz anlegen</button>
-                                    </td></tr>
-                                ) : workAssignments.map(wa => {
-                                    const waIsReplaced = !!wa.replaced_by;
-                                    const waIsCrossedOut = wa.replaced_by === 'crossed_out';
-                                    return (
-                                    <tr key={wa.assignment_id} className={cn("group", waIsReplaced ? (waIsCrossedOut ? "bg-amber-50/40 opacity-70" : "bg-red-50/30 opacity-60") : "hover:bg-slate-50")}>
-                                        <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className="text-xs font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{wa.work_type}</span></td>
-                                        <td className={cn("px-4 py-3 font-medium text-slate-900", waIsReplaced && (waIsCrossedOut ? "line-through text-amber-500" : "line-through text-red-400"))}>{wa.employee_name}</td>
-                                        <td className={cn("px-4 py-3 text-slate-600 text-sm", waIsReplaced && "line-through")}>{wa.project_id ? (projects.find(p => p.project_id === wa.project_id)?.name || '—') : '—'}</td>
-                                        <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.start_time?.substring(0, 5) || '—'}</td>
-                                        <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.end_time?.substring(0, 5) || '—'}</td>
-                                        <td className={cn("px-4 py-3 text-center", waIsReplaced && "line-through text-slate-400")}>{wa.break_minutes || 0}</td>
-                                        <td className={cn("px-4 py-3 text-center font-semibold text-slate-700", waIsReplaced && "line-through text-slate-400")}>{calcWaHours(wa.start_time, wa.end_time, wa.break_minutes)}</td>
-                                        <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className={cn("text-xs px-2 py-0.5 rounded-full", wa.status === 'Erledigt' ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700")}>{wa.status || 'Offen'}</span></td>
-                                        <td className={cn("px-4 py-3 text-slate-600 truncate max-w-[200px]", waIsReplaced && "line-through text-slate-400")}>{wa.notes || '—'}</td>
-                                        <td className="px-4 py-3">
+                    <>
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-medium">
+                                    <tr >
+                                        <th className="px-4 py-3">Typ</th>
+                                        <th className="px-4 py-3">Mitarbeiter</th>
+                                        <th className="px-4 py-3">Projekt</th>
+                                        <th className="px-4 py-3 text-center">Start</th>
+                                        <th className="px-4 py-3 text-center">Ende</th>
+                                        <th className="px-4 py-3 text-center">Pause (min)</th>
+                                        <th className="px-4 py-3 text-center">Stunden</th>
+                                        <th className="px-4 py-3">Status</th>
+                                        <th className="px-4 py-3">Notizen</th>
+                                        <th className="w-20"></th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {workAssignments.length === 0 ? (
+                                        <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                                            <Briefcase className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                                            <p>Keine Arbeitseinsätze für diesen Tag.</p>
+                                            <button onClick={openCreateWa} className="text-orange-600 hover:underline mt-2">Neuen Einsatz anlegen</button>
+                                        </td></tr>
+                                    ) : workAssignments.map(wa => {
+                                        const waIsReplaced = !!wa.replaced_by;
+                                        const waIsCrossedOut = wa.replaced_by === 'crossed_out';
+                                        return (
+                                        <tr key={wa.assignment_id} className={cn("group", waIsReplaced ? (waIsCrossedOut ? "bg-amber-50/40 opacity-70" : "bg-red-50/30 opacity-60") : "hover:bg-slate-50")}>
+                                            <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className="text-xs font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{wa.work_type}</span></td>
+                                            <td className={cn("px-4 py-3 font-medium text-slate-900", waIsReplaced && (waIsCrossedOut ? "line-through text-amber-500" : "line-through text-red-400"))}>{wa.employee_name}</td>
+                                            <td className={cn("px-4 py-3 text-slate-600 text-sm", waIsReplaced && "line-through")}>{wa.project_id ? (projects.find(p => p.project_id === wa.project_id)?.name || '—') : '—'}</td>
+                                            <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.start_time?.substring(0, 5) || '—'}</td>
+                                            <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.end_time?.substring(0, 5) || '—'}</td>
+                                            <td className={cn("px-4 py-3 text-center", waIsReplaced && "line-through text-slate-400")}>{wa.break_minutes || 0}</td>
+                                            <td className={cn("px-4 py-3 text-center font-semibold text-slate-700", waIsReplaced && "line-through text-slate-400")}>{calcWaHours(wa.start_time, wa.end_time, wa.break_minutes)}</td>
+                                            <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className={cn("text-xs px-2 py-0.5 rounded-full", wa.status === 'Erledigt' ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700")}>{wa.status || 'Offen'}</span></td>
+                                            <td className={cn("px-4 py-3 text-slate-600 truncate max-w-[200px]", waIsReplaced && "line-through text-slate-400")}>{wa.notes || '—'}</td>
+                                            <td className="px-4 py-3">
                                             <div className="flex items-center gap-1 justify-center relative">
                                                 {!waIsReplaced && (
                                                     <>
@@ -2013,13 +2103,15 @@ export default function TrackingPage() {
                                                     </button>
                                                 )}
                                             </div>
-                                        </td>
-                                    </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
+                                            </td>
+                                        </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                        {renderReplacedWorkAssignmentsSection()}
+                    </>
                 )}
             </div>
 

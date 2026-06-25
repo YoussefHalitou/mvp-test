@@ -674,6 +674,10 @@ export interface Database {
                     cost_type: string
                     description: string | null
                     cost: number
+                    beschreibung: string | null
+                    menge: number | null
+                    ek_preis: number | null
+                    vk_preis: number | null
                     phase: string | null
                     cost_date: string | null
                     created_at: string | null
@@ -684,6 +688,10 @@ export interface Database {
                     cost_type: string
                     description?: string | null
                     cost: number
+                    beschreibung?: string | null
+                    menge?: number | null
+                    ek_preis?: number | null
+                    vk_preis?: number | null
                     phase?: string | null
                     cost_date?: string | null
                 }
@@ -692,6 +700,10 @@ export interface Database {
                     cost_type?: string
                     description?: string | null
                     cost?: number
+                    beschreibung?: string | null
+                    menge?: number | null
+                    ek_preis?: number | null
+                    vk_preis?: number | null
                     phase?: string | null
                     cost_date?: string | null
                 }

@@ -39,6 +39,10 @@ interface ProjectExtraRow {
     cost_type: string;
     description: string;
     cost: number;
+    beschreibung?: string;
+    menge?: number;
+    ek_preis?: number;
+    vk_preis?: number;
 }
 
 interface WorkAssignmentRow {
@@ -275,8 +279,16 @@ export function TrackingExport({
                 extrasHtml = `
                 <div class="section-label"><span class="icon icon-slate"></span> Sonderkosten</div>
                 <table>
-                    <thead><tr><th>Typ</th><th>Beschreibung</th><th class="text-right" style="width:100px">Kosten</th></tr></thead>
-                    <tbody>${extras.map(e => `<tr><td>${escapeHtml(e.cost_type)}</td><td>${escapeHtml(e.description)}</td><td class="text-right">${fmtEuro(e.cost)}</td></tr>`).join('')}</tbody>
+                    <thead><tr><th>Beschreibung</th><th class="text-right" style="width:70px">Menge</th><th class="text-right" style="width:90px">EK</th><th class="text-right" style="width:90px">VK</th><th class="text-right" style="width:100px">LiS Kosten</th><th class="text-right" style="width:110px">Kunden-Kosten</th></tr></thead>
+                    <tbody>${extras.map(e => {
+                    const menge = e.menge === null || e.menge === undefined ? 1 : Number(e.menge) || 0;
+                    const legacyCost = Number(e.cost) || 0;
+                    const rawEkPreis = Number(e.ek_preis) || 0;
+                    const ekPreis = (e.ek_preis === null || e.ek_preis === undefined || (rawEkPreis === 0 && legacyCost > 0)) ? legacyCost / (menge || 1) : rawEkPreis;
+                    const vkPreis = Number(e.vk_preis ?? 0) || 0;
+                    const beschreibung = e.beschreibung || e.description || e.cost_type || '';
+                    return `<tr><td>${escapeHtml(beschreibung)}</td><td class="text-right">${menge}</td><td class="text-right">${fmtEuro(ekPreis)}</td><td class="text-right">${fmtEuro(vkPreis)}</td><td class="text-right">${fmtEuro(menge * ekPreis)}</td><td class="text-right">${fmtEuro(menge * vkPreis)}</td></tr>`;
+                }).join('')}</tbody>
                 </table>`;
             }
 

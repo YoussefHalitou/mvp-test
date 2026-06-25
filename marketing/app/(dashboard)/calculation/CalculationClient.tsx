@@ -88,6 +88,10 @@ function calcHours(von: string | null, bis: string | null, pauseMin: number = 0)
     return totalMin > 0 ? +(totalMin / 60).toFixed(2) : 0;
 }
 function eur(n: number) { return n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }); }
+function toFiniteNumber(value: unknown): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
 
 function escapeHtml(value: unknown): string {
     const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -231,6 +235,8 @@ export default function CalculationPage() {
     const [revenue, setRevenue] = useState<RevenueRow[]>([]);
     const [extraCosts, setExtraCosts] = useState<{ cost_id: string; beschreibung: string; menge: number; ek_preis: number; vk_preis: number; cost_date?: string | null; isNew?: boolean }[]>([]);
     const [discounts, setDiscounts] = useState<DiscountRow[]>([]);
+    const pendingDiscountDeleteIds = useRef<Set<string>>(new Set());
+    const savingDiscountsRef = useRef(false);
     const [hvzCosts, setHvzCosts] = useState<HvzCostRow[]>([]);
     const [bnkCosts, setBnkCosts] = useState<BnkCostRow[]>([]);
 
@@ -618,7 +624,22 @@ export default function CalculationPage() {
         }));
 
 
-        setExtraCosts(filteredExtData.map((e: any) => ({ cost_id: e.cost_id, beschreibung: e.beschreibung || e.description || '', menge: e.menge ?? 1, ek_preis: e.ek_preis ?? (e.cost ?? 0), vk_preis: e.vk_preis ?? 0, cost_date: e.cost_date || null })));
+        setExtraCosts(filteredExtData.map((e: any) => {
+            const menge = e.menge === null || e.menge === undefined ? 1 : toFiniteNumber(e.menge);
+            const legacyCost = toFiniteNumber(e.cost);
+            const rawEkPreis = toFiniteNumber(e.ek_preis);
+            const ekPreis = (e.ek_preis === null || e.ek_preis === undefined || (rawEkPreis === 0 && legacyCost > 0))
+                ? +(legacyCost / (menge || 1)).toFixed(2)
+                : rawEkPreis;
+            return {
+                cost_id: e.cost_id || e.id || '',
+                beschreibung: e.beschreibung || e.description || e.cost_type || '',
+                menge,
+                ek_preis: ekPreis,
+                vk_preis: toFiniteNumber(e.vk_preis),
+                cost_date: e.cost_date || null,
+            };
+        }));
         setDiscounts(discData.map((d: any) => ({ id: d.id, mode: d.mode || 'flat', description: d.description || '', value: d.value || 0 })));
         setHvzCosts(filteredHvzData.map((h: any) => ({ id: h.id, datum_von: h.datum_von, datum_bis: h.datum_bis, tage: h.tage, ek_preis: h.ek_preis, vk_preis: h.vk_preis })));
         setBnkCosts(filteredBnkData.map((b: any) => ({ id: b.id, beschreibung: b.beschreibung, menge: b.menge, ek_preis: b.ek_preis, vk_preis: b.vk_preis, cost_date: b.cost_date || null })));
@@ -660,6 +681,14 @@ export default function CalculationPage() {
         if (mode === 'percent') return s + (baseRevenue * ((d.value || 0) / 100)); // Apply % to revenue
         return s + (d.value || 0);
     }, 0), [discounts, baseRevenue]);
+    const customerDiscountFlat = useMemo(
+        () => discounts.filter(d => (d.mode || 'flat') === 'flat').reduce((s, d) => s + (d.value || 0), 0),
+        [discounts]
+    );
+    const customerDiscountPercent = useMemo(
+        () => discounts.filter(d => d.mode === 'percent').reduce((s, d) => s + (d.value || 0), 0),
+        [discounts]
+    );
     // In FP mode: revenue = sum of agreed FP values (kvValues), not the actual calculated revenue
     const fpRevenue = useMemo(() => calcKvTotal(kvValues), [kvValues, calcKvTotal]);
 
@@ -855,25 +884,58 @@ export default function CalculationPage() {
     const updateDiscount = (id: string, field: string, value: any) => {
         setDiscounts(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d));
     };
-    const saveDiscounts = async () => {
+    const setCustomerDiscountValue = (mode: 'flat' | 'percent', value: number) => {
+        setDiscounts(prev => {
+            const existing = prev.find(d => (d.mode || 'flat') === mode);
+            const retainedId = value > 0 ? existing?.id : undefined;
+
+            prev.forEach(d => {
+                if (d.id && d.id !== retainedId && !d.id.startsWith('temp-')) {
+                    pendingDiscountDeleteIds.current.add(d.id);
+                }
+            });
+
+            if (value <= 0) return [];
+
+            return [{
+                id: existing?.id || `temp-${Date.now()}`,
+                mode,
+                description: mode === 'percent' ? 'Rabatt (%)' : 'Rabatt (€)',
+                value,
+                isNew: !existing || existing.id.startsWith('temp-'),
+            }];
+        });
+    };
+    const saveDiscounts = async (silent = false) => {
         if (!selectedProjectId) return;
+        if (savingDiscountsRef.current) return;
+        savingDiscountsRef.current = true;
         try {
-            await Promise.all(discounts.map((d: any) => {
+            const idsToDelete = Array.from(pendingDiscountDeleteIds.current);
+            if (idsToDelete.length > 0) {
+                await supabase.from('t_project_discounts').delete().in('id', idsToDelete);
+            }
+            await Promise.all(discounts.filter((d: any) => (d.value || 0) > 0).map((d: any) => {
                 const record = { project_id: selectedProjectId, mode: d.mode || 'flat', description: d.description || '', value: d.value, target: 'total' };
                 const currentId = d.id;
                 return d.isNew || currentId.startsWith('temp-')
                     ? supabase.from('t_project_discounts').insert(record)
                     : supabase.from('t_project_discounts').update(record).eq('id', currentId);
             }));
-            toast('Rabatte gespeichert');
-            loadProjectData([selectedProjectId]);
-        } catch { toast('Fehler beim Speichern', 'error'); }
+            pendingDiscountDeleteIds.current.clear();
+            if (!silent) toast('Rabatte gespeichert');
+            await loadProjectData([selectedProjectId], selectedPlanDate);
+        } catch {
+            if (!silent) toast('Fehler beim Speichern', 'error');
+        } finally {
+            savingDiscountsRef.current = false;
+        }
     };
     const deleteDiscount = async (id: string) => {
         if (id.startsWith('temp-')) { setDiscounts(prev => prev.filter(d => d.id !== id)); return; }
         setDiscounts(prev => prev.filter(d => d.id !== id));
         const { error } = await supabase.from('t_project_discounts').delete().eq('id', id);
-        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId]); }
+        if (error) { toast('Fehler beim Löschen', 'error'); loadProjectData([selectedProjectId], selectedPlanDate); }
     };
 
     // ---- KV VALUES PERSISTENCE ----
@@ -1790,6 +1852,60 @@ export default function CalculationPage() {
                                 >
                                     <Save className="h-3.5 w-3.5" /> Speichern
                                 </button>
+                            </div>
+
+                            {/* Kunde Rabatt Input Panel */}
+                            <div className="rounded-xl p-5 shadow-sm border bg-white border-green-200">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border bg-green-100 text-green-700 border-green-300">Kunde</span>
+                                    <h3 className="text-sm font-semibold text-green-800">Kunden-Rabatt</h3>
+                                    <span className="text-xs ml-auto font-medium text-green-600">
+                                        Abzug Kunde: {eur(discountTotal)}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                    <div className={cn('flex flex-col gap-1 rounded-lg', customerDiscountFlat ? 'border border-green-300 bg-green-50 p-1 -m-1' : '')}>
+                                        <label className="text-[10px] font-bold uppercase tracking-wider text-green-700">Rabatt (€)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            placeholder="0,00"
+                                            className="rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1 border-green-200 focus:border-green-500 focus:ring-green-300"
+                                            value={customerDiscountFlat || ''}
+                                            onChange={e => setCustomerDiscountValue('flat', e.target.value === '' ? 0 : toFiniteNumber(e.target.value))}
+                                            onBlur={() => saveDiscounts(true)}
+                                        />
+                                    </div>
+                                    <div className={cn('flex flex-col gap-1 rounded-lg', customerDiscountPercent ? 'border border-green-300 bg-green-50 p-1 -m-1' : '')}>
+                                        <label className="text-[10px] font-bold uppercase tracking-wider text-green-700">Rabatt (%)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            placeholder="0,00"
+                                            className="rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1 border-green-200 focus:border-green-500 focus:ring-green-300"
+                                            value={customerDiscountPercent || ''}
+                                            onChange={e => setCustomerDiscountValue('percent', e.target.value === '' ? 0 : toFiniteNumber(e.target.value))}
+                                            onBlur={() => saveDiscounts(true)}
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1 rounded-lg">
+                                        <label className="text-[10px] font-bold uppercase tracking-wider text-green-700">Kunde netto</label>
+                                        <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-right font-semibold text-green-800">
+                                            {eur(istRevenue)}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-end justify-end">
+                                        <button
+                                            onMouseDown={e => e.preventDefault()}
+                                            onClick={() => saveDiscounts(false)}
+                                            className="flex items-center gap-1.5 px-4 py-2 text-xs text-white rounded-lg transition-colors shadow-sm font-semibold bg-green-600 hover:bg-green-700"
+                                        >
+                                            <Save className="h-3.5 w-3.5" /> Kunden-Rabatt speichern
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
 
                             {/* KV / FP Input Panel */}

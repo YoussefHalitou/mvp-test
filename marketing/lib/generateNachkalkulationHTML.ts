@@ -12,9 +12,13 @@ const escapeHtml = (value: any) => {
     return String(value ?? '').replace(/[&<>"']/g, char => map[char]);
 };
 const getExtraCostLisTotal = (e: any) => {
-    const hasUnitPrice = e.ek_preis !== undefined && e.ek_preis !== null;
-    if (!hasUnitPrice) return toNumber(e.cost);
-    return toNumber(e.menge ?? 1) * toNumber(e.ek_preis);
+    const menge = e.menge === undefined || e.menge === null ? 1 : toNumber(e.menge);
+    const legacyCost = toNumber(e.cost);
+    const rawEkPreis = toNumber(e.ek_preis);
+    const ekPreis = (e.ek_preis === undefined || e.ek_preis === null || (rawEkPreis === 0 && legacyCost > 0))
+        ? legacyCost / (menge || 1)
+        : rawEkPreis;
+    return menge * ekPreis;
 };
 const getExtraCostCustomerTotal = (e: any) => toNumber(e.menge ?? 1) * toNumber(e.vk_preis);
 

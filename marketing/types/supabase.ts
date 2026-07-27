@@ -483,6 +483,7 @@ export interface Database {
                     service_id: string
                     quantity: number | null
                     supplier: string | null
+                    price_per_unit: number | null
                     notes: string | null
                     cost_date: string | null
                     created_at: string | null
@@ -493,6 +494,7 @@ export interface Database {
                     service_id: string
                     quantity?: number | null
                     supplier?: string | null
+                    price_per_unit?: number | null
                     notes?: string | null
                     cost_date?: string | null
                 }
@@ -501,6 +503,7 @@ export interface Database {
                     service_id?: string
                     quantity?: number | null
                     supplier?: string | null
+                    price_per_unit?: number | null
                     notes?: string | null
                     cost_date?: string | null
                 }
@@ -566,6 +569,7 @@ export interface Database {
                     project_id: string | null
                     material_id: string | null
                     quantity: number
+                    price_per_unit: number | null
                     phase: string | null
                     inspection_id: string | null
                     cost_date: string | null
@@ -576,6 +580,7 @@ export interface Database {
                     project_id?: string | null
                     material_id?: string | null
                     quantity?: number
+                    price_per_unit?: number | null
                     phase?: string | null
                     inspection_id?: string | null
                     cost_date?: string | null
@@ -584,6 +589,7 @@ export interface Database {
                     project_id?: string | null
                     material_id?: string | null
                     quantity?: number
+                    price_per_unit?: number | null
                     phase?: string | null
                     inspection_id?: string | null
                     cost_date?: string | null

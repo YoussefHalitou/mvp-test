@@ -8,7 +8,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import { Database } from '@/types/supabase';
+import { NumberInput } from '@/components/ui/number-input';
 
 type Employee = Database['public']['Tables']['t_employees']['Row'];
 type Vehicle = Database['public']['Tables']['t_vehicles']['Row'];
@@ -181,16 +183,31 @@ function useCustomColumns(tableName: string) {
     }, []);
 
     const saveData = useCallback(async (recordId: string) => {
-        const entries = Object.entries(editingCustomValues).filter(([, v]) => v !== '');
-        if (entries.length === 0) return;
-        const rows = entries.map(([colId, value]) => ({
+        const entries = Object.entries(editingCustomValues);
+        const filledEntries = entries.filter(([, value]) => value !== '');
+        const emptyColumnIds = entries.filter(([, value]) => value === '').map(([colId]) => colId);
+
+        const rows = filledEntries.map(([colId, value]) => ({
             custom_column_id: colId,
             record_id: recordId,
             value,
         }));
-        await supabase.from('t_custom_column_data').upsert(rows, { onConflict: 'custom_column_id,record_id' });
-        // Update local cache
-        setCustomData(prev => ({ ...prev, [recordId]: { ...prev[recordId], ...editingCustomValues } }));
+
+        if (rows.length > 0) {
+            requireSupabaseSuccess(await supabase.from('t_custom_column_data').upsert(rows, { onConflict: 'custom_column_id,record_id' }));
+        }
+        if (emptyColumnIds.length > 0) {
+            requireSupabaseSuccess(await supabase.from('t_custom_column_data')
+                .delete()
+                .eq('record_id', recordId)
+                .in('custom_column_id', emptyColumnIds));
+        }
+
+        setCustomData(prev => {
+            const updatedRecord = { ...prev[recordId], ...editingCustomValues };
+            emptyColumnIds.forEach(colId => delete updatedRecord[colId]);
+            return { ...prev, [recordId]: updatedRecord };
+        });
     }, [editingCustomValues]);
 
     return {
@@ -576,28 +593,28 @@ function VehiclesTab() {
                     is_deleted: false,
                 });
                 if (error) throw error;
-                await supabase.from('t_vehicle_rates').upsert({
+                requireSupabaseSuccess(await supabase.from('t_vehicle_rates').upsert({
                     vehicle_id: vid,
                     cost_per_unit: Number(editing.cost_per_unit) || 0,
                     price_per_unit: Number(editing.price_per_unit) || 0,
                     gas_cost_per_unit: Number(editing.gas_cost_per_unit) || 0,
                     gas_price_per_unit: Number(editing.gas_price_per_unit) || 0,
                     currency: 'EUR'
-                });
+                }));
                 await cc.saveData(vid);
                 toast('Fahrzeug erstellt');
             } else {
                 const { created_at, updated_at, rates, cost_per_unit, price_per_unit, gas_cost_per_unit, gas_price_per_unit, ...upd } = editing as any;
                 const { error } = await supabase.from('t_vehicles').update(upd).eq('vehicle_id', editing.vehicle_id);
                 if (error) throw error;
-                await supabase.from('t_vehicle_rates').upsert({
+                requireSupabaseSuccess(await supabase.from('t_vehicle_rates').upsert({
                     vehicle_id: editing.vehicle_id,
                     cost_per_unit: Number(editing.cost_per_unit) || 0,
                     price_per_unit: Number(editing.price_per_unit) || 0,
                     gas_cost_per_unit: Number(editing.gas_cost_per_unit) || 0,
                     gas_price_per_unit: Number(editing.gas_price_per_unit) || 0,
                     currency: 'EUR'
-                });
+                }));
                 await cc.saveData(editing.vehicle_id!);
                 toast('Fahrzeug aktualisiert');
             }
@@ -847,9 +864,9 @@ function MaterialsTab() {
                     category: editing.category || null, vat_rate: editing.vat_rate || 19, is_active: true,
                 });
                 if (error) throw error;
-                await supabase.from('t_material_prices').upsert({
+                requireSupabaseSuccess(await supabase.from('t_material_prices').upsert({
                     material_id: id, cost_per_unit: Number(editing.cost_per_unit) || 0, price_per_unit: Number(editing.price_per_unit) || 0
-                });
+                }));
                 await cc.saveData(id);
                 toast('Material erstellt');
             } else {
@@ -858,9 +875,9 @@ function MaterialsTab() {
                     vat_rate: editing.vat_rate,
                 }).eq('material_id', editing.material_id);
                 if (error) throw error;
-                await supabase.from('t_material_prices').upsert({
+                requireSupabaseSuccess(await supabase.from('t_material_prices').upsert({
                     material_id: editing.material_id, cost_per_unit: Number(editing.cost_per_unit) || 0, price_per_unit: Number(editing.price_per_unit) || 0
-                });
+                }));
                 await cc.saveData(editing.material_id);
                 toast('Material aktualisiert');
             }
@@ -1086,12 +1103,14 @@ function ServicesTab() {
             // Sync prices
             // 1. Get current prices in DB to identify deletions (only if not new)
             if (!isNew) {
-                const { data: existingPrices } = await supabase.from('t_service_prices').select('price_id').eq('service_id', sid);
+                const existingPriceResult = await supabase.from('t_service_prices').select('price_id').eq('service_id', sid);
+                requireSupabaseSuccess(existingPriceResult);
+                const existingPrices = existingPriceResult.data;
                 const currentIds = (editing.prices || []).map((p: any) => p.price_id).filter(Boolean);
                 const idsToDelete = (existingPrices || []).map(p => p.price_id).filter(id => !currentIds.includes(id));
 
                 if (idsToDelete.length > 0) {
-                    await supabase.from('t_service_prices').delete().in('price_id', idsToDelete);
+                    requireSupabaseSuccess(await supabase.from('t_service_prices').delete().in('price_id', idsToDelete));
                 }
             }
 
@@ -1315,19 +1334,17 @@ function ServicesTab() {
                                                     />
                                                 </div>
                                                 <div className="col-span-2">
-                                                    <input
-                                                        type="number"
+                                                    <NumberInput
                                                         className="w-full px-2 py-1 text-xs border rounded focus:ring-1 focus:ring-blue-500 outline-none text-right"
-                                                        value={p.cost_per_unit ?? ''}
-                                                        onChange={e => updatePriceRow(idx, 'cost_per_unit', e.target.value)}
+                                                        value={p.cost_per_unit === '' || p.cost_per_unit === null || p.cost_per_unit === undefined || !Number.isFinite(Number(p.cost_per_unit)) ? null : Number(p.cost_per_unit)}
+                                                        onValueChange={(_, rawValue) => updatePriceRow(idx, 'cost_per_unit', rawValue)}
                                                     />
                                                 </div>
                                                 <div className="col-span-2">
-                                                    <input
-                                                        type="number"
+                                                    <NumberInput
                                                         className="w-full px-2 py-1 text-xs border rounded focus:ring-1 focus:ring-blue-500 outline-none text-right"
-                                                        value={p.customer_price_per_unit ?? ''}
-                                                        onChange={e => updatePriceRow(idx, 'customer_price_per_unit', e.target.value)}
+                                                        value={p.customer_price_per_unit === '' || p.customer_price_per_unit === null || p.customer_price_per_unit === undefined || !Number.isFinite(Number(p.customer_price_per_unit)) ? null : Number(p.customer_price_per_unit)}
+                                                        onValueChange={(_, rawValue) => updatePriceRow(idx, 'customer_price_per_unit', rawValue)}
                                                     />
                                                 </div>
                                                 <div className="col-span-2 flex justify-end">
@@ -1542,12 +1559,21 @@ function Modal({ title, onClose, onSave, saving, children }: {
 function Field({ label, value, onChange, type = 'text', textarea = false, placeholder }: {
     label: string; value: string; onChange: (v: string) => void; type?: string; textarea?: boolean; placeholder?: string;
 }) {
+    const numericValue = value.trim() === '' ? null : Number(value.replace(',', '.'));
+
     return (
         <div className={textarea ? 'col-span-full mt-2' : ''}>
             <label className="block text-xs font-medium text-slate-500 mb-1">{label}</label>
             {textarea ? (
                 <textarea className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm resize-none focus:border-blue-500 focus:outline-none"
                     rows={2} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
+            ) : type === 'number' ? (
+                <NumberInput
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    value={Number.isFinite(numericValue) ? numericValue : null}
+                    onValueChange={(_, rawValue) => onChange(rawValue)}
+                    placeholder={placeholder}
+                />
             ) : (
                 <input type={type} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                     value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />

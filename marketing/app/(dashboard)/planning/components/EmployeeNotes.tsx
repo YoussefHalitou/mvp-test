@@ -1,5 +1,7 @@
 import React from 'react';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
+import { useToast } from '@/components/ui/toast';
 import { Employee, EmployeeDailyNote } from './types';
 
 interface EmployeeNotesProps {
@@ -15,6 +17,7 @@ export function EmployeeNotes({
     selectedDay,
     fetchDayPanels
 }: EmployeeNotesProps) {
+    const { toast } = useToast();
 
     // Local component to handle state properly
     const EmployeeNoteInput = ({ emp, note, selectedDay }: { emp: Employee, note: EmployeeDailyNote | undefined, selectedDay: string }) => {
@@ -36,12 +39,17 @@ export function EmployeeNotes({
                     if (currentVal === existingVal) return;
 
                     const code = emp.employee_code || emp.name;
-                    if (note) {
-                        await supabase.from('t_employee_daily_notes').update({ notizen: currentVal }).eq('id', note.id);
-                    } else if (currentVal) {
-                        await supabase.from('t_employee_daily_notes').insert({ employee_code: code, employee_id: emp.employee_id, plan_date: selectedDay, notizen: currentVal, sort_order: 0 });
+                    try {
+                        if (note) {
+                            requireSupabaseSuccess(await supabase.from('t_employee_daily_notes').update({ notizen: currentVal }).eq('id', note.id));
+                        } else if (currentVal) {
+                            requireSupabaseSuccess(await supabase.from('t_employee_daily_notes').insert({ employee_code: code, employee_id: emp.employee_id, plan_date: selectedDay, notizen: currentVal, sort_order: 0 }));
+                        }
+                        await fetchDayPanels();
+                    } catch (error) {
+                        console.error('Error saving employee note:', error);
+                        toast('Notiz konnte nicht gespeichert werden', 'error');
                     }
-                    fetchDayPanels();
                 }}
             />
         );

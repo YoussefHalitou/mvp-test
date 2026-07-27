@@ -415,15 +415,16 @@ export function TrackingExport({
         // ===== ERSETZTE MITARBEITER =====
         const buildErsetzteHtml = (): string => {
             const replacedRows = rows.filter(r => !!r.replaced_by);
-            if (replacedRows.length === 0) return '';
+            const replacedWaRows = viewMode === 'day' ? workAssignments.filter(wa => !!wa.replaced_by) : [];
+            if (replacedRows.length === 0 && replacedWaRows.length === 0) return '';
 
-            const headers = [
+            const timePairHeaders = [
                 'Original Mitarbeiter', 'Projekt',
                 ...(viewMode === 'project' ? ['Datum'] : []),
                 'LiS Von', 'LiS Bis', 'Σ LiS', 'Kd Von', 'Kd Bis', 'Σ Kd', 'Pause', 'Ersetzt durch'
             ];
 
-            const body = replacedRows.map(row => {
+            const timePairBody = replacedRows.map(row => {
                 const replacementRow = rows.find(r => r.pair_id === row.replaced_by);
                 const lisH = calculateHours(row.lis_von, row.lis_bis, row.pause_min);
                 const kdH = calculateHours(row.kunde_von, row.kunde_bis);
@@ -442,14 +443,67 @@ export function TrackingExport({
                 </tr>`;
             }).join('');
 
+            const calcWaHours = (st: string | null, et: string | null, brk: number | null): string => {
+                if (!st || !et) return '—';
+                const [sh, sm] = st.split(':').map(Number);
+                const [eh, em] = et.split(':').map(Number);
+                const totalMin = (eh * 60 + em) - (sh * 60 + sm) - (brk || 0);
+                if (totalMin <= 0) return '—';
+                return (totalMin / 60).toFixed(2);
+            };
+
+            const statusBadge = (status: string | null) => {
+                const s = status || 'Offen';
+                if (s === 'Erledigt') return `<span class="badge badge-status-done">${escapeHtml(s)}</span>`;
+                if (s === 'In Bearbeitung') return `<span class="badge badge-status-progress">${escapeHtml(s)}</span>`;
+                return `<span class="badge badge-status-open">${escapeHtml(s)}</span>`;
+            };
+
+            const waHeaders = ['Typ', 'Original Mitarbeiter', 'Projekt', 'Datum', 'Start', 'Ende', 'Pause', 'Stunden', 'Status', 'Ersetzt durch'];
+            const waBody = replacedWaRows.map(wa => {
+                const replacementWa = wa.replaced_by && wa.replaced_by !== 'crossed_out'
+                    ? workAssignments.find(w => w.assignment_id === wa.replaced_by)
+                    : null;
+                const projName = wa.project_id ? (projectNames[wa.project_id] || '—') : '—';
+                return `<tr>
+                    <td><span class="badge" style="background:#fff7ed;color:#c2410c">${escapeHtml(wa.work_type)}</span></td>
+                    <td>${escapeHtml(wa.employee_name)}</td>
+                    <td style="font-size:10px">${escapeHtml(projName)}</td>
+                    <td>${wa.assignment_date ? format(new Date(wa.assignment_date), 'dd.MM.yyyy') : '—'}</td>
+                    <td class="text-center">${wa.start_time ? escapeHtml(wa.start_time.substring(0, 5)) : '—'}</td>
+                    <td class="text-center">${wa.end_time ? escapeHtml(wa.end_time.substring(0, 5)) : '—'}</td>
+                    <td class="text-center">${wa.break_minutes ? `${wa.break_minutes} min` : '—'}</td>
+                    <td class="text-center" style="font-weight:600">${calcWaHours(wa.start_time, wa.end_time, wa.break_minutes)}</td>
+                    <td>${statusBadge(wa.status)}</td>
+                    <td>${wa.replaced_by === 'crossed_out' ? '<span class="badge" style="background:#fef3c7;color:#92400e">✕ Gestrichen</span>' : (replacementWa ? `<span class="badge badge-green">→ ${escapeHtml(replacementWa.employee_name)}</span>` : '—')}</td>
+                </tr>`;
+            }).join('');
+
+            const replacementCount = replacedRows.filter(r => r.replaced_by !== 'crossed_out').length
+                + replacedWaRows.filter(wa => wa.replaced_by !== 'crossed_out').length;
+            const crossedOutCount = replacedRows.filter(r => r.replaced_by === 'crossed_out').length
+                + replacedWaRows.filter(wa => wa.replaced_by === 'crossed_out').length;
+
+            const timePairTable = replacedRows.length > 0 ? `
+                <div class="section-label"><span class="icon icon-slate"></span> Zeitpaare</div>
+                <table>
+                    <thead><tr>${timePairHeaders.map(h => `<th class="${h.startsWith('Σ') || h === 'Pause' ? 'text-center' : ''}">${h}</th>`).join('')}</tr></thead>
+                    <tbody>${timePairBody}</tbody>
+                </table>` : '';
+
+            const workAssignmentTable = replacedWaRows.length > 0 ? `
+                <div class="section-label"><span class="icon icon-amber"></span> Arbeitseinsätze</div>
+                <table>
+                    <thead><tr>${waHeaders.map(h => `<th class="${['Start', 'Ende', 'Pause', 'Stunden'].includes(h) ? 'text-center' : ''}">${h}</th>`).join('')}</tr></thead>
+                    <tbody>${waBody}</tbody>
+                </table>` : '';
+
             return `
             <div class="replaced-block">
                 <div class="replaced-title">🔄 Ersetzte / Gestrichene Mitarbeiter</div>
-                <div class="replaced-sub">${replacedRows.filter(r => r.replaced_by !== 'crossed_out').length} Ersetzungen, ${replacedRows.filter(r => r.replaced_by === 'crossed_out').length} Streichungen</div>
-                <table>
-                    <thead><tr>${headers.map(h => `<th class="${h.startsWith('Σ') || h === 'Pause' ? 'text-center' : ''}">${h}</th>`).join('')}</tr></thead>
-                    <tbody>${body}</tbody>
-                </table>
+                <div class="replaced-sub">${replacementCount} Ersetzungen, ${crossedOutCount} Streichungen</div>
+                ${timePairTable}
+                ${workAssignmentTable}
             </div>`;
         };
 

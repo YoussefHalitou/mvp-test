@@ -11,7 +11,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import { Database } from '@/types/supabase';
+import { NumberInput } from '@/components/ui/number-input';
 import {
     DndContext,
     closestCenter,
@@ -499,6 +501,7 @@ export default function CalculationPage() {
 
     const loadProjectData = async (pids: string[], planDate?: string | null) => {
         setLoading(true);
+        try {
         const proj = projects.find(p => p.project_id === pids[0]) || null;
         if (proj) {
             setSelectedProject(proj);
@@ -510,7 +513,9 @@ export default function CalculationPage() {
         setKvValues({});
 
         // Load persisted KV values
-        const { data: kvData } = await supabase.from('t_project_kv_values').select('kv_key, kv_value').eq('project_id', pids[0]);
+        const kvResult = await supabase.from('t_project_kv_values').select('kv_key, kv_value').eq('project_id', pids[0]);
+        requireSupabaseSuccess(kvResult);
+        const kvData = kvResult.data;
         if (kvData && kvData.length > 0) {
             const loaded: Record<string, number> = {};
             kvData.forEach((kv: any) => { loaded[kv.kv_key] = kv.kv_value || 0; });
@@ -528,7 +533,9 @@ export default function CalculationPage() {
 
 
 
-        const { data: employees } = await supabase.from('t_employees').select('employee_id, name, hourly_rate, role');
+        const employeeResult = await supabase.from('t_employees').select('employee_id, name, hourly_rate, role');
+        requireSupabaseSuccess(employeeResult);
+        const employees = employeeResult.data;
         const rateMap: Record<string, { rate: number; role: string | null }> = {};
         (employees || []).forEach(e => { rateMap[e.name] = { rate: e.hourly_rate || 0, role: e.role }; });
 
@@ -544,6 +551,7 @@ export default function CalculationPage() {
             supabase.from('t_project_bnk_costs').select('*').eq('project_id', pid),
             supabase.from('t_work_assignments').select('*').eq('project_id', pid).order('assignment_date'),
         ])));
+        allResults.flat().forEach(requireSupabaseSuccess);
 
         // Merge all results
         const tpData = allResults.flatMap(r => r[0].data || []);
@@ -595,10 +603,11 @@ export default function CalculationPage() {
 
         setMaterials((filteredMatData as any || []).map((m: any) => {
             const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;
+            const customerPrice = m.price_per_unit ?? p?.price_per_unit ?? 0;
             return {
                 id: m.id, material_id: m.material_id, material_name: m.material?.name || m.material_id, unit: m.material?.unit || '',
-                quantity: m.quantity, cost_per_unit: p?.cost_per_unit || 0, price_per_unit: p?.price_per_unit || 0,
-                total_cost: +(m.quantity * (p?.cost_per_unit || 0)).toFixed(2), total_price: +(m.quantity * (p?.price_per_unit || 0)).toFixed(2),
+                quantity: m.quantity, cost_per_unit: p?.cost_per_unit || 0, price_per_unit: customerPrice,
+                total_cost: +(m.quantity * (p?.cost_per_unit || 0)).toFixed(2), total_price: +(m.quantity * customerPrice).toFixed(2),
                 cost_date: m.cost_date || null,
             };
         }));
@@ -613,12 +622,13 @@ export default function CalculationPage() {
         setServices((filteredSvcData as any || []).map((s: any) => {
             const prices: any[] = Array.isArray(s.service?.prices) ? s.service.prices : s.service?.prices ? [s.service.prices] : [];
             const p = s.supplier ? prices.find((x: any) => x.supplier === s.supplier) || prices[0] : prices[0];
+            const customerPrice = s.price_per_unit ?? p?.customer_price_per_unit ?? p?.cost_per_unit ?? 0;
             return {
                 id: s.id, service_id: s.service_id, service_name: s.service?.name || s.service_id, supplier: s.supplier || p?.supplier || '',
                 quantity: s.quantity || 1, unit: s.service?.default_unit || 'Std', cost_per_unit: p?.cost_per_unit || 0,
                 total_cost: +((s.quantity || 1) * (p?.cost_per_unit || 0)).toFixed(2),
-                price_per_unit: p?.customer_price_per_unit || p?.cost_per_unit || 0,
-                total_price: +((s.quantity || 1) * (p?.customer_price_per_unit || p?.cost_per_unit || 0)).toFixed(2),
+                price_per_unit: customerPrice,
+                total_price: +((s.quantity || 1) * customerPrice).toFixed(2),
                 cost_date: s.cost_date || null,
             };
         }));
@@ -643,7 +653,12 @@ export default function CalculationPage() {
         setDiscounts(discData.map((d: any) => ({ id: d.id, mode: d.mode || 'flat', description: d.description || '', value: d.value || 0 })));
         setHvzCosts(filteredHvzData.map((h: any) => ({ id: h.id, datum_von: h.datum_von, datum_bis: h.datum_bis, tage: h.tage, ek_preis: h.ek_preis, vk_preis: h.vk_preis })));
         setBnkCosts(filteredBnkData.map((b: any) => ({ id: b.id, beschreibung: b.beschreibung, menge: b.menge, ek_preis: b.ek_preis, vk_preis: b.vk_preis, cost_date: b.cost_date || null })));
-        setLoading(false);
+        } catch (error) {
+            console.error('Error loading calculation data:', error);
+            toast('Nachkalkulationsdaten konnten nicht vollständig geladen werden', 'error');
+        } finally {
+            setLoading(false);
+        }
     };
 
     // LiS Std = costs (satz), Kd Std = revenue (kunden_satz, editable)
@@ -742,11 +757,12 @@ export default function CalculationPage() {
     };
     const saveMaterials = async () => {
         try {
-            await Promise.all(materials.filter(m => !m.isNew).map(m =>
+            const results = await Promise.all(materials.filter(m => !m.isNew).map(m =>
                 supabase.from('t_project_material_usage').update({ quantity: m.quantity, price_per_unit: m.price_per_unit }).eq('id', m.id)
             ));
+            results.forEach(requireSupabaseSuccess);
             toast('Materialien gespeichert');
-            loadProjectData([selectedProjectId], selectedPlanDate);
+            await loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteMaterial = async (id: string) => {
@@ -786,11 +802,12 @@ export default function CalculationPage() {
     };
     const saveVehicleCosts = async () => {
         try {
-            await Promise.all(vehicles.map(v =>
+            const results = await Promise.all(vehicles.map(v =>
                 supabase.from('t_project_vehicle_costs').update({ usage_type: v.usage_type, usage_value: v.usage_value, cost_per_unit: v.cost_per_unit, total_cost: v.total_cost, notes: v.notes }).eq('id', v.id)
             ));
+            results.forEach(requireSupabaseSuccess);
             toast('Fahrzeugkosten gespeichert');
-            loadProjectData([selectedProjectId], selectedPlanDate);
+            await loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteVehicleCost = async (id: string) => {
@@ -832,9 +849,16 @@ export default function CalculationPage() {
     const saveServiceCosts = async () => {
         if (!selectedProjectId) return;
         try {
-            // We can only save quantity/supplier via project_service_usage. 
-            // price_per_unit overrides are local to calculation view.
+            const results = await Promise.all(services.map(service =>
+                supabase.from('t_project_service_usage').update({
+                    quantity: service.quantity,
+                    supplier: service.supplier || null,
+                    price_per_unit: service.price_per_unit ?? null,
+                }).eq('id', service.id!)
+            ));
+            results.forEach(requireSupabaseSuccess);
             toast('Dienstleistungen gespeichert');
+            await loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
 
@@ -864,11 +888,12 @@ export default function CalculationPage() {
     };
     const saveExtraCosts = async () => {
         try {
-            await Promise.all(extraCosts.map(e =>
+            const results = await Promise.all(extraCosts.map(e =>
                 supabase.from('t_project_costs_extra').update({ beschreibung: e.beschreibung, menge: e.menge, ek_preis: e.ek_preis, vk_preis: e.vk_preis, cost_type: e.beschreibung, description: e.beschreibung, cost: (e.menge || 0) * (e.ek_preis || 0) }).eq('cost_id', e.cost_id)
             ));
+            results.forEach(requireSupabaseSuccess);
             toast('Sonstige Kosten gespeichert');
-            loadProjectData([selectedProjectId], selectedPlanDate);
+            await loadProjectData([selectedProjectId], selectedPlanDate);
         } catch { toast('Fehler beim Speichern', 'error'); }
     };
     const deleteExtraCost = async (costId: string) => {
@@ -913,20 +938,21 @@ export default function CalculationPage() {
         try {
             const idsToDelete = Array.from(pendingDiscountDeleteIds.current);
             if (idsToDelete.length > 0) {
-                await supabase.from('t_project_discounts').delete().in('id', idsToDelete);
+                requireSupabaseSuccess(await supabase.from('t_project_discounts').delete().in('id', idsToDelete));
             }
-            await Promise.all(discounts.filter((d: any) => (d.value || 0) > 0).map((d: any) => {
+            const results = await Promise.all(discounts.filter((d: any) => (d.value || 0) > 0).map((d: any) => {
                 const record = { project_id: selectedProjectId, mode: d.mode || 'flat', description: d.description || '', value: d.value, target: 'total' };
                 const currentId = d.id;
                 return d.isNew || currentId.startsWith('temp-')
                     ? supabase.from('t_project_discounts').insert(record)
                     : supabase.from('t_project_discounts').update(record).eq('id', currentId);
             }));
+            results.forEach(requireSupabaseSuccess);
             pendingDiscountDeleteIds.current.clear();
             if (!silent) toast('Rabatte gespeichert');
             await loadProjectData([selectedProjectId], selectedPlanDate);
         } catch {
-            if (!silent) toast('Fehler beim Speichern', 'error');
+            toast('Rabatt konnte nicht gespeichert werden', 'error');
         } finally {
             savingDiscountsRef.current = false;
         }
@@ -951,13 +977,13 @@ export default function CalculationPage() {
             toDelete.push('stunden', 'stundensatz');
 
             if (toUpsert.length > 0) {
-                await supabase.from('t_project_kv_values').upsert(toUpsert, { onConflict: 'project_id,kv_key' });
+                requireSupabaseSuccess(await supabase.from('t_project_kv_values').upsert(toUpsert, { onConflict: 'project_id,kv_key' }));
             }
             if (toDelete.length > 0) {
-                await supabase.from('t_project_kv_values').delete().eq('project_id', selectedProjectId).in('kv_key', toDelete);
+                requireSupabaseSuccess(await supabase.from('t_project_kv_values').delete().eq('project_id', selectedProjectId).in('kv_key', toDelete));
             }
             if (!silent) toast(isFpMode ? 'FP-Werte gespeichert' : 'KV-Werte gespeichert', 'success');
-        } catch { if (!silent) toast(isFpMode ? 'Fehler beim Speichern der FP-Werte' : 'Fehler beim Speichern der KV-Werte', 'error'); }
+        } catch { toast(isFpMode ? 'Fehler beim Speichern der FP-Werte' : 'Fehler beim Speichern der KV-Werte', 'error'); }
     };
 
     // ---- KUNDENNUMMER / ANGEBOTSNUMMER SAVE ----
@@ -1769,13 +1795,12 @@ export default function CalculationPage() {
                                 {/* Global Kd Satz */}
                                 <div className="flex items-center gap-2 ml-auto bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
                                     <span className="text-xs font-semibold text-green-700 whitespace-nowrap">Kd Satz (alle):</span>
-                                    <input
-                                        type="number"
+                                    <NumberInput
                                         step="0.01"
                                         className="w-24 bg-white border border-green-300 rounded px-2 py-0.5 text-xs text-right font-mono text-green-800 focus:outline-none focus:ring-1 focus:ring-green-400"
                                         placeholder={`z.B. ${personnel[0]?.satz?.toFixed(2) ?? '0.00'}`}
-                                        value={globalKdSatz === null ? '' : globalKdSatz}
-                                        onChange={e => applyGlobalKdSatz(e.target.value === '' ? null : +e.target.value)}
+                                        value={globalKdSatz}
+                                        onValueChange={value => applyGlobalKdSatz(value)}
                                         onFocus={e => e.target.select()}
                                         title="Kunden-Stundensatz für alle Mitarbeiter setzen"
                                     />
@@ -1896,11 +1921,12 @@ export default function CalculationPage() {
                                                     <div key={idx} className="flex items-end gap-2">
                                                         <div className="flex-1">
                                                             {arrPos === 0 && <span className={cn("text-[9px] font-medium", isKvMode ? "text-green-600" : "text-amber-600")}>Stunden</span>}
-                                                            <input type="number" step="0.01" placeholder="0,00"
+                                                            <NumberInput step="0.01" placeholder="0,00"
                                                                 className={cn("w-full rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                                value={kvValues[`stunden_${idx}`] || ''}
-                                                                onChange={e => {
-                                                                    const stunden = e.target.value === '' ? 0 : +e.target.value;
+                                                                value={kvValues[`stunden_${idx}`] || 0}
+                                                                emptyWhenZero
+                                                                onValueChange={value => {
+                                                                    const stunden = value ?? 0;
                                                                     setKvValues(prev => {
                                                                         const next = { ...prev, [`stunden_${idx}`]: stunden };
                                                                         // Recompute personalkosten from all pairs
@@ -1918,11 +1944,12 @@ export default function CalculationPage() {
                                                         </div>
                                                         <div className="flex-1">
                                                             {arrPos === 0 && <span className={cn("text-[9px] font-medium", isKvMode ? "text-green-600" : "text-amber-600")}>Stundensatz</span>}
-                                                            <input type="number" step="0.01" placeholder="0,00"
+                                                            <NumberInput step="0.01" placeholder="0,00"
                                                                 className={cn("w-full rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                                value={kvValues[`stundensatz_${idx}`] || ''}
-                                                                onChange={e => {
-                                                                    const satz = e.target.value === '' ? 0 : +e.target.value;
+                                                                value={kvValues[`stundensatz_${idx}`] || 0}
+                                                                emptyWhenZero
+                                                                onValueChange={value => {
+                                                                    const satz = value ?? 0;
                                                                     setKvValues(prev => {
                                                                         const next = { ...prev, [`stundensatz_${idx}`]: satz };
                                                                         let total = 0;
@@ -1989,10 +2016,11 @@ export default function CalculationPage() {
                                                 {kvMaterialsToDisplay.length > 0 && <span className={cn("text-[9px] font-bold", isKvMode ? "text-green-600" : "text-amber-600")}>Gesamt: {eur(kvValues['material'] || 0)}</span>}
                                             </div>
                                             {kvMaterialsToDisplay.length === 0 ? (
-                                                <input type="number" step="0.01" placeholder="0,00"
+                                                <NumberInput step="0.01" placeholder="0,00"
                                                     className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                    value={kvValues['material'] || ''}
-                                                    onChange={e => setKvValues(prev => ({ ...prev, material: e.target.value === '' ? 0 : +e.target.value }))}
+                                                    value={kvValues['material'] || 0}
+                                                    emptyWhenZero
+                                                    onValueChange={value => setKvValues(prev => ({ ...prev, material: value ?? 0 }))}
                                                     onBlur={() => saveKvValues(true)}
                                                 />
                                             ) : (
@@ -2000,11 +2028,12 @@ export default function CalculationPage() {
                                                     {kvMaterialsToDisplay.map(km => (
                                                         <div key={km.material_id} className="flex items-center justify-between gap-1 group">
                                                             <span className="text-[11px] truncate flex-1 text-slate-600 font-medium" title={km.name}>{km.name}</span>
-                                                            <input type="number" step="0.01" placeholder="0,00"
+                                                            <NumberInput step="0.01" placeholder="0,00"
                                                                 className={cn("w-16 rounded border bg-white px-2 py-1 text-[11px] text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                                value={kvValues[`mat_kv_${km.material_id}`] || ''}
-                                                                onChange={e => {
-                                                                    const val = e.target.value === '' ? 0 : +e.target.value;
+                                                                value={kvValues[`mat_kv_${km.material_id}`] || 0}
+                                                                emptyWhenZero
+                                                                onValueChange={value => {
+                                                                    const val = value ?? 0;
                                                                     setKvValues(prev => {
                                                                         const next = { ...prev, [`mat_kv_${km.material_id}`]: val };
                                                                         let total = 0;
@@ -2059,64 +2088,71 @@ export default function CalculationPage() {
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['service_total'] ? getKvDeviationBorder(serviceErloes, kvValues['service_total']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Entsorgungen</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
+                                            <NumberInput step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['service_total'] || ''}
-                                                onChange={e => setKvValues(prev => ({ ...prev, service_total: e.target.value === '' ? 0 : +e.target.value }))}
+                                                value={kvValues['service_total'] || 0}
+                                                emptyWhenZero
+                                                onValueChange={value => setKvValues(prev => ({ ...prev, service_total: value ?? 0 }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['lkw'] ? getKvDeviationBorder(vehicleErloes, kvValues['lkw']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>LKW</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
+                                            <NumberInput step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['lkw'] || ''}
-                                                onChange={e => setKvValues(prev => ({ ...prev, lkw: e.target.value === '' ? 0 : +e.target.value }))}
+                                                value={kvValues['lkw'] || 0}
+                                                emptyWhenZero
+                                                onValueChange={value => setKvValues(prev => ({ ...prev, lkw: value ?? 0 }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['hvz'] ? getKvDeviationBorder(hvzErloes, kvValues['hvz']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>HVZ</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
+                                            <NumberInput step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['hvz'] || ''}
-                                                onChange={e => setKvValues(prev => ({ ...prev, hvz: e.target.value === '' ? 0 : +e.target.value }))}
+                                                value={kvValues['hvz'] || 0}
+                                                emptyWhenZero
+                                                onValueChange={value => setKvValues(prev => ({ ...prev, hvz: value ?? 0 }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['diesel'] ? getKvDeviationBorder(bnkErloes, kvValues['diesel']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Diesel / BNK</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
+                                            <NumberInput step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['diesel'] || ''}
-                                                onChange={e => setKvValues(prev => ({ ...prev, diesel: e.target.value === '' ? 0 : +e.target.value }))}
+                                                value={kvValues['diesel'] || 0}
+                                                emptyWhenZero
+                                                onValueChange={value => setKvValues(prev => ({ ...prev, diesel: value ?? 0 }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['extra'] ? getKvDeviationBorder(extraErloes, kvValues['extra']) : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Sonstige Kosten</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
+                                            <NumberInput step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['extra'] || ''}
-                                                onChange={e => setKvValues(prev => ({ ...prev, extra: e.target.value === '' ? 0 : +e.target.value }))}
+                                                value={kvValues['extra'] || 0}
+                                                emptyWhenZero
+                                                onValueChange={value => setKvValues(prev => ({ ...prev, extra: value ?? 0 }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['rabatt_total'] ? 'border border-amber-300 bg-amber-50 p-1 -m-1' : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Rabatt (€)</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
+                                            <NumberInput step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['rabatt_total'] || ''}
-                                                onChange={e => setKvValues(prev => ({ ...prev, rabatt_total: e.target.value === '' ? 0 : +e.target.value, rabatt_percent: 0 }))}
+                                                value={kvValues['rabatt_total'] || 0}
+                                                emptyWhenZero
+                                                onValueChange={value => setKvValues(prev => ({ ...prev, rabatt_total: value ?? 0, rabatt_percent: 0 }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
                                         <div className={cn('flex flex-col gap-1 rounded-lg', kvValues['rabatt_percent'] ? 'border border-amber-300 bg-amber-50 p-1 -m-1' : '')}>
                                             <label className={cn("text-[10px] font-bold uppercase tracking-wider", isKvMode ? "text-green-700" : "text-amber-700")}>Rabatt (%)</label>
-                                            <input type="number" step="0.01" placeholder="0,00"
+                                            <NumberInput step="0.01" placeholder="0,00"
                                                 className={cn("rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1", isKvMode ? "border-green-200 focus:border-green-500 focus:ring-green-300" : "border-amber-200 focus:border-amber-500 focus:ring-amber-300")}
-                                                value={kvValues['rabatt_percent'] || ''}
-                                                onChange={e => setKvValues(prev => ({ ...prev, rabatt_percent: e.target.value === '' ? 0 : +e.target.value, rabatt_total: 0 }))}
+                                                value={kvValues['rabatt_percent'] || 0}
+                                                emptyWhenZero
+                                                onValueChange={value => setKvValues(prev => ({ ...prev, rabatt_percent: value ?? 0, rabatt_total: 0 }))}
                                                 onBlur={() => saveKvValues(true)}
                                             />
                                         </div>
@@ -2160,8 +2196,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 text-slate-500">{p.role || '—'}</td>
                                                                             <td className={cn('px-4 py-2 text-right font-mono font-semibold text-blue-700', getHoursDeviationColor(p.lis_stunden, p.kunden_stunden) && 'rounded-l')}>{p.lis_stunden.toFixed(2)}</td>
                                                                             <td className={cn('px-2 py-1', getHoursDeviationColor(p.lis_stunden, p.kunden_stunden))}>
-                                                                                <input
-                                                                                    type="number"
+                                                                                <NumberInput
                                                                                     step="0.01"
                                                                                     className={cn(
                                                                                         "w-full border rounded px-2 py-1 text-xs text-right font-mono focus:outline-none transition-colors",
@@ -2169,8 +2204,9 @@ export default function CalculationPage() {
                                                                                             ? "bg-amber-50 border-amber-300 text-amber-800 focus:ring-1 focus:ring-amber-400"
                                                                                             : "bg-transparent border-green-200 hover:border-green-400 text-green-800 focus:ring-1 focus:ring-green-300"
                                                                                     )}
-                                                                                    value={p.kunden_stunden === 0 ? '' : (p.kunden_stunden ?? '')}
-                                                                                    onChange={e => setPerRowKundenStd(prev => ({ ...prev, [p.pair_id]: e.target.value === '' ? 0 : +e.target.value }))}
+                                                                                    value={p.kunden_stunden ?? 0}
+                                                                                    emptyWhenZero
+                                                                                    onValueChange={value => setPerRowKundenStd(prev => ({ ...prev, [p.pair_id]: value ?? 0 }))}
                                                                                     onFocus={e => e.target.select()}
                                                                                     title={perRowKundenStd[p.pair_id] !== undefined ? 'Individuell überschrieben' : `Standard (LiS Std.) ${p.lis_stunden !== p.kunden_stunden ? `| Δ ${(p.kunden_stunden - p.lis_stunden).toFixed(2)} Std.` : ''}`}
                                                                                 />
@@ -2180,8 +2216,7 @@ export default function CalculationPage() {
                                                                             {/* Kd Satz — editable inline; shows override indicator if != global */}
                                                                             <td className="px-2 py-1">
                                                                                 <div className="relative">
-                                                                                    <input
-                                                                                        type="number"
+                                                                                    <NumberInput
                                                                                         step="0.01"
                                                                                         className={cn(
                                                                                             "w-full border rounded px-2 py-1 text-xs text-right font-mono focus:outline-none transition-colors",
@@ -2189,8 +2224,9 @@ export default function CalculationPage() {
                                                                                                 ? "bg-amber-50 border-amber-300 text-amber-800 focus:ring-1 focus:ring-amber-400"
                                                                                                 : "bg-green-50 border-green-200 hover:border-green-400 text-green-800 focus:ring-1 focus:ring-green-300"
                                                                                         )}
-                                                                                        value={p.kunden_satz === 0 ? '' : (p.kunden_satz ?? '')}
-                                                                                        onChange={e => setKundenSatz(p.pair_id, e.target.value === '' ? 0 : +e.target.value, p.satz)}
+                                                                                        value={p.kunden_satz ?? 0}
+                                                                                        emptyWhenZero
+                                                                                        onValueChange={value => setKundenSatz(p.pair_id, value ?? 0, p.satz)}
                                                                                         onFocus={e => e.target.select()}
                                                                                         title={perRowKundenSatz[p.pair_id] !== undefined ? 'Individuell überschrieben' : globalKdSatz !== null ? 'Globaler Kd Satz aktiv' : 'Standard (LiS Satz)'}
                                                                                     />
@@ -2225,10 +2261,10 @@ export default function CalculationPage() {
                                                                     {materials.length === 0 ? <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">Keine Materialien</td></tr> : materials.map(m => (
                                                                         <tr key={m.id} className="hover:bg-slate-50 group">
                                                                             <td className="px-4 py-2 font-medium">{m.material_name}</td>
-                                                                            <td className="px-4 py-1.5"><input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={m.quantity === 0 ? '' : (m.quantity ?? '')} onChange={e => updateMaterialQty(m.id, e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><NumberInput className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={m.quantity ?? 0} emptyWhenZero onValueChange={value => updateMaterialQty(m.id, value ?? 0)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-slate-500">{m.unit}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(m.cost_per_unit)}</td>
-                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={(m.price_per_unit ?? 0) === 0 ? '' : (m.price_per_unit ?? '')} onChange={e => updateMaterialVkPrice(m.id, e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><NumberInput step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={m.price_per_unit ?? 0} emptyWhenZero onValueChange={value => updateMaterialVkPrice(m.id, value ?? 0)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur(m.total_cost)}</td><td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(m.cost_per_unit, m.price_per_unit))}>{eur(m.total_price)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteMaterial(m.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
                                                                         </tr>
@@ -2262,9 +2298,9 @@ export default function CalculationPage() {
                                                                     {vehicles.length === 0 ? <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">Keine Fahrzeugkosten</td></tr> : vehicles.map(v => (
                                                                         <tr key={v.id} className="hover:bg-slate-50 group">
                                                                             <td className="px-4 py-2 font-medium">{v.fahrzeug}</td>
-                                                                            <td className="px-4 py-1.5"><input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.usage_value === 0 ? '' : (v.usage_value ?? '')} onChange={e => updateVehicleCost(v.id, 'usage_value', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
-                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.cost_per_unit === 0 ? '' : (v.cost_per_unit ?? '')} onChange={e => updateVehicleCost(v.id, 'cost_per_unit', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
-                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.total_cost === 0 ? '' : (v.total_cost ?? '')} onChange={e => updateVehicleCost(v.id, 'total_cost', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><NumberInput className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.usage_value ?? 0} emptyWhenZero onValueChange={value => updateVehicleCost(v.id, 'usage_value', value ?? 0)} onFocus={e => e.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><NumberInput step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.cost_per_unit ?? 0} emptyWhenZero onValueChange={value => updateVehicleCost(v.id, 'cost_per_unit', value ?? 0)} onFocus={e => e.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><NumberInput step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={v.total_cost ?? 0} emptyWhenZero onValueChange={value => updateVehicleCost(v.id, 'total_cost', value ?? 0)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((v.usage_value || 0) * (v.cost_per_unit || 0))}</td>
                                                                             <td className={cn('px-4 py-2 text-right text-green-700 font-semibold', getMarkupColor(v.cost_per_unit, v.total_cost))}>{eur((v.usage_value || 0) * (v.total_cost || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteVehicleCost(v.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
@@ -2279,7 +2315,10 @@ export default function CalculationPage() {
                                                 return (
                                                     <SortableCostSection key="service" id="service">
                                                         <CostSection title="Dienstleistungskosten" icon={<Wrench className="h-5 w-5" />} total={serviceKosten} color="purple" kosten={serviceKosten} erloes={serviceErloes}
-                                                            actions={<button onClick={() => { setAddSvcForm({ service_id: '', quantity: 0, unit: 'Std', cost_per_unit: 0, supplier: '' }); setAddSvcModal(true); }} className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"><Plus className="h-3.5 w-3.5" /> Leistung</button>}>
+                                                            actions={<div className="flex items-center gap-2">
+                                                                <button onClick={saveServiceCosts} className="flex items-center gap-1 text-xs bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700"><Save className="h-3.5 w-3.5" /> Speichern</button>
+                                                                <button onClick={() => { setAddSvcForm({ service_id: '', quantity: 0, unit: 'Std', cost_per_unit: 0, supplier: '' }); setAddSvcModal(true); }} className="flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"><Plus className="h-3.5 w-3.5" /> Leistung</button>
+                                                            </div>}>
                                                             <table className="w-full text-sm">
                                                                 <thead className="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
                                                                     <tr><th className="px-4 py-2 text-left">Leistung</th><th className="px-4 py-2 text-left">Lieferant</th><th className="px-4 py-2 text-right">Menge</th><th className="px-4 py-2 text-right">EK/Einheit</th><th className="px-4 py-2 text-right">VK/Einheit</th><th className="px-4 py-2 text-right">LiS Kosten</th><th className="px-4 py-2 text-right">Kunden-Kosten</th><th className="w-10"></th></tr>
@@ -2290,7 +2329,7 @@ export default function CalculationPage() {
                                                                             <td className="px-4 py-2 font-medium">{s.service_name}</td><td className="px-4 py-2 text-slate-500">{s.supplier || '—'}</td>
                                                                             <td className="px-4 py-2 text-right font-mono">{s.quantity}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(s.cost_per_unit)}</td>
-                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={(s.price_per_unit ?? 0) === 0 ? '' : (s.price_per_unit ?? '')} onChange={e => updateServiceCost(s.id!, 'price_per_unit', e.target.value === '' ? 0 : +e.target.value)} onFocus={e => e.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><NumberInput step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={s.price_per_unit ?? 0} emptyWhenZero onValueChange={value => updateServiceCost(s.id!, 'price_per_unit', value ?? 0)} onFocus={e => e.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur(s.total_cost)}</td>
                                                                             <td className={cn('px-4 py-2 text-right text-green-700', getMarkupColor(s.cost_per_unit, s.price_per_unit ?? 0))}>{eur(s.total_price ?? 0)}</td>
                                                                             <td className="px-2"><button onClick={() => deleteServiceCost(s.id!)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
@@ -2370,9 +2409,9 @@ export default function CalculationPage() {
                                                                     {extraCosts.length === 0 ? <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">Keine Sonstigen Kosten</td></tr> : extraCosts.map(e => (
                                                                         <tr key={e.cost_id} className="hover:bg-slate-50 group">
                                                                             <td className="px-4 py-1.5"><input className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm" value={e.beschreibung} onChange={ev => updateExtraCost(e.cost_id, 'beschreibung', ev.target.value)} placeholder="Beschreibung..." /></td>
-                                                                            <td className="px-4 py-1.5"><input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.menge === 0 ? '' : (e.menge ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'menge', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
-                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.ek_preis === 0 ? '' : (e.ek_preis ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'ek_preis', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
-                                                                            <td className="px-4 py-1.5"><input type="number" step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.vk_preis === 0 ? '' : (e.vk_preis ?? '')} onChange={ev => updateExtraCost(e.cost_id, 'vk_preis', ev.target.value === '' ? 0 : +ev.target.value)} onFocus={ev => ev.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><NumberInput className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.menge ?? 0} emptyWhenZero onValueChange={value => updateExtraCost(e.cost_id, 'menge', value ?? 0)} onFocus={ev => ev.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><NumberInput step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.ek_preis ?? 0} emptyWhenZero onValueChange={value => updateExtraCost(e.cost_id, 'ek_preis', value ?? 0)} onFocus={ev => ev.target.select()} /></td>
+                                                                            <td className="px-4 py-1.5"><NumberInput step="0.01" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-2 py-1 text-sm text-right" value={e.vk_preis ?? 0} emptyWhenZero onValueChange={value => updateExtraCost(e.cost_id, 'vk_preis', value ?? 0)} onFocus={ev => ev.target.select()} /></td>
                                                                             <td className="px-4 py-2 text-right font-semibold">{eur((e.menge || 0) * (e.ek_preis || 0))}</td>
                                                                             <td className={cn('px-4 py-2 text-right text-green-700 font-semibold', getMarkupColor(e.ek_preis, e.vk_preis))}>{eur((e.menge || 0) * (e.vk_preis || 0))}</td>
                                                                             <td className="px-2"><button onClick={() => deleteExtraCost(e.cost_id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></td>
@@ -2392,27 +2431,27 @@ export default function CalculationPage() {
                                                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                                                                 <div className={cn('flex flex-col gap-1 rounded-lg', customerDiscountFlat ? 'border border-green-300 bg-green-50 p-1 -m-1' : '')}>
                                                                     <label className="text-[10px] font-bold uppercase tracking-wider text-green-700">Rabatt (€)</label>
-                                                                    <input
-                                                                        type="number"
+                                                                    <NumberInput
                                                                         step="0.01"
                                                                         min="0"
                                                                         placeholder="0,00"
                                                                         className="rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1 border-green-200 focus:border-green-500 focus:ring-green-300"
-                                                                        value={customerDiscountFlat || ''}
-                                                                        onChange={e => setCustomerDiscountValue('flat', e.target.value === '' ? 0 : toFiniteNumber(e.target.value))}
+                                                                        value={customerDiscountFlat || 0}
+                                                                        emptyWhenZero
+                                                                        onValueChange={value => setCustomerDiscountValue('flat', value ?? 0)}
                                                                         onBlur={() => saveDiscounts(true)}
                                                                     />
                                                                 </div>
                                                                 <div className={cn('flex flex-col gap-1 rounded-lg', customerDiscountPercent ? 'border border-green-300 bg-green-50 p-1 -m-1' : '')}>
                                                                     <label className="text-[10px] font-bold uppercase tracking-wider text-green-700">Rabatt (%)</label>
-                                                                    <input
-                                                                        type="number"
+                                                                    <NumberInput
                                                                         step="0.01"
                                                                         min="0"
                                                                         placeholder="0,00"
                                                                         className="rounded-lg border bg-white px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1 border-green-200 focus:border-green-500 focus:ring-green-300"
-                                                                        value={customerDiscountPercent || ''}
-                                                                        onChange={e => setCustomerDiscountValue('percent', e.target.value === '' ? 0 : toFiniteNumber(e.target.value))}
+                                                                        value={customerDiscountPercent || 0}
+                                                                        emptyWhenZero
+                                                                        onValueChange={value => setCustomerDiscountValue('percent', value ?? 0)}
                                                                         onBlur={() => saveDiscounts(true)}
                                                                     />
                                                                 </div>
@@ -2491,7 +2530,7 @@ export default function CalculationPage() {
                                     {materialCatalog.map((m: any) => <option key={m.material_id} value={m.material_id}>{m.name} ({m.unit})</option>)}
                                 </select></div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
-                                <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addMatForm.quantity === 0 ? '' : (addMatForm.quantity ?? '')} onChange={e => setAddMatForm({ ...addMatForm, quantity: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                <NumberInput className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addMatForm.quantity ?? 0} emptyWhenZero onValueChange={value => setAddMatForm({ ...addMatForm, quantity: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                         </div>
                     </Modal>}
 
@@ -2510,11 +2549,11 @@ export default function CalculationPage() {
                                 </datalist></div>
                             <div className="grid grid-cols-3 gap-3">
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
-                                    <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.usage_value === 0 ? '' : (addVehForm.usage_value ?? '')} onChange={e => setAddVehForm({ ...addVehForm, usage_value: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.usage_value ?? 0} emptyWhenZero onValueChange={value => setAddVehForm({ ...addVehForm, usage_value: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">EK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.cost_per_unit === 0 ? '' : (addVehForm.cost_per_unit ?? '')} onChange={e => setAddVehForm({ ...addVehForm, cost_per_unit: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.cost_per_unit ?? 0} emptyWhenZero onValueChange={value => setAddVehForm({ ...addVehForm, cost_per_unit: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">VK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.total_cost === 0 ? '' : (addVehForm.total_cost ?? '')} onChange={e => setAddVehForm({ ...addVehForm, total_cost: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addVehForm.total_cost ?? 0} emptyWhenZero onValueChange={value => setAddVehForm({ ...addVehForm, total_cost: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                             </div>
                             <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3">
                                 <div className="text-xs text-slate-500">LiS Kosten: <span className="font-semibold text-slate-700">{eur(addVehForm.usage_value * addVehForm.cost_per_unit)}</span></div>
@@ -2531,7 +2570,11 @@ export default function CalculationPage() {
                                     const newServiceId = e.target.value;
                                     const svc = serviceCatalog.find((x: any) => x.service_id === newServiceId);
                                     const prices = Array.isArray(svc?.prices) ? svc.prices : svc?.prices ? [svc.prices] : [];
-                                    const chosenSupplier = prices[0]?.supplier || '';
+                                    const chosenSupplier =
+                                        prices.find((p: any) => String(p?.supplier || '').trim().toUpperCase() === 'EVD')?.supplier ||
+                                        prices.find((p: any) => String(p?.supplier || '').trim().toUpperCase() === 'EGN')?.supplier ||
+                                        prices[0]?.supplier ||
+                                        '';
                                     setAddSvcForm({ ...addSvcForm, service_id: newServiceId, supplier: chosenSupplier });
                                 }}>
                                     <option value="">Wählen...</option>
@@ -2555,7 +2598,7 @@ export default function CalculationPage() {
                                     </select>
                                 </div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
-                                    <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.quantity === 0 ? '' : (addSvcForm.quantity ?? '')} onChange={e => setAddSvcForm({ ...addSvcForm, quantity: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} />
+                                    <NumberInput className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addSvcForm.quantity ?? 0} emptyWhenZero onValueChange={value => setAddSvcForm({ ...addSvcForm, quantity: value ?? 0 })} onFocus={e => e.target.select()} />
                                 </div>
                             </div>
                         </div>
@@ -2568,11 +2611,11 @@ export default function CalculationPage() {
                                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.beschreibung} onChange={e => setAddExtraForm({ ...addExtraForm, beschreibung: e.target.value })} placeholder="z.B. Maut, Parkgebühr, Entsorgung..." /></div>
                             <div className="grid grid-cols-3 gap-3">
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
-                                    <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.menge === 0 ? '' : (addExtraForm.menge ?? '')} onChange={e => setAddExtraForm({ ...addExtraForm, menge: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.menge ?? 0} emptyWhenZero onValueChange={value => setAddExtraForm({ ...addExtraForm, menge: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">EK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.ek_preis === 0 ? '' : (addExtraForm.ek_preis ?? '')} onChange={e => setAddExtraForm({ ...addExtraForm, ek_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.ek_preis ?? 0} emptyWhenZero onValueChange={value => setAddExtraForm({ ...addExtraForm, ek_preis: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">VK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.vk_preis === 0 ? '' : (addExtraForm.vk_preis ?? '')} onChange={e => setAddExtraForm({ ...addExtraForm, vk_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addExtraForm.vk_preis ?? 0} emptyWhenZero onValueChange={value => setAddExtraForm({ ...addExtraForm, vk_preis: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                             </div>
                             <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3">
                                 <div className="text-xs text-slate-500">LiS Kosten: <span className="font-semibold text-slate-700">{eur(addExtraForm.menge * addExtraForm.ek_preis)}</span></div>
@@ -2590,12 +2633,12 @@ export default function CalculationPage() {
                                     <input type="date" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.datum_bis} onChange={e => setAddHvzForm({ ...addHvzForm, datum_bis: e.target.value })} /></div>
                             </div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Tage</label>
-                                <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.tage === 0 ? '' : (addHvzForm.tage ?? '')} onChange={e => setAddHvzForm({ ...addHvzForm, tage: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                <NumberInput className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.tage ?? 0} emptyWhenZero onValueChange={value => setAddHvzForm({ ...addHvzForm, tage: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">EK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.ek_preis === 0 ? '' : (addHvzForm.ek_preis ?? '')} onChange={e => setAddHvzForm({ ...addHvzForm, ek_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.ek_preis ?? 0} emptyWhenZero onValueChange={value => setAddHvzForm({ ...addHvzForm, ek_preis: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">VK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.vk_preis === 0 ? '' : (addHvzForm.vk_preis ?? '')} onChange={e => setAddHvzForm({ ...addHvzForm, vk_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addHvzForm.vk_preis ?? 0} emptyWhenZero onValueChange={value => setAddHvzForm({ ...addHvzForm, vk_preis: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                             </div>
                         </div>
                     </Modal>}
@@ -2606,12 +2649,12 @@ export default function CalculationPage() {
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Beschreibung</label>
                                 <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.beschreibung} onChange={e => setAddBnkForm({ ...addBnkForm, beschreibung: e.target.value })} /></div>
                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Menge</label>
-                                <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.menge === 0 ? '' : (addBnkForm.menge ?? '')} onChange={e => setAddBnkForm({ ...addBnkForm, menge: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                <NumberInput className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.menge ?? 0} emptyWhenZero onValueChange={value => setAddBnkForm({ ...addBnkForm, menge: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">EK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.ek_preis === 0 ? '' : (addBnkForm.ek_preis ?? '')} onChange={e => setAddBnkForm({ ...addBnkForm, ek_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.ek_preis ?? 0} emptyWhenZero onValueChange={value => setAddBnkForm({ ...addBnkForm, ek_preis: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                                 <div><label className="block text-xs font-medium text-slate-500 mb-1">VK-Preis (€)</label>
-                                    <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.vk_preis === 0 ? '' : (addBnkForm.vk_preis ?? '')} onChange={e => setAddBnkForm({ ...addBnkForm, vk_preis: e.target.value === '' ? 0 : +e.target.value })} onFocus={e => e.target.select()} /></div>
+                                    <NumberInput step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={addBnkForm.vk_preis ?? 0} emptyWhenZero onValueChange={value => setAddBnkForm({ ...addBnkForm, vk_preis: value ?? 0 })} onFocus={e => e.target.select()} /></div>
                             </div>
                         </div>
                     </Modal>}

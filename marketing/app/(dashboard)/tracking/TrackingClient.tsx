@@ -8,9 +8,11 @@ import { de } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, Save, Copy, Loader2, Trash2, Plus, X, Pencil, Briefcase, Clock, Calendar, Package, Wrench, AlertCircle, ArrowLeftRight, UserX, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import { Database } from '@/types/supabase';
 import { formatTimeInput, autoFormatTimeInput } from '@/lib/timeUtils';
 
+import { NumberInput } from '@/components/ui/number-input';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { TrackingExport } from './TrackingExport';
 
@@ -150,14 +152,17 @@ export default function TrackingPage() {
 
     const fetchData = useCallback(async () => {
         setLoading(true);
+        try {
 
         if (viewMode === 'project' && selectedProjectId) {
             // Project View Fetch
-            const { data: timePairs } = await supabase
+            const timePairResult = await supabase
                 .from('t_time_pairs')
                 .select('*')
                 .eq('project_id', selectedProjectId)
                 .order('datum', { ascending: false });
+            requireSupabaseSuccess(timePairResult);
+            const timePairs = timePairResult.data;
 
             // We also need project details to fill names (though we selected it, good to have)
             // And maybe plans if we want to link them, but simpler to just show what we have.
@@ -188,7 +193,6 @@ export default function TrackingPage() {
                 }));
 
             setRows(trackingRows);
-            setLoading(false);
             return;
         }
 
@@ -200,6 +204,7 @@ export default function TrackingPage() {
             supabase.from('t_morningplan').select('*, project:t_projects(project_id, name, project_code)').eq('plan_date', dateStr),
             supabase.from('t_work_assignments').select('*').eq('assignment_date', dateStr).order('employee_name'),
         ]);
+        [tpRes, planRes, waRes].forEach(requireSupabaseSuccess);
 
         const plans = (planRes.data || []) as (MorningPlan & { project: Project })[];
         const timePairs = tpRes.data || [];
@@ -230,10 +235,12 @@ export default function TrackingPage() {
             });
 
         // -- AUTO MERGE PLAN --
-        const { data: planStaff } = await supabase
+        const planStaffResult = await supabase
             .from('t_morningplan_staff')
             .select('*, plan:t_morningplan!inner(*, project:t_projects(project_id, name, project_code)), employee:t_employees(employee_id, name)')
             .eq('plan.plan_date', dateStr);
+        requireSupabaseSuccess(planStaffResult);
+        const planStaff = planStaffResult.data;
 
         // Include all timePairs (even deleted ones) in existingKeys so we don't recreate them
         const existingKeys = new Set(timePairs.map(r => `${r.project_id}-${r.mitarbeiter}`));
@@ -261,7 +268,12 @@ export default function TrackingPage() {
 
         setRows([...trackingRows, ...newPlanRows]);
         setWorkAssignments(waRes.data || []);
-        setLoading(false);
+        } catch (error) {
+            console.error('Error loading tracking data:', error);
+            toast('Rückerfassungsdaten konnten nicht vollständig geladen werden', 'error');
+        } finally {
+            setLoading(false);
+        }
     }, [currentDate, viewMode, selectedProjectId, projects]); // Added dependencies
 
     const fetchCatalogs = useCallback(async () => {
@@ -292,11 +304,13 @@ export default function TrackingPage() {
                 .select('*')
                 .in('project_id', projectIds),
         ]);
+        [matRes, svcRes, extraRes].forEach(requireSupabaseSuccess);
 
         const mats: Record<string, ProjectMatRow[]> = {};
         (matRes.data || []).filter((m: any) => !costDate || m.cost_date === costDate).forEach((m: any) => {
             if (!mats[m.project_id]) mats[m.project_id] = [];
             const p = Array.isArray(m.material?.prices) ? m.material.prices[0] : m.material?.prices;
+            const customerPrice = m.price_per_unit ?? p?.price_per_unit ?? 0;
             mats[m.project_id].push({
                 _localId: m.id,
                 id: m.id,
@@ -307,9 +321,9 @@ export default function TrackingPage() {
                 unit: m.material?.unit || '',
                 quantity: m.quantity || 0,
                 cost_per_unit: p?.cost_per_unit || 0,
-                price_per_unit: p?.price_per_unit || 0,
+                price_per_unit: customerPrice,
                 total_cost: +((m.quantity || 0) * (p?.cost_per_unit || 0)).toFixed(2),
-                total_revenue: +((m.quantity || 0) * (p?.price_per_unit || 0)).toFixed(2),
+                total_revenue: +((m.quantity || 0) * customerPrice).toFixed(2),
                 isNew: false,
             });
         });
@@ -320,6 +334,7 @@ export default function TrackingPage() {
             if (!svcs[s.project_id]) svcs[s.project_id] = [];
             const prices: any[] = s.service?.prices || [];
             const p = s.supplier ? prices.find((x: any) => x.supplier === s.supplier) || prices[0] : prices[0];
+            const customerPrice = s.price_per_unit ?? p?.customer_price_per_unit ?? 0;
             svcs[s.project_id].push({
                 _localId: s.id,
                 id: s.id,
@@ -330,9 +345,9 @@ export default function TrackingPage() {
                 supplier: s.supplier || p?.supplier || '',
                 quantity: s.quantity || 0,
                 cost_per_unit: p?.cost_per_unit || 0,
-                price_per_unit: p?.customer_price_per_unit || 0,
+                price_per_unit: customerPrice,
                 total_cost: +((s.quantity || 0) * (p?.cost_per_unit || 0)).toFixed(2),
-                total_revenue: +((s.quantity || 0) * (p?.customer_price_per_unit || 0)).toFixed(2),
+                total_revenue: +((s.quantity || 0) * customerPrice).toFixed(2),
                 isNew: false,
             });
         });
@@ -375,8 +390,13 @@ export default function TrackingPage() {
     useEffect(() => {
         const pids = Array.from(new Set(rows.map(r => r.project_id))).filter((id): id is string => id !== null);
         const costDate = viewMode === 'day' && costDateColumnsAvailable ? format(currentDate, 'yyyy-MM-dd') : null;
-        if (pids.length > 0) fetchProjectCosts(pids, costDate);
-    }, [rows, fetchProjectCosts, currentDate, viewMode, costDateColumnsAvailable]);
+        if (pids.length > 0) {
+            fetchProjectCosts(pids, costDate).catch(error => {
+                console.error('Failed to load project costs:', error);
+                toast('Projektkosten konnten nicht vollständig geladen werden', 'error');
+            });
+        }
+    }, [rows, fetchProjectCosts, currentDate, viewMode, costDateColumnsAvailable, toast]);
 
     // ---- MATERIAL CRUD ----
     const addMaterialRow = (projectId: string) => {
@@ -427,7 +447,12 @@ export default function TrackingPage() {
 
     const deleteMaterialRow = async (projectId: string, row: ProjectMatRow) => {
         if (!row.isNew && row.id) {
-            await supabase.from('t_project_material_usage').delete().eq('id', row.id);
+            try {
+                requireSupabaseSuccess(await supabase.from('t_project_material_usage').delete().eq('id', row.id));
+            } catch {
+                toast('Material konnte nicht gelöscht werden', 'error');
+                return;
+            }
         }
         setProjectMaterials(prev => ({
             ...prev,
@@ -443,9 +468,11 @@ export default function TrackingPage() {
                 if (r.isNew) {
                     const { data, error } = await supabase.from('t_project_material_usage').insert({
                         project_id: projectId, material_id: r.material_id, quantity: Number(r.quantity) || 0,
+                        price_per_unit: r.price_per_unit,
                         ...(costDateColumnsAvailable ? { cost_date: r.cost_date || null } : {}),
                     }).select().single();
-                    if (!error && data) {
+                    if (error) throw error;
+                    if (data) {
                         setProjectMaterials(prev => ({
                             ...prev,
                             [projectId]: (prev[projectId] || []).map(x =>
@@ -454,7 +481,10 @@ export default function TrackingPage() {
                         }));
                     }
                 } else if (r.id) {
-                    await supabase.from('t_project_material_usage').update({ quantity: Number(r.quantity) || 0 }).eq('id', r.id);
+                    requireSupabaseSuccess(await supabase.from('t_project_material_usage').update({
+                        quantity: Number(r.quantity) || 0,
+                        price_per_unit: r.price_per_unit,
+                    }).eq('id', r.id));
                 }
             }));
             toast('Material gespeichert');
@@ -494,7 +524,12 @@ export default function TrackingPage() {
                     const svc = serviceCatalog.find((s: any) => s.service_id === value);
                     const prices: any[] = svc?.prices || [];
                     const existingSupplierValid = prices.some((x: any) => x.supplier === r.supplier);
-                    const chosenSupplier = existingSupplierValid ? r.supplier : (prices[0]?.supplier || '');
+                    const chosenSupplier = existingSupplierValid ? r.supplier : (
+                        prices.find((p: any) => String(p?.supplier || '').trim().toUpperCase() === 'EVD')?.supplier ||
+                        prices.find((p: any) => String(p?.supplier || '').trim().toUpperCase() === 'EGN')?.supplier ||
+                        prices[0]?.supplier ||
+                        ''
+                    );
                     const p = prices.find((x: any) => x.supplier === chosenSupplier) || prices[0];
                     updated.service_name = svc?.name || '';
                     updated.cost_per_unit = p?.cost_per_unit || 0;
@@ -524,7 +559,12 @@ export default function TrackingPage() {
 
     const deleteServiceRow = async (projectId: string, row: ProjectSvcRow) => {
         if (!row.isNew && row.id) {
-            await supabase.from('t_project_service_usage').delete().eq('id', row.id);
+            try {
+                requireSupabaseSuccess(await supabase.from('t_project_service_usage').delete().eq('id', row.id));
+            } catch {
+                toast('Dienstleistung konnte nicht gelöscht werden', 'error');
+                return;
+            }
         }
         setProjectServices(prev => ({
             ...prev,
@@ -540,9 +580,11 @@ export default function TrackingPage() {
                 if (r.isNew) {
                     const { data, error } = await supabase.from('t_project_service_usage').insert({
                         project_id: projectId, service_id: r.service_id, quantity: Number(r.quantity) || 0,
-                        supplier: r.supplier || null, ...(costDateColumnsAvailable ? { cost_date: r.cost_date || null } : {}),
+                        supplier: r.supplier || null, price_per_unit: r.price_per_unit,
+                        ...(costDateColumnsAvailable ? { cost_date: r.cost_date || null } : {}),
                     }).select().single();
-                    if (!error && data) {
+                    if (error) throw error;
+                    if (data) {
                         setProjectServices(prev => ({
                             ...prev,
                             [projectId]: (prev[projectId] || []).map(x =>
@@ -551,7 +593,11 @@ export default function TrackingPage() {
                         }));
                     }
                 } else if (r.id) {
-                    await supabase.from('t_project_service_usage').update({ quantity: Number(r.quantity) || 0, supplier: r.supplier || null }).eq('id', r.id);
+                    requireSupabaseSuccess(await supabase.from('t_project_service_usage').update({
+                        quantity: Number(r.quantity) || 0,
+                        supplier: r.supplier || null,
+                        price_per_unit: r.price_per_unit,
+                    }).eq('id', r.id));
                 }
             }));
             toast('Dienstleistungen gespeichert');
@@ -607,7 +653,12 @@ export default function TrackingPage() {
     const deleteExtraRow = async (projectId: string, row: ProjectExtraRow) => {
         const persistedId = row.cost_id || row.id;
         if (!row.isNew && persistedId) {
-            await supabase.from('t_project_costs_extra').delete().eq(row.cost_id ? 'cost_id' : 'id', persistedId);
+            try {
+                requireSupabaseSuccess(await supabase.from('t_project_costs_extra').delete().eq(row.cost_id ? 'cost_id' : 'id', persistedId));
+            } catch {
+                toast('Sonstige Kosten konnten nicht gelöscht werden', 'error');
+                return;
+            }
         }
         setProjectExtraCosts(prev => ({
             ...prev,
@@ -678,7 +729,7 @@ export default function TrackingPage() {
         setSaving(true);
         const dateStr = format(currentDate, 'yyyy-MM-dd');
         try {
-            await Promise.all(rows.map(row => {
+            const results = await Promise.all(rows.map(row => {
                 const record: any = {
                     pair_id: row.pair_id || `${row.project_id}-${row.employee_id}-${dateStr}-${Date.now()}-${Math.random()}`,
                     project_id: row.project_id,
@@ -697,8 +748,9 @@ export default function TrackingPage() {
                 };
                 return supabase.from('t_time_pairs').upsert(record, { onConflict: 'pair_id' });
             }));
+            results.forEach(requireSupabaseSuccess);
             toast('Zeiten gespeichert');
-            fetchData();
+            await fetchData();
         } catch { toast('Fehler beim Speichern', 'error'); }
         setSaving(false);
     };
@@ -744,13 +796,12 @@ export default function TrackingPage() {
         const dateStr = row.datum || format(currentDate, 'yyyy-MM-dd');
         const newPairId = `replace-${row.pair_id}-${Date.now()}`;
 
-        // Update original row in DB
-        if (row.pair_id) {
-            await supabase.from('t_time_pairs').update({ replaced_by: newPairId }).eq('pair_id', row.pair_id);
-        }
+        try {
+            if (row.pair_id) {
+                requireSupabaseSuccess(await supabase.from('t_time_pairs').update({ replaced_by: newPairId }).eq('pair_id', row.pair_id));
+            }
 
-        // Insert replacement row in DB
-        await supabase.from('t_time_pairs').upsert({
+            requireSupabaseSuccess(await supabase.from('t_time_pairs').upsert({
             pair_id: newPairId,
             project_id: row.project_id,
             plan_id: row.plan_id,
@@ -764,31 +815,42 @@ export default function TrackingPage() {
             pause_min: Number(row.pause_min) || 0,
             is_replacement: true,
             updated_at: new Date().toISOString(),
-        }, { onConflict: 'pair_id' });
+            }, { onConflict: 'pair_id' }));
 
-        // Refresh data
-        fetchData();
-        toast(`${row.mitarbeiter} ersetzt durch ${emp.name}`);
+            await fetchData();
+            toast(`${row.mitarbeiter} ersetzt durch ${emp.name}`);
+        } catch (error) {
+            console.error('Failed to replace employee', error);
+            toast('Fehler beim Ersetzen des Mitarbeiters', 'error');
+            await fetchData();
+        }
     };
 
     // Cross out employee: mark as crossed out without creating replacement
     const handleCrossOut = async (row: TrackingRow) => {
         setReplaceDropdown(null);
-        if (row.pair_id) {
-            await supabase.from('t_time_pairs').update({ replaced_by: 'crossed_out' }).eq('pair_id', row.pair_id);
+        try {
+            if (row.pair_id) {
+                requireSupabaseSuccess(await supabase.from('t_time_pairs').update({ replaced_by: 'crossed_out' }).eq('pair_id', row.pair_id));
+            }
+            setRows(prev => prev.map(r => r._tempId === row._tempId ? { ...r, replaced_by: 'crossed_out' } : r));
+            toast(`${row.mitarbeiter} gestrichen`);
+        } catch {
+            toast('Fehler beim Streichen des Mitarbeiters', 'error');
         }
-        // Optimistic update
-        setRows(prev => prev.map(r => r._tempId === row._tempId ? { ...r, replaced_by: 'crossed_out' } : r));
-        toast(`${row.mitarbeiter} gestrichen`);
     };
 
     // Undo cross-out
     const handleUndoCrossOut = async (row: TrackingRow) => {
-        if (row.pair_id) {
-            await supabase.from('t_time_pairs').update({ replaced_by: null }).eq('pair_id', row.pair_id);
+        try {
+            if (row.pair_id) {
+                requireSupabaseSuccess(await supabase.from('t_time_pairs').update({ replaced_by: null }).eq('pair_id', row.pair_id));
+            }
+            setRows(prev => prev.map(r => r._tempId === row._tempId ? { ...r, replaced_by: null } : r));
+            toast(`${row.mitarbeiter} wiederhergestellt`);
+        } catch {
+            toast('Fehler beim Wiederherstellen des Mitarbeiters', 'error');
         }
-        setRows(prev => prev.map(r => r._tempId === row._tempId ? { ...r, replaced_by: null } : r));
-        toast(`${row.mitarbeiter} wiederhergestellt`);
     };
 
     const addRowToProject = (projectId: string, projectName: string, projectCode: string) => {
@@ -882,16 +944,24 @@ export default function TrackingPage() {
     // Cross out work assignment
     const handleWaCrossOut = async (wa: WorkAssignment) => {
         setWaReplaceDropdown(null);
-        await supabase.from('t_work_assignments').update({ replaced_by: 'crossed_out' }).eq('assignment_id', wa.assignment_id);
-        setWorkAssignments(prev => prev.map(w => w.assignment_id === wa.assignment_id ? { ...w, replaced_by: 'crossed_out' } : w));
-        toast(`${wa.employee_name} gestrichen`);
+        try {
+            requireSupabaseSuccess(await supabase.from('t_work_assignments').update({ replaced_by: 'crossed_out' }).eq('assignment_id', wa.assignment_id));
+            setWorkAssignments(prev => prev.map(w => w.assignment_id === wa.assignment_id ? { ...w, replaced_by: 'crossed_out' } : w));
+            toast(`${wa.employee_name} gestrichen`);
+        } catch {
+            toast('Fehler beim Streichen des Arbeitseinsatzes', 'error');
+        }
     };
 
     // Undo cross-out on work assignment
     const handleWaUndoCrossOut = async (wa: WorkAssignment) => {
-        await supabase.from('t_work_assignments').update({ replaced_by: null }).eq('assignment_id', wa.assignment_id);
-        setWorkAssignments(prev => prev.map(w => w.assignment_id === wa.assignment_id ? { ...w, replaced_by: null } : w));
-        toast(`${wa.employee_name} wiederhergestellt`);
+        try {
+            requireSupabaseSuccess(await supabase.from('t_work_assignments').update({ replaced_by: null }).eq('assignment_id', wa.assignment_id));
+            setWorkAssignments(prev => prev.map(w => w.assignment_id === wa.assignment_id ? { ...w, replaced_by: null } : w));
+            toast(`${wa.employee_name} wiederhergestellt`);
+        } catch {
+            toast('Fehler beim Wiederherstellen des Arbeitseinsatzes', 'error');
+        }
     };
 
     // Replace work assignment employee
@@ -934,6 +1004,7 @@ export default function TrackingPage() {
                     status: wa.status,
                     notes: wa.notes,
                     project_id: wa.project_id,
+                    is_replacement: true,
                 })
                 .select('assignment_id')
                 .single();
@@ -965,6 +1036,93 @@ export default function TrackingPage() {
         const [eh, em] = et.split(':').map(Number);
         const mins = (eh * 60 + em) - (sh * 60 + sm) - (brk || 0);
         return mins > 0 ? (mins / 60).toFixed(1) : '—';
+    };
+
+    const replacedWorkAssignments = viewMode === 'day' ? workAssignments.filter(wa => !!wa.replaced_by) : [];
+    const renderReplacedWorkAssignmentsSection = () => {
+        if (replacedWorkAssignments.length === 0) return null;
+
+        return (
+            <div className="mt-4">
+                <div className="flex items-center gap-2 mb-3 px-1">
+                    <ArrowLeftRight className="h-5 w-5 text-orange-400" />
+                    <h3 className="text-lg font-bold text-slate-800">Ersetzte Mitarbeiter</h3>
+                    <span className="text-xs text-orange-400 ml-1">
+                        Arbeitseinsätze: {replacedWorkAssignments.length} Ersetzungen / Streichungen
+                    </span>
+                </div>
+                <div className="bg-white rounded-xl border border-orange-100 shadow-sm overflow-hidden">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-gradient-to-r from-orange-50/70 to-orange-50/30 border-b border-orange-100 text-orange-500 font-medium text-xs uppercase tracking-wide">
+                            <tr>
+                                <th className="px-4 py-3">Typ</th>
+                                <th className="px-4 py-3">Original Mitarbeiter</th>
+                                <th className="px-4 py-3">Projekt</th>
+                                <th className="px-3 py-3 text-center">Start</th>
+                                <th className="px-3 py-3 text-center">Ende</th>
+                                <th className="px-3 py-3 text-center">Pause</th>
+                                <th className="px-3 py-3 text-center">Stunden</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-3 py-3 text-center">Ersetzt durch</th>
+                                <th className="w-10"></th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-orange-50">
+                            {replacedWorkAssignments.map(wa => {
+                                const replacementWa = wa.replaced_by && wa.replaced_by !== 'crossed_out'
+                                    ? workAssignments.find(w => w.assignment_id === wa.replaced_by)
+                                    : null;
+                                const isCrossedOut = wa.replaced_by === 'crossed_out';
+                                return (
+                                    <tr key={`replaced-wa-${wa.assignment_id}`} className={cn(isCrossedOut ? "bg-amber-50/30" : "bg-orange-50/20", "hover:bg-orange-50/40")}>
+                                        <td className="px-4 py-2.5">
+                                            <span className="text-xs font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{wa.work_type}</span>
+                                        </td>
+                                        <td className="px-4 py-2.5 text-slate-700 font-medium">{wa.employee_name}</td>
+                                        <td className="px-4 py-2.5 text-slate-500 text-xs">{wa.project_id ? (projects.find(p => p.project_id === wa.project_id)?.name || '—') : '—'}</td>
+                                        <td className="px-3 py-2.5 text-center font-mono text-slate-500">{wa.start_time?.substring(0, 5) || '—'}</td>
+                                        <td className="px-3 py-2.5 text-center font-mono text-slate-500">{wa.end_time?.substring(0, 5) || '—'}</td>
+                                        <td className="px-3 py-2.5 text-center text-slate-500">{wa.break_minutes ? `${wa.break_minutes} min` : '—'}</td>
+                                        <td className="px-3 py-2.5 text-center font-semibold text-slate-700">{calcWaHours(wa.start_time, wa.end_time, wa.break_minutes)}</td>
+                                        <td className="px-4 py-2.5">
+                                            <span className={cn("text-xs px-2 py-0.5 rounded-full", wa.status === 'Erledigt' ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700")}>{wa.status || 'Offen'}</span>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-center">
+                                            {isCrossedOut ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full text-xs font-semibold">✕ Gestrichen</span>
+                                            ) : replacementWa ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-semibold">→ {replacementWa.employee_name}</span>
+                                            ) : (
+                                                <span className="text-slate-400 text-xs">—</span>
+                                            )}
+                                        </td>
+                                        <td className="px-2 py-2.5 text-center">
+                                            {isCrossedOut ? (
+                                                <button
+                                                    onClick={() => handleWaUndoCrossOut(wa)}
+                                                    className="text-amber-400 hover:text-amber-700 transition-colors"
+                                                    title="Streichung rückgängig machen"
+                                                >
+                                                    <Undo2 className="h-4 w-4" />
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => deleteWa(wa.assignment_id)}
+                                                    className="text-red-300 hover:text-red-600 transition-colors"
+                                                    title="Ersetzten Einsatz löschen"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -1204,9 +1362,10 @@ export default function TrackingPage() {
                                                             </td>
                                                             <td className={cn("px-2 py-2 text-center text-sm font-semibold text-green-700 bg-green-50/20", isReplaced && "line-through text-slate-400")}>{calculateHours(row.kunde_von, row.kunde_bis)}</td>
                                                             <td className={cn("px-2 py-2", isReplaced && "line-through")}>
-                                                                <input type="number" className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-1 text-center text-sm disabled:text-slate-400"
-                                                                    value={row.pause_min === 0 ? '' : (row.pause_min ?? '')} disabled={isReplaced}
-                                                                    onChange={(e) => updateRow(row._tempId, 'pause_min', e.target.value)}
+                                                                <NumberInput className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-1 text-center text-sm disabled:text-slate-400"
+                                                                    value={row.pause_min ?? 0} disabled={isReplaced}
+                                                                    emptyWhenZero
+                                                                    onValueChange={(value) => updateRow(row._tempId, 'pause_min', value ?? 0)}
                                                                     onFocus={(e) => e.target.select()} />
                                                             </td>
                                                             <td className={cn("px-2 py-2", isReplaced && "line-through")}>
@@ -1398,10 +1557,11 @@ export default function TrackingPage() {
                                                                             )}
                                                                         </td>
                                                                         <td className="px-2 py-1.5">
-                                                                            <input type="number" min="0" step="0.1"
+                                                                            <NumberInput min="0" step="0.1"
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                                value={row.quantity === 0 ? '' : (row.quantity ?? '')}
-                                                                                onChange={e => updateMaterialRow(projectId, row._localId, 'quantity', e.target.value)}
+                                                                                value={row.quantity ?? 0}
+                                                                                emptyWhenZero
+                                                                                onValueChange={value => updateMaterialRow(projectId, row._localId, 'quantity', value ?? 0)}
                                                                                 onFocus={e => e.target.select()} />
                                                                         </td>
                                                                         <td className="px-2 py-1.5 text-slate-500">{row.unit}</td>
@@ -1498,10 +1658,11 @@ export default function TrackingPage() {
                                                                             )}
                                                                         </td>
                                                                         <td className="px-2 py-1.5">
-                                                                            <input type="number" min="0" step="0.1"
+                                                                            <NumberInput min="0" step="0.1"
                                                                                 className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
-                                                                                value={row.quantity === 0 ? '' : (row.quantity ?? '')}
-                                                                                onChange={e => updateServiceRow(projectId, row._localId, 'quantity', e.target.value)}
+                                                                                value={row.quantity ?? 0}
+                                                                                emptyWhenZero
+                                                                                onValueChange={value => updateServiceRow(projectId, row._localId, 'quantity', value ?? 0)}
                                                                                 onFocus={e => e.target.select()} />
                                                                         </td>
 
@@ -1577,34 +1738,34 @@ export default function TrackingPage() {
                                                                                 />
                                                                             </td>
                                                                             <td className="px-2 py-1.5">
-                                                                                <input
-                                                                                    type="number"
+                                                                                <NumberInput
                                                                                     min="0"
                                                                                     step="0.01"
-                                                                                    value={row.menge === 0 ? '' : (row.menge ?? '')}
-                                                                                    onChange={e => updateExtraRow(projectId, row._localId, 'menge', e.target.valueAsNumber)}
+                                                                                    value={row.menge ?? 0}
+                                                                                    emptyWhenZero
+                                                                                    onValueChange={value => updateExtraRow(projectId, row._localId, 'menge', value ?? 0)}
                                                                                     onFocus={e => e.target.select()}
                                                                                     className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
                                                                                 />
                                                                             </td>
                                                                             <td className="px-2 py-1.5">
-                                                                                <input
-                                                                                    type="number"
+                                                                                <NumberInput
                                                                                     min="0"
                                                                                     step="0.01"
-                                                                                    value={row.ek_preis === 0 ? '' : (row.ek_preis ?? '')}
-                                                                                    onChange={e => updateExtraRow(projectId, row._localId, 'ek_preis', e.target.valueAsNumber)}
+                                                                                    value={row.ek_preis ?? 0}
+                                                                                    emptyWhenZero
+                                                                                    onValueChange={value => updateExtraRow(projectId, row._localId, 'ek_preis', value ?? 0)}
                                                                                     onFocus={e => e.target.select()}
                                                                                     className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
                                                                                 />
                                                                             </td>
                                                                             <td className="px-2 py-1.5">
-                                                                                <input
-                                                                                    type="number"
+                                                                                <NumberInput
                                                                                     min="0"
                                                                                     step="0.01"
-                                                                                    value={row.vk_preis === 0 ? '' : (row.vk_preis ?? '')}
-                                                                                    onChange={e => updateExtraRow(projectId, row._localId, 'vk_preis', e.target.valueAsNumber)}
+                                                                                    value={row.vk_preis ?? 0}
+                                                                                    emptyWhenZero
+                                                                                    onValueChange={value => updateExtraRow(projectId, row._localId, 'vk_preis', value ?? 0)}
                                                                                     onFocus={e => e.target.select()}
                                                                                     className="w-full bg-transparent border border-transparent hover:border-slate-200 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:border-slate-300"
                                                                                 />
@@ -1888,47 +2049,49 @@ export default function TrackingPage() {
                                 </div>
                             </div>
                         )}
+                        {renderReplacedWorkAssignmentsSection()}
                     </div>
                 ) : (
                     /* ===== WORK ASSIGNMENTS TABLE ===== */
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-medium">
-                                <tr >
-                                    <th className="px-4 py-3">Typ</th>
-                                    <th className="px-4 py-3">Mitarbeiter</th>
-                                    <th className="px-4 py-3">Projekt</th>
-                                    <th className="px-4 py-3 text-center">Start</th>
-                                    <th className="px-4 py-3 text-center">Ende</th>
-                                    <th className="px-4 py-3 text-center">Pause (min)</th>
-                                    <th className="px-4 py-3 text-center">Stunden</th>
-                                    <th className="px-4 py-3">Status</th>
-                                    <th className="px-4 py-3">Notizen</th>
-                                    <th className="w-20"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {workAssignments.length === 0 ? (
-                                    <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-400">
-                                        <Briefcase className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                                        <p>Keine Arbeitseinsätze für diesen Tag.</p>
-                                        <button onClick={openCreateWa} className="text-orange-600 hover:underline mt-2">Neuen Einsatz anlegen</button>
-                                    </td></tr>
-                                ) : workAssignments.map(wa => {
-                                    const waIsReplaced = !!wa.replaced_by;
-                                    const waIsCrossedOut = wa.replaced_by === 'crossed_out';
-                                    return (
-                                    <tr key={wa.assignment_id} className={cn("group", waIsReplaced ? (waIsCrossedOut ? "bg-amber-50/40 opacity-70" : "bg-red-50/30 opacity-60") : "hover:bg-slate-50")}>
-                                        <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className="text-xs font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{wa.work_type}</span></td>
-                                        <td className={cn("px-4 py-3 font-medium text-slate-900", waIsReplaced && (waIsCrossedOut ? "line-through text-amber-500" : "line-through text-red-400"))}>{wa.employee_name}</td>
-                                        <td className={cn("px-4 py-3 text-slate-600 text-sm", waIsReplaced && "line-through")}>{wa.project_id ? (projects.find(p => p.project_id === wa.project_id)?.name || '—') : '—'}</td>
-                                        <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.start_time?.substring(0, 5) || '—'}</td>
-                                        <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.end_time?.substring(0, 5) || '—'}</td>
-                                        <td className={cn("px-4 py-3 text-center", waIsReplaced && "line-through text-slate-400")}>{wa.break_minutes || 0}</td>
-                                        <td className={cn("px-4 py-3 text-center font-semibold text-slate-700", waIsReplaced && "line-through text-slate-400")}>{calcWaHours(wa.start_time, wa.end_time, wa.break_minutes)}</td>
-                                        <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className={cn("text-xs px-2 py-0.5 rounded-full", wa.status === 'Erledigt' ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700")}>{wa.status || 'Offen'}</span></td>
-                                        <td className={cn("px-4 py-3 text-slate-600 truncate max-w-[200px]", waIsReplaced && "line-through text-slate-400")}>{wa.notes || '—'}</td>
-                                        <td className="px-4 py-3">
+                    <>
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-medium">
+                                    <tr >
+                                        <th className="px-4 py-3">Typ</th>
+                                        <th className="px-4 py-3">Mitarbeiter</th>
+                                        <th className="px-4 py-3">Projekt</th>
+                                        <th className="px-4 py-3 text-center">Start</th>
+                                        <th className="px-4 py-3 text-center">Ende</th>
+                                        <th className="px-4 py-3 text-center">Pause (min)</th>
+                                        <th className="px-4 py-3 text-center">Stunden</th>
+                                        <th className="px-4 py-3">Status</th>
+                                        <th className="px-4 py-3">Notizen</th>
+                                        <th className="w-20"></th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {workAssignments.length === 0 ? (
+                                        <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                                            <Briefcase className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                                            <p>Keine Arbeitseinsätze für diesen Tag.</p>
+                                            <button onClick={openCreateWa} className="text-orange-600 hover:underline mt-2">Neuen Einsatz anlegen</button>
+                                        </td></tr>
+                                    ) : workAssignments.map(wa => {
+                                        const waIsReplaced = !!wa.replaced_by;
+                                        const waIsCrossedOut = wa.replaced_by === 'crossed_out';
+                                        return (
+                                        <tr key={wa.assignment_id} className={cn("group", waIsReplaced ? (waIsCrossedOut ? "bg-amber-50/40 opacity-70" : "bg-red-50/30 opacity-60") : "hover:bg-slate-50")}>
+                                            <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className="text-xs font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{wa.work_type}</span></td>
+                                            <td className={cn("px-4 py-3 font-medium text-slate-900", waIsReplaced && (waIsCrossedOut ? "line-through text-amber-500" : "line-through text-red-400"))}>{wa.employee_name}</td>
+                                            <td className={cn("px-4 py-3 text-slate-600 text-sm", waIsReplaced && "line-through")}>{wa.project_id ? (projects.find(p => p.project_id === wa.project_id)?.name || '—') : '—'}</td>
+                                            <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.start_time?.substring(0, 5) || '—'}</td>
+                                            <td className={cn("px-4 py-3 text-center font-mono", waIsReplaced && "line-through text-slate-400")}>{wa.end_time?.substring(0, 5) || '—'}</td>
+                                            <td className={cn("px-4 py-3 text-center", waIsReplaced && "line-through text-slate-400")}>{wa.break_minutes || 0}</td>
+                                            <td className={cn("px-4 py-3 text-center font-semibold text-slate-700", waIsReplaced && "line-through text-slate-400")}>{calcWaHours(wa.start_time, wa.end_time, wa.break_minutes)}</td>
+                                            <td className={cn("px-4 py-3", waIsReplaced && "line-through")}><span className={cn("text-xs px-2 py-0.5 rounded-full", wa.status === 'Erledigt' ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700")}>{wa.status || 'Offen'}</span></td>
+                                            <td className={cn("px-4 py-3 text-slate-600 truncate max-w-[200px]", waIsReplaced && "line-through text-slate-400")}>{wa.notes || '—'}</td>
+                                            <td className="px-4 py-3">
                                             <div className="flex items-center gap-1 justify-center relative">
                                                 {!waIsReplaced && (
                                                     <>
@@ -2013,13 +2176,15 @@ export default function TrackingPage() {
                                                     </button>
                                                 )}
                                             </div>
-                                        </td>
-                                    </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
+                                            </td>
+                                        </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                        {renderReplacedWorkAssignmentsSection()}
+                    </>
                 )}
             </div>
 
@@ -2075,18 +2240,20 @@ export default function TrackingPage() {
                                     </div>
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Pause (min)</label>
-                                        <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                            value={waForm.break_minutes === 0 ? '' : (waForm.break_minutes ?? '')}
-                                            onChange={e => setWaForm({ ...waForm, break_minutes: e.target.value === '' ? 0 : +e.target.value })}
+                                        <NumberInput className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            value={waForm.break_minutes ?? 0}
+                                            emptyWhenZero
+                                            onValueChange={value => setWaForm({ ...waForm, break_minutes: value ?? 0 })}
                                             onFocus={e => e.target.select()} />
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-xs font-medium text-slate-500 mb-1">Geschätzte Stunden</label>
-                                        <input type="number" step="0.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                            value={waForm.hours_estimated === 0 ? '' : (waForm.hours_estimated ?? '')}
-                                            onChange={e => setWaForm({ ...waForm, hours_estimated: e.target.value === '' ? 0 : +e.target.value })}
+                                        <NumberInput step="0.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            value={waForm.hours_estimated ?? 0}
+                                            emptyWhenZero
+                                            onValueChange={value => setWaForm({ ...waForm, hours_estimated: value ?? 0 })}
                                             onFocus={e => e.target.select()} />
                                     </div>
                                     <div>

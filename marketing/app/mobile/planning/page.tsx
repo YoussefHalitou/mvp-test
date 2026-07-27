@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import { Database } from '@/types/supabase';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -146,7 +147,7 @@ export default function MobilePlanningPage() {
                     individual_start_time: s.individual_start_time,
                     member_notes: (s as any).member_notes, sort_order: s.sort_order
                 }));
-                await supabase.from('t_morningplan_staff').insert(staffPayload);
+                requireSupabaseSuccess(await supabase.from('t_morningplan_staff').insert(staffPayload));
             }
             toast('Einsatz dupliziert');
             fetchData();

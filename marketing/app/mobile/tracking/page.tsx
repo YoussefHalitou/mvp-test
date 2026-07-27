@@ -7,8 +7,10 @@ import { de } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, Save, Loader2, Trash2, Plus, X, Clock, Briefcase } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import { Database } from '@/types/supabase';
 import { formatTimeInput } from '@/lib/timeUtils';
+import { NumberInput } from '@/components/ui/number-input';
 import { AnimatePresence, motion } from 'framer-motion';
 
 type Project = { project_id: string; name: string; project_code: string | null; project_date?: string | null; created_at?: string };
@@ -47,21 +49,20 @@ export default function MobileTrackingPage() {
 
     const fetchData = useCallback(async () => {
         setLoading(true);
-        const [empRes, projRes] = await Promise.all([
-            supabase.from('t_employees').select('employee_id, name, employee_code').eq('is_active', true).order('name'),
-            supabase.from('t_projects').select('project_id, name, project_code, project_date, created_at').order('created_at', { ascending: false }),
-        ]);
-        setEmployees(empRes.data || []);
-        setProjects(projRes.data || []);
-
-        const [tpRes, planRes, waRes] = await Promise.all([
-            supabase.from('t_time_pairs').select('*').eq('datum', dateStr).order('mitarbeiter'),
-            supabase.from('t_morningplan').select('*, project:t_projects(project_id, name, project_code)').eq('plan_date', dateStr),
-            supabase.from('t_work_assignments').select('*').eq('assignment_date', dateStr).order('employee_name'),
-        ]);
-        const plans = (planRes.data || []) as (MorningPlan & { project: Project })[];
-        const timePairs = tpRes.data || [];
-        const trackingRows: TrackingRow[] = timePairs.map(tp => {
+        try {
+            const [empRes, projRes, tpRes, planRes, waRes, planStaffRes] = await Promise.all([
+                supabase.from('t_employees').select('employee_id, name, employee_code').eq('is_active', true).order('name'),
+                supabase.from('t_projects').select('project_id, name, project_code, project_date, created_at').order('created_at', { ascending: false }),
+                supabase.from('t_time_pairs').select('*').eq('datum', dateStr).order('mitarbeiter'),
+                supabase.from('t_morningplan').select('*, project:t_projects(project_id, name, project_code)').eq('plan_date', dateStr),
+                supabase.from('t_work_assignments').select('*').eq('assignment_date', dateStr).order('employee_name'),
+                supabase.from('t_morningplan_staff')
+                    .select('*, plan:t_morningplan!inner(*, project:t_projects(project_id, name, project_code)), employee:t_employees(employee_id, name)')
+                    .eq('plan.plan_date', dateStr),
+            ]);
+            [empRes, projRes, tpRes, planRes, waRes, planStaffRes].forEach(requireSupabaseSuccess);
+            const plans = (planRes.data || []) as (MorningPlan & { project: Project })[];
+            const trackingRows: TrackingRow[] = (tpRes.data || []).map(tp => {
             const plan = plans.find(p => p.plan_id === tp.plan_id) || plans.find(p => p.project_id === tp.project_id);
             return {
                 _tempId: tp.pair_id || `tp-${Math.random()}`, pair_id: tp.pair_id, project_id: tp.project_id,
@@ -72,13 +73,9 @@ export default function MobileTrackingPage() {
                 pause_min: tp.pause_min || 0, notes: '', isNew: false,
             };
         });
-        // Auto-merge plan staff
-        const { data: planStaff } = await supabase.from('t_morningplan_staff')
-            .select('*, plan:t_morningplan!inner(*, project:t_projects(project_id, name, project_code)), employee:t_employees(employee_id, name)')
-            .eq('plan.plan_date', dateStr);
-        const existingKeys = new Set(trackingRows.map(r => `${r.project_id}-${r.mitarbeiter}`));
-        const staff = (planStaff as any[] || []).filter((s: any) => s.plan?.plan_date === dateStr);
-        staff.forEach((s: any) => {
+            const existingKeys = new Set(trackingRows.map(r => `${r.project_id}-${r.mitarbeiter}`));
+            const staff = (planStaffRes.data as any[] || []).filter((s: any) => s.plan?.plan_date === dateStr);
+            staff.forEach((s: any) => {
             const key = `${s.plan?.project_id}-${s.employee?.name}`;
             if (!existingKeys.has(key) && s.employee?.name) {
                 trackingRows.push({
@@ -89,11 +86,18 @@ export default function MobileTrackingPage() {
                     lis_bis: '', kunde_von: '', kunde_bis: '', pause_min: 0, notes: '', isNew: true,
                 });
             }
-        });
-        setRows(trackingRows);
-        setWorkAssignments(waRes.data || []);
-        setLoading(false);
-    }, [dateStr]);
+            });
+            setEmployees(empRes.data || []);
+            setProjects(projRes.data || []);
+            setRows(trackingRows);
+            setWorkAssignments(waRes.data || []);
+        } catch (error) {
+            console.error('Failed to load mobile tracking data:', error);
+            toast('Rückerfassungsdaten konnten nicht vollständig geladen werden', 'error');
+        } finally {
+            setLoading(false);
+        }
+    }, [dateStr, toast]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -112,7 +116,7 @@ export default function MobileTrackingPage() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            await Promise.all(rows.map(row => {
+            const results = await Promise.all(rows.map(row => {
                 const record: any = {
                     pair_id: row.pair_id || `${row.project_id}-${row.employee_id}-${dateStr}-${Date.now()}-${Math.random()}`,
                     project_id: row.project_id, plan_id: row.plan_id, datum: dateStr,
@@ -123,17 +127,23 @@ export default function MobileTrackingPage() {
                 };
                 return supabase.from('t_time_pairs').upsert(record, { onConflict: 'pair_id' });
             }));
+            results.forEach(requireSupabaseSuccess);
             toast('Zeiten gespeichert');
-            fetchData();
+            await fetchData();
         } catch { toast('Fehler beim Speichern', 'error'); }
-        setSaving(false);
+        finally { setSaving(false); }
     };
 
     const handleDelete = async (row: TrackingRow) => {
         if (row.isNew) { setRows(prev => prev.filter(r => r._tempId !== row._tempId)); return; }
         if (confirm('Zeiteintrag löschen?') && row.pair_id) {
             setRows(prev => prev.filter(r => r._tempId !== row._tempId));
-            await supabase.from('t_time_pairs').delete().eq('pair_id', row.pair_id);
+            try {
+                requireSupabaseSuccess(await supabase.from('t_time_pairs').delete().eq('pair_id', row.pair_id));
+            } catch {
+                toast('Fehler beim Löschen', 'error');
+                await fetchData();
+            }
         }
     };
 
@@ -170,14 +180,20 @@ export default function MobileTrackingPage() {
                 if (error) throw error;
                 toast('Arbeitseinsatz aktualisiert');
             }
-            setWaModal(null); fetchData();
+            setWaModal(null);
+            await fetchData();
         } catch { toast('Fehler beim Speichern', 'error'); }
-        setSavingWa(false);
+        finally { setSavingWa(false); }
     };
     const deleteWa = async (id: string) => {
         if (!confirm('Löschen?')) return;
         setWorkAssignments(prev => prev.filter(w => w.assignment_id !== id));
-        await supabase.from('t_work_assignments').delete().eq('assignment_id', id);
+        try {
+            requireSupabaseSuccess(await supabase.from('t_work_assignments').delete().eq('assignment_id', id));
+        } catch {
+            toast('Fehler beim Löschen', 'error');
+            await fetchData();
+        }
     };
 
     // Group rows by project
@@ -335,7 +351,7 @@ export default function MobileTrackingPage() {
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
                                     <div><label className="block text-xs font-medium text-slate-500 mb-1">Pause (min)</label>
-                                        <input type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" value={waForm.break_minutes} onChange={e => setWaForm({ ...waForm, break_minutes: parseInt(e.target.value) || 0 })} /></div>
+                                        <NumberInput className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" value={waForm.break_minutes} onValueChange={value => setWaForm({ ...waForm, break_minutes: value ?? 0 })} /></div>
                                     <div><label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
                                         <select className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white" value={waForm.status} onChange={e => setWaForm({ ...waForm, status: e.target.value })}>
                                             <option value="Offen">Offen</option><option value="In Bearbeitung">In Bearbeitung</option><option value="Erledigt">Erledigt</option>
@@ -403,7 +419,7 @@ function MobileTimeCard({ row, employees, expanded, onToggle, onUpdate, onDelete
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                         <div><label className="block text-[10px] font-medium text-slate-400 uppercase mb-1">Pause (min)</label>
-                            <input type="number" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={row.pause_min} onChange={e => onUpdate(row._tempId, 'pause_min', parseInt(e.target.value) || 0)} /></div>
+                            <NumberInput className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={row.pause_min} onValueChange={value => onUpdate(row._tempId, 'pause_min', value ?? 0)} /></div>
                         <div className="flex items-end">
                             <button onClick={onDelete} className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-red-500 border border-red-200 rounded-lg hover:bg-red-50">
                                 <Trash2 className="w-3.5 h-3.5" /> Löschen

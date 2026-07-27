@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import {
     DndContext, DragOverlay,
     DragEndEvent, DragStartEvent, closestCorners
@@ -98,43 +99,51 @@ export function PlanningClient() {
     // ---- DATA FETCHING ----
     const fetchData = useCallback(async () => {
         setLoading(true);
+        try {
+            const [projRes, planRes, empRes, vehRes] = await Promise.all([
+                supabase.from('t_projects').select('*').order('created_at', { ascending: false }).limit(100),
+                supabase.from('t_morningplan')
+                    .select('*, project:t_projects(*), staff:t_morningplan_staff(*, employee:t_employees(*))')
+                    .gte('plan_date', weekStartStr)
+                    .lte('plan_date', weekEndStr),
+                supabase.from('t_employees').select('*').eq('is_active', true).order('name'),
+                supabase.from('t_vehicles').select('*').eq('is_deleted', false).order('nickname'),
+            ]);
+            [projRes, planRes, empRes, vehRes].forEach(requireSupabaseSuccess);
 
-        const [projRes, planRes, empRes, vehRes] = await Promise.all([
-            supabase.from('t_projects').select('*').order('created_at', { ascending: false }).limit(100),
-            supabase.from('t_morningplan')
-                .select('*, project:t_projects(*), staff:t_morningplan_staff(*, employee:t_employees(*))')
-                .gte('plan_date', weekStartStr)
-                .lte('plan_date', weekEndStr),
-            supabase.from('t_employees').select('*').eq('is_active', true).order('name'),
-            supabase.from('t_vehicles').select('*').eq('is_deleted', false).order('nickname'),
-        ]);
+            const eventsRes = await supabase
+                .from('t_employee_events')
+                .select('*')
+                .lte('start_date', weekEndStr)
+                .gte('end_date', weekStartStr);
+            requireSupabaseSuccess(eventsRes);
 
-        setProjects(projRes.data || []);
-        setEmployees(empRes.data || []);
-        setVehicles(vehRes.data || []);
-
-        const plansRaw = (planRes.data || []) as MorningPlan[];
-        // No manual staff mapping needed anymore as it is fetched nested
-        setPlans(plansRaw);
-
-        // Fetch employee events (leave/appointments) for the visible date range
-        const { data: eventsData } = await supabase
-            .from('t_employee_events')
-            .select('*')
-            .lte('start_date', weekEndStr)
-            .gte('end_date', weekStartStr);
-        setEmployeeEvents(eventsData || []);
-
-        setLoading(false);
+            setProjects(projRes.data || []);
+            setEmployees(empRes.data || []);
+            setVehicles(vehRes.data || []);
+            setPlans((planRes.data || []) as MorningPlan[]);
+            setEmployeeEvents(eventsRes.data || []);
+        } catch (error) {
+            console.error('Error loading planning data:', error);
+            toast('Planungsdaten konnten nicht vollständig geladen werden', 'error');
+        } finally {
+            setLoading(false);
+        }
     }, [weekStartStr, weekEndStr]);
 
     const fetchDayPanels = useCallback(async () => {
-        const [vdsRes, notesRes] = await Promise.all([
-            supabase.from('t_vehicle_daily_status').select('*').eq('plan_date', selectedDay),
-            supabase.from('t_employee_daily_notes').select('*').eq('plan_date', selectedDay).order('sort_order'),
-        ]);
-        setVehicleStatuses(vdsRes.data || []);
-        setEmployeeNotes(notesRes.data || []);
+        try {
+            const [vdsRes, notesRes] = await Promise.all([
+                supabase.from('t_vehicle_daily_status').select('*').eq('plan_date', selectedDay),
+                supabase.from('t_employee_daily_notes').select('*').eq('plan_date', selectedDay).order('sort_order'),
+            ]);
+            [vdsRes, notesRes].forEach(requireSupabaseSuccess);
+            setVehicleStatuses(vdsRes.data || []);
+            setEmployeeNotes(notesRes.data || []);
+        } catch (error) {
+            console.error('Error loading day panels:', error);
+            toast('Tagesnotizen konnten nicht vollständig geladen werden', 'error');
+        }
     }, [selectedDay]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
@@ -249,9 +258,10 @@ export function PlanningClient() {
                     sort_order: idx + 1
                 }));
 
-                await Promise.all(updates.map(u =>
+                const results = await Promise.all(updates.map(u =>
                     supabase.from('t_morningplan_staff').update({ sort_order: u.sort_order }).eq('id', u.id)
                 ));
+                results.forEach(requireSupabaseSuccess);
                 toast('Reihenfolge gespeichert');
             } catch {
                 toast('Fehler beim Sortieren', 'error');
@@ -281,9 +291,10 @@ export function PlanningClient() {
             });
 
             try {
-                await Promise.all(newDayPlans.map((p, idx) =>
+                const results = await Promise.all(newDayPlans.map((p, idx) =>
                     supabase.from('t_morningplan').update({ sort_order: idx + 1 } as any).eq('plan_id', p.plan_id)
                 ));
+                results.forEach(requireSupabaseSuccess);
                 toast('Reihenfolge der Einsätze gespeichert');
             } catch {
                 toast('Fehler beim Sortieren', 'error');
@@ -331,15 +342,17 @@ export function PlanningClient() {
     const syncProjectDate = async (projectId: string) => {
         try {
             // Get earliest plan_date for this project
-            const { data: planDates } = await supabase
+            const planDatesResult = await supabase
                 .from('t_morningplan')
                 .select('plan_date')
                 .eq('project_id', projectId)
                 .order('plan_date', { ascending: true })
                 .limit(1);
+            requireSupabaseSuccess(planDatesResult);
+            const planDates = planDatesResult.data;
             const earliest = planDates?.[0]?.plan_date;
             if (earliest) {
-                await supabase.from('t_projects').update({ project_date: earliest }).eq('project_id', projectId);
+                requireSupabaseSuccess(await supabase.from('t_projects').update({ project_date: earliest }).eq('project_id', projectId));
             }
         } catch (err) {
             console.error('Error syncing project date:', err);
@@ -440,7 +453,7 @@ export function PlanningClient() {
                     member_notes: (s as any).member_notes,
                     sort_order: s.sort_order
                 }));
-                await supabase.from('t_morningplan_staff').insert(staffPayload);
+                requireSupabaseSuccess(await supabase.from('t_morningplan_staff').insert(staffPayload));
             }
 
             toast('Einsatz dupliziert');

@@ -7,6 +7,7 @@ import { de } from 'date-fns/locale';
 import { Search, Plus, X, Save, Loader2, Trash2, MapPin, Calendar, Tag, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import { Database } from '@/types/supabase';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -81,7 +82,12 @@ export default function MobileProjectsPage() {
     const handleDelete = async (id: string) => {
         if (!confirm('Projekt wirklich löschen?')) return;
         setProjects(prev => prev.filter(p => p.project_id !== id));
-        await supabase.from('t_projects').delete().eq('project_id', id);
+        try {
+            requireSupabaseSuccess(await supabase.from('t_projects').delete().eq('project_id', id));
+        } catch {
+            toast('Fehler beim Löschen', 'error');
+            await fetchProjects();
+        }
     };
 
     const setField = (key: keyof ProjectInsert, val: string) => setForm(prev => ({ ...prev, [key]: val }));

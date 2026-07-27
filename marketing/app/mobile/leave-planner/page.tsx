@@ -7,6 +7,7 @@ import { de } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, Plus, X, Save, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import { Database } from '@/types/supabase';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -86,7 +87,12 @@ export default function MobileLeavePlannerPage() {
     const handleDelete = async (id: string) => {
         if (!confirm('Löschen?')) return;
         setEvents(prev => prev.filter(e => e.id !== id));
-        await supabase.from('t_employee_events').delete().eq('id', id);
+        try {
+            requireSupabaseSuccess(await supabase.from('t_employee_events').delete().eq('id', id));
+        } catch {
+            toast('Fehler beim Löschen', 'error');
+            await fetchData();
+        }
     };
 
     // Day detail

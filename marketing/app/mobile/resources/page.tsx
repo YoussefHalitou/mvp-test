@@ -5,13 +5,17 @@ import { useToast } from '@/components/ui/toast';
 import { Users, Truck, Package, Wrench, Plus, X, Save, Loader2, Trash2, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import { Database } from '@/types/supabase';
+import { NumberInput } from '@/components/ui/number-input';
 import { AnimatePresence, motion } from 'framer-motion';
 
 type Employee = Database['public']['Tables']['t_employees']['Row'];
 type Vehicle = Database['public']['Tables']['t_vehicles']['Row'];
-type Material = Database['public']['Tables']['t_materials']['Row'];
-type Service = Database['public']['Tables']['t_services']['Row'];
+type MaterialPrice = Database['public']['Tables']['t_material_prices']['Row'];
+type ServicePrice = Database['public']['Tables']['t_service_prices']['Row'];
+type Material = Database['public']['Tables']['t_materials']['Row'] & { prices?: MaterialPrice[] };
+type Service = Database['public']['Tables']['t_services']['Row'] & { prices?: ServicePrice[] };
 
 const TABS = [
     { id: 'employees', label: 'Mitarbeiter', icon: Users },
@@ -38,18 +42,25 @@ export default function MobileResourcesPage() {
 
     const fetchData = useCallback(async () => {
         setLoading(true);
-        const [empRes, vehRes, matRes, svcRes] = await Promise.all([
-            supabase.from('t_employees').select('*').eq('is_active', true).order('name'),
-            supabase.from('t_vehicles').select('*').eq('is_deleted', false).order('nickname'),
-            supabase.from('t_materials').select('*').order('name'),
-            supabase.from('t_services').select('*').order('name'),
-        ]);
-        setEmployees(empRes.data || []);
-        setVehicles(vehRes.data || []);
-        setMaterials(matRes.data || []);
-        setServices(svcRes.data || []);
-        setLoading(false);
-    }, []);
+        try {
+            const [empRes, vehRes, matRes, svcRes] = await Promise.all([
+                supabase.from('t_employees').select('*').eq('is_active', true).order('name'),
+                supabase.from('t_vehicles').select('*').eq('is_deleted', false).order('nickname'),
+                supabase.from('t_materials').select('*, prices:t_material_prices(*)').order('name'),
+                supabase.from('t_services').select('*, prices:t_service_prices(*)').order('name'),
+            ]);
+            [empRes, vehRes, matRes, svcRes].forEach(requireSupabaseSuccess);
+            setEmployees(empRes.data || []);
+            setVehicles(vehRes.data || []);
+            setMaterials((matRes.data || []) as Material[]);
+            setServices((svcRes.data || []) as Service[]);
+        } catch (error) {
+            console.error('Failed to load mobile resources:', error);
+            toast('Stammdaten konnten nicht vollständig geladen werden', 'error');
+        } finally {
+            setLoading(false);
+        }
+    }, [toast]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -59,19 +70,47 @@ export default function MobileResourcesPage() {
         try {
             const table = activeTab === 'employees' ? 't_employees' : activeTab === 'vehicles' ? 't_vehicles' : activeTab === 'materials' ? 't_materials' : 't_services';
             const idField = activeTab === 'employees' ? 'employee_id' : activeTab === 'vehicles' ? 'vehicle_id' : activeTab === 'materials' ? 'material_id' : 'service_id';
+            const recordId = modal?.data?.[idField] || (activeTab === 'materials' ? `MAT-${Date.now()}` : activeTab === 'services' ? `SVC-${Date.now()}` : null);
+            const baseForm = { ...form };
+            delete baseForm.cost_per_unit;
+            delete baseForm.price_per_unit;
 
             if (modal?.mode === 'create') {
-                const { error } = await supabase.from(table).insert(form as any);
-                if (error) throw error;
+                requireSupabaseSuccess(await supabase.from(table).insert({
+                    ...baseForm,
+                    ...(recordId ? { [idField]: recordId } : {}),
+                } as any));
                 toast('Erstellt');
             } else if (modal?.data) {
-                const { error } = await supabase.from(table).update(form as any).eq(idField, modal.data[idField]);
-                if (error) throw error;
+                requireSupabaseSuccess(await supabase.from(table).update(baseForm as any).eq(idField, modal.data[idField]));
                 toast('Aktualisiert');
             }
-            setModal(null); fetchData();
-        } catch { toast('Fehler beim Speichern', 'error'); }
-        setSaving(false);
+
+            if (activeTab === 'materials' && recordId) {
+                requireSupabaseSuccess(await supabase.from('t_material_prices').upsert({
+                    material_id: recordId,
+                    cost_per_unit: Number(form.cost_per_unit) || 0,
+                    price_per_unit: Number(form.price_per_unit) || 0,
+                }));
+            } else if (activeTab === 'services' && recordId) {
+                const existingPrice = modal?.data?.prices?.[0] as ServicePrice | undefined;
+                requireSupabaseSuccess(await supabase.from('t_service_prices').upsert({
+                    price_id: existingPrice?.price_id || `PRICE-${Date.now()}`,
+                    service_id: recordId,
+                    supplier: existingPrice?.supplier || 'EVD',
+                    unit: form.default_unit || 'Std',
+                    cost_per_unit: Number(form.cost_per_unit) || 0,
+                    customer_price_per_unit: Number(form.price_per_unit) || 0,
+                }));
+            }
+            setModal(null);
+            await fetchData();
+        } catch (error) {
+            console.error('Failed to save mobile resource:', error);
+            toast('Fehler beim Speichern', 'error');
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleDelete = async (id: string) => {
@@ -79,29 +118,40 @@ export default function MobileResourcesPage() {
         const table = activeTab === 'employees' ? 't_employees' : activeTab === 'vehicles' ? 't_vehicles' : activeTab === 'materials' ? 't_materials' : 't_services';
         const idField = activeTab === 'employees' ? 'employee_id' : activeTab === 'vehicles' ? 'vehicle_id' : activeTab === 'materials' ? 'material_id' : 'service_id';
 
-        if (activeTab === 'employees') {
-            await supabase.from(table).update({ is_active: false } as any).eq(idField, id);
-        } else if (activeTab === 'vehicles') {
-            await supabase.from(table).update({ is_deleted: true } as any).eq(idField, id);
-        } else {
-            await supabase.from(table).delete().eq(idField, id);
+        try {
+            if (activeTab === 'employees') {
+                requireSupabaseSuccess(await supabase.from(table).update({ is_active: false } as any).eq(idField, id));
+            } else if (activeTab === 'vehicles') {
+                requireSupabaseSuccess(await supabase.from(table).update({ is_deleted: true } as any).eq(idField, id));
+            } else {
+                requireSupabaseSuccess(await supabase.from(table).delete().eq(idField, id));
+            }
+            toast('Gelöscht');
+            await fetchData();
+        } catch (error) {
+            console.error('Failed to delete mobile resource:', error);
+            toast('Fehler beim Löschen', 'error');
         }
-        toast('Gelöscht'); fetchData();
     };
 
     const openCreate = () => {
         if (activeTab === 'employees') setForm({ name: '', employee_code: '', contract_type: '', role: '' });
         else if (activeTab === 'vehicles') setForm({ nickname: '', license_plate: '', type: '' });
         else if (activeTab === 'materials') setForm({ name: '', unit: '', cost_per_unit: 0, price_per_unit: 0 });
-        else setForm({ name: '', unit: '', cost_per_unit: 0, price_per_unit: 0 });
+        else setForm({ name: '', default_unit: '', cost_per_unit: 0, price_per_unit: 0 });
         setModal({ type: activeTab, mode: 'create' });
     };
 
     const openEdit = (data: any) => {
         if (activeTab === 'employees') setForm({ name: data.name || '', employee_code: data.employee_code || '', contract_type: data.contract_type || '', role: data.role || '' });
         else if (activeTab === 'vehicles') setForm({ nickname: data.nickname || '', license_plate: data.license_plate || '', type: data.type || '' });
-        else if (activeTab === 'materials') setForm({ name: data.name || '', unit: data.unit || '', cost_per_unit: data.cost_per_unit || 0, price_per_unit: data.price_per_unit || 0 });
-        else setForm({ name: data.name || '', unit: data.unit || '', cost_per_unit: data.cost_per_unit || 0, price_per_unit: data.price_per_unit || 0 });
+        else if (activeTab === 'materials') {
+            const price = data.prices?.[0];
+            setForm({ name: data.name || '', unit: data.unit || '', cost_per_unit: price?.cost_per_unit || 0, price_per_unit: price?.price_per_unit || 0 });
+        } else {
+            const price = data.prices?.[0];
+            setForm({ name: data.name || '', default_unit: data.default_unit || '', cost_per_unit: price?.cost_per_unit || 0, price_per_unit: price?.customer_price_per_unit || 0 });
+        }
         setModal({ type: activeTab, mode: 'edit', data });
     };
 
@@ -116,8 +166,8 @@ export default function MobileResourcesPage() {
     const getItemSub = (item: any) => {
         if (activeTab === 'employees') return item.contract_type || item.role || '';
         if (activeTab === 'vehicles') return item.license_plate || '';
-        if (activeTab === 'materials') return `${item.unit || '—'} · ${item.cost_per_unit?.toFixed(2) || '0'}€`;
-        return `${item.unit || '—'} · ${item.cost_per_unit?.toFixed(2) || '0'}€`;
+        if (activeTab === 'materials') return `${item.unit || '—'} · ${item.prices?.[0]?.cost_per_unit?.toFixed(2) || '0'}€`;
+        return `${item.default_unit || '—'} · ${item.prices?.[0]?.cost_per_unit?.toFixed(2) || '0'}€`;
     };
 
     return (
@@ -206,8 +256,8 @@ export default function MobileResourcesPage() {
                                     <div key={key}>
                                         <label className="block text-xs font-medium text-slate-500 mb-1 capitalize">{key.replace(/_/g, ' ')}</label>
                                         {typeof val === 'number' ? (
-                                            <input type="number" step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
-                                                value={val} onChange={e => setForm(prev => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))} />
+                                            <NumberInput step="0.01" className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
+                                                value={val} onValueChange={value => setForm(prev => ({ ...prev, [key]: value ?? 0 }))} />
                                         ) : (
                                             <input className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
                                                 value={val || ''} onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))} />

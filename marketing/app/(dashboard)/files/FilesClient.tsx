@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import {
     FolderPlus, FilePlus, Upload, Trash2, FolderOpen, FileText, ChevronRight,
     Home, MoreVertical, Pencil, X, Loader2, Download, Image as ImageIcon, FileSpreadsheet, File
@@ -214,10 +215,10 @@ export default function FilesClient() {
         if (!renamingItem || !renamingItem.name.trim()) return;
         try {
             if (renamingItem.type === 'folder') {
-                await supabase.from('t_folders').update({ name: renamingItem.name.trim() }).eq('id', renamingItem.id);
+                requireSupabaseSuccess(await supabase.from('t_folders').update({ name: renamingItem.name.trim() }).eq('id', renamingItem.id));
                 setFolders(folders.map(f => f.id === renamingItem.id ? { ...f, name: renamingItem.name.trim() } : f));
             } else {
-                await supabase.from('t_files').update({ name: renamingItem.name.trim() }).eq('id', renamingItem.id);
+                requireSupabaseSuccess(await supabase.from('t_files').update({ name: renamingItem.name.trim() }).eq('id', renamingItem.id));
                 setFiles(files.map(f => f.id === renamingItem.id ? { ...f, name: renamingItem.name.trim() } : f));
             }
             setRenamingItem(null);

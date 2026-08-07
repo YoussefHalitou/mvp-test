@@ -10,6 +10,7 @@ import {
     AlertCircle, Percent, Search, Calendar, ChevronLeft, ChevronRight, ChevronUp, Send, CheckCircle2, Clock, XCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { parseValidDate } from '@/lib/date-utils';
 import { supabase } from '@/lib/supabase';
 import { requireSupabaseSuccess } from '@/lib/supabase-result';
 import { Database } from '@/types/supabase';
@@ -102,12 +103,14 @@ function escapeHtml(value: unknown): string {
 
 function normalizeDate(value?: string | null): string | null {
     if (!value) return null;
-    return value.substring(0, 10);
+    const candidate = value.substring(0, 10);
+    return parseValidDate(candidate) ? candidate : null;
 }
 
-function formatGermanDate(value?: string | null): string {
+function formatGermanDate(value?: string | null, pattern: string = 'dd.MM.yyyy'): string {
     const date = normalizeDate(value);
-    return date ? new Date(`${date}T00:00:00`).toLocaleDateString('de-DE') : '';
+    const parsedDate = parseValidDate(date);
+    return parsedDate ? format(parsedDate, pattern, { locale: de }) : '';
 }
 
 function expandDateRange(start?: string | null, end?: string | null): string[] {
@@ -328,8 +331,8 @@ export default function CalculationPage() {
         let res = [...projects];
         // Sort by date desc (recent first)
         res.sort((a, b) => {
-            const dateA = a.project_date ? new Date(a.project_date).getTime() : 0;
-            const dateB = b.project_date ? new Date(b.project_date).getTime() : 0;
+            const dateA = parseValidDate(a.project_date)?.getTime() || 0;
+            const dateB = parseValidDate(b.project_date)?.getTime() || 0;
             // Descending order
             if (dateA === 0 && dateB === 0) return 0;
             if (dateA === 0) return 1;
@@ -358,7 +361,8 @@ export default function CalculationPage() {
     const groupedProjects = useMemo(() => {
         const groups: Record<string, typeof filteredProjects> = {};
         filteredProjects.forEach(p => {
-            const dateStr = p.project_date ? new Date(p.project_date).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }) : 'Ohne Datum';
+            const projectDate = parseValidDate(p.project_date);
+            const dateStr = projectDate ? projectDate.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }) : 'Ohne Datum';
             if (!groups[dateStr]) groups[dateStr] = [];
             groups[dateStr].push(p);
         });
@@ -1552,8 +1556,10 @@ export default function CalculationPage() {
                                         <div className="divide-y divide-slate-50 border-t border-slate-100">
                                             {monthProjects.map(p => {
                                                 // Basic visual status indicators: past = red/gray, upcoming = blue
-                                                const isPast = p.project_date ? new Date(p.project_date).getTime() < new Date().setHours(0, 0, 0, 0) : true;
-                                                const isUnassigned = (!p.project_date && !p.ort);
+                                                const projectDate = parseValidDate(p.project_date);
+                                                const projectDateLabel = formatGermanDate(p.project_date, 'dd.MM.yy');
+                                                const isPast = projectDate ? projectDate.getTime() < new Date().setHours(0, 0, 0, 0) : true;
+                                                const isUnassigned = (!projectDate && !p.ort);
 
                                                 const projectPlanDates = getProjectDayDates(p, projectDayEntries);
                                                 const hasMultipleDates = projectPlanDates.length > 1;
@@ -1628,9 +1634,9 @@ export default function CalculationPage() {
                                                                                 </span>
                                                                             )}
                                                                         </div>
-                                                                        {p.project_date && (
+                                                                        {projectDateLabel && (
                                                                             <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono">
-                                                                                {format(new Date(`${normalizeDate(p.project_date)}T00:00:00`), 'dd.MM.yy')}
+                                                                                {projectDateLabel}
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -1665,7 +1671,7 @@ export default function CalculationPage() {
                                                                         )}
                                                                     >
                                                                         <Calendar className="h-3 w-3" />
-                                                                        {format(new Date(`${pd}T00:00:00`), 'EEE dd.MM.yy', { locale: de })}
+                                                                        {formatGermanDate(pd, 'EEE dd.MM.yy') || '—'}
                                                                     </button>
                                                                 ))}
                                                             </div>
@@ -1716,9 +1722,9 @@ export default function CalculationPage() {
                                 <p className="text-xs text-slate-500 flex items-center gap-2">
                                     {selectedProject.project_code && <span>{selectedProject.project_code}</span>}
                                     {selectedProject.ort && <span>• {selectedProject.ort}</span>}
-                                    {(selectedPlanDate || selectedProject.project_date) && (
+                                    {formatGermanDate(selectedPlanDate || selectedProject.project_date) && (
                                         <span>
-                                            • {selectedPlanDate ? 'Tag ' : ''}{format(new Date(`${selectedPlanDate || normalizeDate(selectedProject.project_date)}T00:00:00`), 'dd.MM.yyyy')}
+                                            • {selectedPlanDate ? 'Tag ' : ''}{formatGermanDate(selectedPlanDate || selectedProject.project_date)}
                                         </span>
                                     )}
                                 </p>
@@ -2352,8 +2358,8 @@ export default function CalculationPage() {
                                                                 <tbody className="divide-y divide-slate-100">
                                                                     {hvzCosts.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">Keine HVZ Einträge</td></tr> : hvzCosts.map(h => (
                                                                         <tr key={h.id} className="hover:bg-slate-50 group">
-                                                                            <td className="px-4 py-2 text-slate-500">{h.datum_von ? format(new Date(h.datum_von), 'dd.MM.yy') : '—'}</td>
-                                                                            <td className="px-4 py-2 text-slate-500">{h.datum_bis ? format(new Date(h.datum_bis), 'dd.MM.yy') : '—'}</td>
+                                                                            <td className="px-4 py-2 text-slate-500">{formatGermanDate(h.datum_von, 'dd.MM.yy') || '—'}</td>
+                                                                            <td className="px-4 py-2 text-slate-500">{formatGermanDate(h.datum_bis, 'dd.MM.yy') || '—'}</td>
                                                                             <td className="px-4 py-2 text-right">{h.tage || '—'}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(h.ek_preis)}</td>
                                                                             <td className="px-4 py-2 text-right">{eur(h.vk_preis)}</td>

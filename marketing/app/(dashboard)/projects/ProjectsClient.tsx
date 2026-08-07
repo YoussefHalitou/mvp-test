@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { useDebounce } from '@/hooks/useDebounce';
-import { format, parseISO, isValid } from 'date-fns';
+import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import {
     Search, Plus, Pencil, Trash2, X, Save, Loader2, ChevronDown,
@@ -11,6 +11,7 @@ import {
     ChevronRight, ArrowLeft, Calendar, Tag, User, Building2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { parseValidDate } from '@/lib/date-utils';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/supabase';
 import { exportBesichtigungHTML } from './exportBesichtigung';
@@ -52,6 +53,11 @@ const SERVICE_COLORS: Record<string, string> = {
     'Tapeten': 'bg-fuchsia-100 text-fuchsia-800',
     'Sonstiges': 'bg-slate-100 text-slate-700',
 };
+
+function formatProjectDate(value: Date | string | null | undefined, pattern: string): string | null {
+    const date = parseValidDate(value);
+    return date ? format(date, pattern, { locale: de }) : null;
+}
 
 const empty: ProjectInsert = {
     anrede: '', name: '', strasse: '', nr: '', plz: '', ort: '',
@@ -107,7 +113,7 @@ export default function ProjectsPage() {
     const groupedProjects = useMemo(() => {
         const groups: Record<string, Project[]> = {};
         projects.forEach(p => {
-            const dateKey = p.project_date || 'nodate';
+            const dateKey = formatProjectDate(p.project_date, 'yyyy-MM-dd') || 'nodate';
             if (!groups[dateKey]) groups[dateKey] = [];
             groups[dateKey].push(p);
         });
@@ -118,7 +124,7 @@ export default function ProjectsPage() {
         return Object.keys(groupedProjects).sort((a, b) => {
             if (a === 'nodate') return 1;
             if (b === 'nodate') return -1;
-            return new Date(b).getTime() - new Date(a).getTime();
+            return (parseValidDate(b)?.getTime() || 0) - (parseValidDate(a)?.getTime() || 0);
         });
     }, [groupedProjects]);
 
@@ -164,10 +170,10 @@ export default function ProjectsPage() {
             dienstleistungen: p.dienstleistungen || '',
             dienstleistung_makro: p.dienstleistung_makro || '',
             offer_type: p.offer_type || '',
-            project_date: p.project_date || null,
+            project_date: formatProjectDate(p.project_date, 'yyyy-MM-dd'),
             project_time: p.project_time || '',
-            project_start_date: p.project_start_date || null,
-            project_end_date: p.project_end_date || null,
+            project_start_date: formatProjectDate(p.project_start_date, 'yyyy-MM-dd'),
+            project_end_date: formatProjectDate(p.project_end_date, 'yyyy-MM-dd'),
             mannanzahl: p.mannanzahl ?? null,
         });
         setIsEditing(true);
@@ -329,7 +335,7 @@ export default function ProjectsPage() {
                     ) : (
                         sortedGroups.map(dateKey => {
                             const dateProjects = groupedProjects[dateKey];
-                            const dateLabel = dateKey === 'nodate' ? 'Ohne Datum' : format(parseISO(dateKey), 'EEEE, d. MMMM yyyy', { locale: de });
+                            const dateLabel = formatProjectDate(dateKey === 'nodate' ? null : dateKey, 'EEEE, d. MMMM yyyy') || 'Ohne Datum';
                             const isToday = dateKey === format(new Date(), 'yyyy-MM-dd');
 
                             return (
@@ -496,10 +502,10 @@ export default function ProjectsPage() {
                                     <div className="grid grid-cols-2 gap-3">
                                         <DetailField label="Dienstleistung" value={selectedProject.dienstleistungen} />
                                         <DetailField label="Angebotsart" value={selectedProject.offer_type} />
-                                        <DetailField label="Projektdatum" value={selectedProject.project_date ? format(new Date(selectedProject.project_date), 'dd.MM.yyyy') : null} />
+                                        <DetailField label="Projektdatum" value={formatProjectDate(selectedProject.project_date, 'dd.MM.yyyy')} />
                                         <DetailField label="Uhrzeit" value={selectedProject.project_time} />
-                                        <DetailField label="Beginn" value={selectedProject.project_start_date ? format(new Date(selectedProject.project_start_date), 'dd.MM.yyyy') : null} />
-                                        <DetailField label="Ende" value={selectedProject.project_end_date ? format(new Date(selectedProject.project_end_date), 'dd.MM.yyyy') : null} />
+                                        <DetailField label="Beginn" value={formatProjectDate(selectedProject.project_start_date, 'dd.MM.yyyy')} />
+                                        <DetailField label="Ende" value={formatProjectDate(selectedProject.project_end_date, 'dd.MM.yyyy')} />
                                         <DetailField label="Mannanzahl" value={selectedProject.mannanzahl != null ? `${selectedProject.mannanzahl} Mann` : null} />
                                     </div>
                                 </section>
@@ -569,7 +575,7 @@ export default function ProjectsPage() {
                                                 <div key={pe.plan_id} className="bg-slate-50 rounded-lg p-3 border border-slate-100 text-sm">
                                                     <div className="flex items-center justify-between mb-1">
                                                         <span className="font-medium text-slate-800">
-                                                            {pe.plan_date ? format(new Date(pe.plan_date), 'dd.MM.yyyy (EEEE)', { locale: de }) : '—'}
+                                                            {formatProjectDate(pe.plan_date, 'dd.MM.yyyy (EEEE)') || '—'}
                                                         </span>
                                                         <span className="text-xs text-slate-500">{pe.start_time?.substring(0, 5) || ''}</span>
                                                     </div>
@@ -596,7 +602,7 @@ export default function ProjectsPage() {
                                                     <div>
                                                         <span className="font-medium text-slate-800">{tp.mitarbeiter || '—'}</span>
                                                         <span className="text-xs text-slate-500 ml-2">
-                                                            {tp.datum ? format(new Date(tp.datum), 'dd.MM.yy') : ''}
+                                                            {formatProjectDate(tp.datum, 'dd.MM.yy') || ''}
                                                         </span>
                                                     </div>
                                                     <div className="text-xs text-slate-600 font-mono">

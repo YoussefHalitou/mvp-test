@@ -38,6 +38,7 @@ export default function MobilePlanningPage() {
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
     const [vehicleStatuses, setVehicleStatuses] = useState<VehicleDailyStatus[]>([]);
     const [loading, setLoading] = useState(true);
+    const [mounted, setMounted] = useState(false);
     const [selectedDay, setSelectedDay] = useState(format(new Date(), 'yyyy-MM-dd'));
     const [vehiclesOpen, setVehiclesOpen] = useState(false);
 
@@ -85,6 +86,7 @@ export default function MobilePlanningPage() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
     useEffect(() => { fetchVehicleStatuses(); }, [fetchVehicleStatuses]);
+    useEffect(() => { setMounted(true); }, []);
 
     // ---- PLAN CRUD ----
     const openCreatePlan = (dateStr: string) => {
@@ -223,6 +225,10 @@ export default function MobilePlanningPage() {
         : [];
 
     // =================== RENDER ===================
+    if (!mounted) {
+        return <div className="flex min-h-full items-center justify-center py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-500" /></div>;
+    }
+
     return (
         <div className="flex flex-col min-h-full">
             {/* Sticky Sub-Header */}

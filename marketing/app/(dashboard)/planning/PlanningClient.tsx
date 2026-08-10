@@ -38,6 +38,27 @@ import { PlanningExport } from './components/PlanningExport';
 import { EmployeeEventsBanner } from './components/EmployeeEventsBanner';
 
 const SERVICE_TYPES = ['Umzug', 'Entrümpelung', 'Transport', 'Einlagerung', 'Malerarbeiten', 'Kartonlieferung', 'Sonstiges'];
+const PROJECT_PAGE_SIZE = 1000;
+
+async function fetchAllProjects(): Promise<Project[]> {
+    const projects: Project[] = [];
+
+    for (let from = 0; ; from += PROJECT_PAGE_SIZE) {
+        const result = await supabase
+            .from('t_projects')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .order('project_id', { ascending: true })
+            .range(from, from + PROJECT_PAGE_SIZE - 1);
+        requireSupabaseSuccess(result);
+
+        const page = result.data || [];
+        projects.push(...page);
+        if (page.length < PROJECT_PAGE_SIZE) break;
+    }
+
+    return projects;
+}
 
 export function PlanningClient() {
     const { toast } = useToast();
@@ -102,8 +123,8 @@ export function PlanningClient() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [projRes, planRes, empRes, vehRes] = await Promise.all([
-                supabase.from('t_projects').select('*').order('created_at', { ascending: false }).limit(100),
+            const [projectRows, planRes, empRes, vehRes] = await Promise.all([
+                fetchAllProjects(),
                 supabase.from('t_morningplan')
                     .select('*, project:t_projects(*), staff:t_morningplan_staff(*, employee:t_employees(*))')
                     .gte('plan_date', weekStartStr)
@@ -111,7 +132,7 @@ export function PlanningClient() {
                 supabase.from('t_employees').select('*').eq('is_active', true).order('name'),
                 supabase.from('t_vehicles').select('*').eq('is_deleted', false).order('nickname'),
             ]);
-            [projRes, planRes, empRes, vehRes].forEach(requireSupabaseSuccess);
+            [planRes, empRes, vehRes].forEach(requireSupabaseSuccess);
 
             const eventsRes = await supabase
                 .from('t_employee_events')
@@ -120,7 +141,7 @@ export function PlanningClient() {
                 .gte('end_date', weekStartStr);
             requireSupabaseSuccess(eventsRes);
 
-            setProjects(projRes.data || []);
+            setProjects(projectRows);
             setEmployees(empRes.data || []);
             setVehicles(vehRes.data || []);
             setPlans((planRes.data || []) as MorningPlan[]);

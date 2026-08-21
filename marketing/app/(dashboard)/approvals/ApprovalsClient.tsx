@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { generateAuftragsnachkalkulationHTML } from '@/lib/generateNachkalkulationHTML';
+import { getSnapshotExecutionDate, getSnapshotExecutionDateLabel } from '@/lib/nachkalkulation-date';
 import { useToast } from '@/components/ui/toast';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -143,8 +144,8 @@ export default function ApprovalsClient() {
             const pdfBlob = await generatePdfBlob(snapshot);
 
             // 2. Build filename
-            const projectDate = project.project_date;
-            const dateStr = projectDate ? format(new Date(projectDate), 'dd.MM.yyyy') : format(new Date(), 'dd.MM.yyyy');
+            const projectDate = getSnapshotExecutionDate(snapshot);
+            const dateStr = getSnapshotExecutionDateLabel(snapshot) || format(new Date(), 'dd.MM.yyyy');
             const cleanName = (project.name || 'Projekt').replace(/[^a-zA-Z0-9äöüÄÖÜß\-_ ]/g, '').trim();
             const projectCode = project.project_code || 'NK';
             const filename = `NK_${projectCode}_${cleanName}_${dateStr}.pdf`;
@@ -341,7 +342,7 @@ export default function ApprovalsClient() {
                                             {project.ort && <span>{project.ort}</span>}
                                             <span className="flex items-center gap-1">
                                                 <Calendar className="w-3 h-3" />
-                                                {project.project_date ? new Date(project.project_date).toLocaleDateString('de-DE') : '—'}
+                                                {getSnapshotExecutionDateLabel(snap) || '—'}
                                             </span>
                                             <span className="flex items-center gap-1">
                                                 <User className="w-3 h-3" />

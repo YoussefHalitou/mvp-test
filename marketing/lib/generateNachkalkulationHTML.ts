@@ -5,6 +5,8 @@
  * The snapshot parameter follows the same structure as stored in t_nachkalkulation_submissions.snapshot_data.
  */
 
+import { getSnapshotExecutionDateLabel } from '@/lib/nachkalkulation-date';
+
 const numFormat = (n: number) => n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
 const toNumber = (value: any) => Number(value) || 0;
 const escapeHtml = (value: any) => {
@@ -37,6 +39,7 @@ export function generateAuftragsnachkalkulationHTML(snapshot: any): string {
     const isKvMode = s.isKvMode || false;
     const kvValues = s.kvValues || {};
     const costBasis = s.costBasis || 'lis';
+    const executionDateLabel = getSnapshotExecutionDateLabel(s);
 
     // Personnel rate grouping — LiS Std always = costs, Kd Std always = revenue
     const rateMap = new Map<number, { names: string[], std: number, satz: number, kosten: number, erloes: number }>();
@@ -155,7 +158,7 @@ export function generateAuftragsnachkalkulationHTML(snapshot: any): string {
             <div class="value" style="flex:1;"></div>
         </div>
     </div>
-    <div class="field-row"><div class="label">Auftragsdatum</div><div class="value">${project.project_date ? new Date(project.project_date).toLocaleDateString('de-DE') : ''}</div></div>
+    <div class="field-row"><div class="label">Auftragsdatum</div><div class="value">${escapeHtml(executionDateLabel)}</div></div>
     <div class="field-row"><div class="label">Aufgaben</div><div class="value">${project.dienstleistungen || ''}</div></div>
     <div class="field-row"><div class="label">Sonstige Infos</div><div class="value"></div></div>
 

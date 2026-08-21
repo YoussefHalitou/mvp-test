@@ -82,6 +82,9 @@ interface BnkCostRow {
     cost_date?: string | null;
 }
 type ProjectDayEntry = { project_id: string | null; date: string | null };
+type ProjectPlanDates = Record<string, string[]>;
+
+const SUPABASE_PAGE_SIZE = 1000;
 
 function calcHours(von: string | null, bis: string | null, pauseMin: number = 0): number {
     if (!von || !bis) return 0;
@@ -137,6 +140,53 @@ function getProjectDayDates(project: Project, dayEntries: ProjectDayEntry[]): st
     });
     expandDateRange(project.project_start_date, project.project_end_date).forEach(date => dates.add(date));
     return Array.from(dates).sort();
+}
+
+function groupPlanDatesByProject(rows: ProjectDayEntry[]): ProjectPlanDates {
+    return rows.reduce<ProjectPlanDates>((datesByProject, row) => {
+        const date = normalizeDate(row.date);
+        if (!row.project_id || !date) return datesByProject;
+        const dates = datesByProject[row.project_id] || [];
+        if (!dates.includes(date)) dates.push(date);
+        datesByProject[row.project_id] = dates;
+        return datesByProject;
+    }, {});
+}
+
+function getProjectExecutionDates(project: Project, planDatesByProject: ProjectPlanDates): string[] {
+    const planDates = planDatesByProject[project.project_id] || [];
+    if (planDates.length > 0) return [...planDates].sort();
+
+    const projectRange = expandDateRange(project.project_start_date, project.project_end_date);
+    if (projectRange.length > 0) return projectRange;
+
+    const fallbackDate = normalizeDate(project.project_date);
+    return fallbackDate ? [fallbackDate] : [];
+}
+
+function formatDateRange(dates: string[], pattern: string = 'dd.MM.yyyy'): string {
+    if (dates.length === 0) return '';
+    if (dates.length === 1) return formatGermanDate(dates[0], pattern);
+    return `${formatGermanDate(dates[0], pattern)} - ${formatGermanDate(dates[dates.length - 1], pattern)}`;
+}
+
+async function fetchAllMorningPlanDates(): Promise<ProjectDayEntry[]> {
+    const rows: ProjectDayEntry[] = [];
+
+    for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+        const result = await supabase
+            .from('t_morningplan')
+            .select('project_id, plan_date')
+            .order('plan_date', { ascending: true })
+            .range(from, from + SUPABASE_PAGE_SIZE - 1);
+        requireSupabaseSuccess(result);
+
+        const page = (result.data || []).map(row => ({ project_id: row.project_id, date: row.plan_date }));
+        rows.push(...page);
+        if (page.length < SUPABASE_PAGE_SIZE) break;
+    }
+
+    return rows;
 }
 
 function matchesCostDate(row: { cost_date?: string | null }, selectedDate?: string | null): boolean {
@@ -231,6 +281,7 @@ export default function CalculationPage() {
 
     // Per-project dates from planning, tracking, assignments, and explicit multiday ranges.
     const [projectDayEntries, setProjectDayEntries] = useState<ProjectDayEntry[]>([]);
+    const [projectPlanDates, setProjectPlanDates] = useState<ProjectPlanDates>({});
     const [selectedPlanDate, setSelectedPlanDate] = useState<string | null>(null);
 
     const [personnel, setPersonnel] = useState<TimePairWithRate[]>([]);
@@ -327,12 +378,21 @@ export default function CalculationPage() {
     const [projectFilterEnd, setProjectFilterEnd] = useState('');
     const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
 
+    const selectedProjectExecutionDates = useMemo(
+        () => selectedProject ? getProjectExecutionDates(selectedProject, projectPlanDates) : [],
+        [selectedProject, projectPlanDates]
+    );
+    const selectedExecutionDate = selectedPlanDate || selectedProjectExecutionDates[0] || null;
+    const selectedExecutionDateLabel = selectedPlanDate
+        ? formatGermanDate(selectedPlanDate)
+        : formatDateRange(selectedProjectExecutionDates);
+
     const filteredProjects = useMemo(() => {
         let res = [...projects];
         // Sort by date desc (recent first)
         res.sort((a, b) => {
-            const dateA = parseValidDate(a.project_date)?.getTime() || 0;
-            const dateB = parseValidDate(b.project_date)?.getTime() || 0;
+            const dateA = parseValidDate(getProjectExecutionDates(a, projectPlanDates)[0])?.getTime() || 0;
+            const dateB = parseValidDate(getProjectExecutionDates(b, projectPlanDates)[0])?.getTime() || 0;
             // Descending order
             if (dateA === 0 && dateB === 0) return 0;
             if (dateA === 0) return 1;
@@ -348,26 +408,26 @@ export default function CalculationPage() {
                 (p.project_code?.toLowerCase().includes(low))
             );
         }
-        if (projectFilterStart) {
-            res = res.filter(p => p.project_date && p.project_date >= projectFilterStart);
-        }
-        if (projectFilterEnd) {
-            res = res.filter(p => p.project_date && p.project_date <= projectFilterEnd);
+        if (projectFilterStart || projectFilterEnd) {
+            res = res.filter(p => getProjectExecutionDates(p, projectPlanDates).some(date =>
+                (!projectFilterStart || date >= projectFilterStart)
+                && (!projectFilterEnd || date <= projectFilterEnd)
+            ));
         }
         return res;
-    }, [projects, projectSearch, projectFilterStart, projectFilterEnd]);
+    }, [projects, projectPlanDates, projectSearch, projectFilterStart, projectFilterEnd]);
 
     // Group projects by Month (e.g., "März 2026")
     const groupedProjects = useMemo(() => {
         const groups: Record<string, typeof filteredProjects> = {};
         filteredProjects.forEach(p => {
-            const projectDate = parseValidDate(p.project_date);
+            const projectDate = parseValidDate(getProjectExecutionDates(p, projectPlanDates)[0]);
             const dateStr = projectDate ? projectDate.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }) : 'Ohne Datum';
             if (!groups[dateStr]) groups[dateStr] = [];
             groups[dateStr].push(p);
         });
         return groups;
-    }, [filteredProjects]);
+    }, [filteredProjects, projectPlanDates]);
 
     const toggleMonthExpanded = (monthKey: string) => {
         setExpandedMonths(prev => ({ ...prev, [monthKey]: !prev[monthKey] }));
@@ -375,12 +435,12 @@ export default function CalculationPage() {
 
     useEffect(() => {
         (async () => {
-            const [projRes, matRes, vehRes, svcRes, mpRes, tpDateRes, waDateRes, matDateRes, vehDateRes, svcDateRes, extDateRes, hvzDateRes, bnkDateRes] = await Promise.all([
+            const [projRes, matRes, vehRes, svcRes, morningPlanDates, tpDateRes, waDateRes, matDateRes, vehDateRes, svcDateRes, extDateRes, hvzDateRes, bnkDateRes] = await Promise.all([
                 supabase.from('t_projects').select('*').order('created_at', { ascending: false }),
                 supabase.from('t_materials').select('*, prices:t_material_prices(cost_per_unit, price_per_unit)').eq('is_active', true).order('name'),
                 supabase.from('t_vehicles').select('*').eq('is_deleted', false).order('nickname'),
                 supabase.from('t_services').select('*, prices:t_service_prices(*)').eq('is_active', true).order('name'),
-                supabase.from('t_morningplan').select('plan_id, project_id, plan_date').order('plan_date', { ascending: false }),
+                fetchAllMorningPlanDates(),
                 supabase.from('t_time_pairs').select('project_id, datum, pause, replaced_by'),
                 supabase.from('t_work_assignments').select('project_id, assignment_date'),
                 supabase.from('t_project_material_usage').select('project_id, cost_date'),
@@ -395,8 +455,9 @@ export default function CalculationPage() {
             setVehicleCatalog(vehRes.data || []);
             setServiceCatalog(svcRes.data || []);
             setCostDateColumnsAvailable(![matDateRes, vehDateRes, svcDateRes, extDateRes, bnkDateRes].some((res: any) => res.error?.code === '42703'));
+            setProjectPlanDates(groupPlanDatesByProject(morningPlanDates));
             setProjectDayEntries([
-                ...(mpRes.data || []).map((mp: any) => ({ project_id: mp.project_id, date: mp.plan_date })),
+                ...morningPlanDates,
                 ...(tpDateRes.data || [])
                     .filter((tp: any) => tp.pause !== 'deleted' && !tp.replaced_by)
                     .map((tp: any) => ({ project_id: tp.project_id, date: tp.datum })),
@@ -442,6 +503,9 @@ export default function CalculationPage() {
                 hvzCosts, bnkCosts,
                 isKvMode, isFpMode, kvValues, fpRevenue, istRevenue,
                 totalCosts, totalRevenue, margin, marginPct,
+                executionDate: selectedExecutionDate,
+                executionDateLabel: selectedExecutionDateLabel,
+                executionDates: selectedProjectExecutionDates,
                 personalKosten, personalErloes, materialKosten, materialErloes,
                 vehicleKosten, vehicleErloes, serviceKosten, serviceErloes,
                 hvzKosten, hvzErloes, bnkKosten, bnkErloes,
@@ -1079,7 +1143,7 @@ export default function CalculationPage() {
         <style>body{font-family:system-ui;margin:2rem;color:#1e293b}h1{font-size:1.5rem}h2{margin-top:1.5rem;font-size:1.1rem;border-bottom:2px solid #e2e8f0;padding-bottom:4px}table{width:100%;border-collapse:collapse;margin:.5rem 0}th,td{border:1px solid #e2e8f0;padding:6px 10px;text-align:left;font-size:.8rem}th{background:#f1f5f9;font-weight:600}.right{text-align:right}.kpi{display:flex;gap:1rem;margin:1rem 0}.kpi-card{flex:1;border:1px solid #e2e8f0;border-radius:8px;padding:.75rem;text-align:center}.kpi-label{font-size:.7rem;color:#64748b;text-transform:uppercase}.kpi-value{font-size:1.3rem;font-weight:700;margin-top:2px}.positive{color:#16a34a}.negative{color:#dc2626}</style></head><body>
         <h1>Nachkalkulation: ${selectedProject?.anrede || ''} ${selectedProject?.name || ''}</h1>
         <p>${selectedProject?.strasse || ''} ${selectedProject?.nr || ''}, ${selectedProject?.plz || ''} ${selectedProject?.ort || ''}</p>
-        <p><strong>Projektdatum:</strong> ${selectedProject?.project_date ? new Date(selectedProject.project_date).toLocaleDateString('de-DE') : '—'}</p>
+        <p><strong>Auftragsdatum:</strong> ${selectedExecutionDateLabel || '—'}</p>
         <div class="kpi"><div class="kpi-card"><div class="kpi-label">Gesamtkosten</div><div class="kpi-value">${eur(totalCosts)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Gesamterlöse</div><div class="kpi-value">${eur(totalRevenue)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Marge</div><div class="kpi-value ${margin >= 0 ? 'positive' : 'negative'}">${eur(margin)}</div></div>
@@ -1117,7 +1181,7 @@ export default function CalculationPage() {
 
     const exportAuftragsnachkalkulationHTML = async () => {
         const projectExportDates = selectedProject ? getProjectDayDates(selectedProject, projectDayEntries) : [];
-        const fallbackDate = selectedProject?.project_date || null;
+        const fallbackDate = selectedExecutionDate;
         const exportDateLabel = selectedPlanDate
             ? formatGermanDate(selectedPlanDate)
             : projectExportDates.length > 1
@@ -1556,13 +1620,14 @@ export default function CalculationPage() {
                                         <div className="divide-y divide-slate-50 border-t border-slate-100">
                                             {monthProjects.map(p => {
                                                 // Basic visual status indicators: past = red/gray, upcoming = blue
-                                                const projectDate = parseValidDate(p.project_date);
-                                                const projectDateLabel = formatGermanDate(p.project_date, 'dd.MM.yy');
+                                                const executionDates = getProjectExecutionDates(p, projectPlanDates);
+                                                const projectDate = parseValidDate(executionDates[0]);
+                                                const projectDateLabel = formatDateRange(executionDates, 'dd.MM.yy');
                                                 const isPast = projectDate ? projectDate.getTime() < new Date().setHours(0, 0, 0, 0) : true;
                                                 const isUnassigned = (!projectDate && !p.ort);
 
-                                                const projectPlanDates = getProjectDayDates(p, projectDayEntries);
-                                                const hasMultipleDates = projectPlanDates.length > 1;
+                                                const projectDayDates = getProjectDayDates(p, projectDayEntries);
+                                                const hasMultipleDates = projectDayDates.length > 1;
                                                 const isThisProjectSelected = !multiSelectMode && selectedProjectId === p.project_id;
 
                                                 return (
@@ -1617,7 +1682,7 @@ export default function CalculationPage() {
                                                                         </div>
                                                                         {hasMultipleDates && (
                                                                             <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 font-semibold flex-shrink-0">
-                                                                                {projectPlanDates.length} Tage
+                                                                                {projectDayDates.length} Tage
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -1659,7 +1724,7 @@ export default function CalculationPage() {
                                                                     <Calendar className="h-3 w-3" />
                                                                     Alle Tage
                                                                 </button>
-                                                                {projectPlanDates.map(pd => (
+                                                                {projectDayDates.map(pd => (
                                                                     <button
                                                                         key={pd}
                                                                         onClick={() => setSelectedPlanDate(pd)}
@@ -1722,9 +1787,9 @@ export default function CalculationPage() {
                                 <p className="text-xs text-slate-500 flex items-center gap-2">
                                     {selectedProject.project_code && <span>{selectedProject.project_code}</span>}
                                     {selectedProject.ort && <span>• {selectedProject.ort}</span>}
-                                    {formatGermanDate(selectedPlanDate || selectedProject.project_date) && (
+                                    {selectedExecutionDateLabel && (
                                         <span>
-                                            • {selectedPlanDate ? 'Tag ' : ''}{formatGermanDate(selectedPlanDate || selectedProject.project_date)}
+                                            • {selectedPlanDate ? 'Tag ' : ''}{selectedExecutionDateLabel}
                                         </span>
                                     )}
                                 </p>

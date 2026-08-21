@@ -40,6 +40,8 @@ import { EmployeeEventsBanner } from './components/EmployeeEventsBanner';
 const SERVICE_TYPES = ['Umzug', 'Entrümpelung', 'Transport', 'Einlagerung', 'Malerarbeiten', 'Kartonlieferung', 'Sonstiges'];
 const PROJECT_PAGE_SIZE = 1000;
 
+type ProjectPlanDates = Record<string, string[]>;
+
 async function fetchAllProjects(): Promise<Project[]> {
     const projects: Project[] = [];
 
@@ -60,11 +62,38 @@ async function fetchAllProjects(): Promise<Project[]> {
     return projects;
 }
 
+async function fetchAllProjectPlanDates(): Promise<ProjectPlanDates> {
+    const rows: Array<{ project_id: string | null; plan_date: string }> = [];
+
+    for (let from = 0; ; from += PROJECT_PAGE_SIZE) {
+        const result = await supabase
+            .from('t_morningplan')
+            .select('project_id, plan_date')
+            .not('project_id', 'is', null)
+            .order('plan_date', { ascending: true })
+            .range(from, from + PROJECT_PAGE_SIZE - 1);
+        requireSupabaseSuccess(result);
+
+        const page = result.data || [];
+        rows.push(...page);
+        if (page.length < PROJECT_PAGE_SIZE) break;
+    }
+
+    return rows.reduce<ProjectPlanDates>((datesByProject, row) => {
+        if (!row.project_id) return datesByProject;
+        const dates = datesByProject[row.project_id] || [];
+        if (!dates.includes(row.plan_date)) dates.push(row.plan_date);
+        datesByProject[row.project_id] = dates;
+        return datesByProject;
+    }, {});
+}
+
 export function PlanningClient() {
     const { toast } = useToast();
     const [viewMode, setViewMode] = useState<'month' | 'week' | '3day' | 'day' | 'timeline'>('week');
     const [currentDate, setCurrentDate] = useState(new Date());
     const [projects, setProjects] = useState<Project[]>([]);
+    const [projectPlanDates, setProjectPlanDates] = useState<ProjectPlanDates>({});
     const [plans, setPlans] = useState<MorningPlan[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -123,8 +152,9 @@ export function PlanningClient() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [projectRows, planRes, empRes, vehRes] = await Promise.all([
+            const [projectRows, allProjectPlanDates, planRes, empRes, vehRes] = await Promise.all([
                 fetchAllProjects(),
+                fetchAllProjectPlanDates(),
                 supabase.from('t_morningplan')
                     .select('*, project:t_projects(*), staff:t_morningplan_staff(*, employee:t_employees(*))')
                     .gte('plan_date', weekStartStr)
@@ -142,6 +172,7 @@ export function PlanningClient() {
             requireSupabaseSuccess(eventsRes);
 
             setProjects(projectRows);
+            setProjectPlanDates(allProjectPlanDates);
             setEmployees(empRes.data || []);
             setVehicles(vehRes.data || []);
             setPlans((planRes.data || []) as MorningPlan[]);
@@ -177,8 +208,8 @@ export function PlanningClient() {
     const filteredProjects = React.useMemo(() => {
         let res = [...projects];
         res.sort((a, b) => {
-            const dateA = a.project_date ? new Date(a.project_date).getTime() : 0;
-            const dateB = b.project_date ? new Date(b.project_date).getTime() : 0;
+            const dateA = projectPlanDates[a.project_id]?.[0] ? new Date(projectPlanDates[a.project_id][0]).getTime() : 0;
+            const dateB = projectPlanDates[b.project_id]?.[0] ? new Date(projectPlanDates[b.project_id][0]).getTime() : 0;
             if (dateA === 0 && dateB === 0) return 0;
             if (dateA === 0) return 1;
             if (dateB === 0) return -1;
@@ -188,10 +219,14 @@ export function PlanningClient() {
             const low = projectSearch.toLowerCase();
             res = res.filter(p => (p.name?.toLowerCase().includes(low)) || (p.ort?.toLowerCase().includes(low)) || (p.project_code?.toLowerCase().includes(low)));
         }
-        if (projectFilterStart) res = res.filter(p => p.project_date && p.project_date >= projectFilterStart);
-        if (projectFilterEnd) res = res.filter(p => p.project_date && p.project_date <= projectFilterEnd);
+        if (projectFilterStart || projectFilterEnd) {
+            res = res.filter(project => (projectPlanDates[project.project_id] || []).some(date => (
+                (!projectFilterStart || date >= projectFilterStart)
+                && (!projectFilterEnd || date <= projectFilterEnd)
+            )));
+        }
         return res;
-    }, [projects, projectSearch, projectFilterStart, projectFilterEnd]);
+    }, [projects, projectPlanDates, projectSearch, projectFilterStart, projectFilterEnd]);
 
     // ---- DRAG HANDLERS ----
     const handleDragStart = (e: DragStartEvent) => {
@@ -616,7 +651,13 @@ export function PlanningClient() {
             if (error) throw error;
             toast('Mitarbeiter hinzugefügt');
             fetchData();
-        } catch { toast('Fehler beim Hinzufügen', 'error'); }
+        } catch (error) {
+            const message = error && typeof error === 'object' && 'message' in error
+                ? String(error.message)
+                : 'Unbekannter Fehler';
+            console.error('Error adding staff to plan:', JSON.stringify(error));
+            toast(`Fehler beim Hinzufügen: ${message}`, 'error');
+        }
     };
 
     const updateStaffMember = async (staffId: number, field: string, value: any) => {
@@ -831,7 +872,13 @@ export function PlanningClient() {
                                         <div className="text-center py-8 text-slate-400 text-sm">Laden...</div>
                                     ) : filteredProjects.length === 0 ? (
                                         <div className="text-center py-8 text-slate-400 text-sm">Keine Aufträge gefunden.</div>
-                                    ) : filteredProjects.map(p => <DraggableProject key={p.project_id} project={p} />)}
+                                    ) : filteredProjects.map(p => (
+                                        <DraggableProject
+                                            key={p.project_id}
+                                            project={p}
+                                            planDates={projectPlanDates[p.project_id] || []}
+                                        />
+                                    ))}
                                 </div>
                             )}
                         </div>
@@ -877,7 +924,8 @@ export function PlanningClient() {
                                                 className={cn("cursor-pointer hover:ring-2 hover:ring-blue-200 rounded-xl transition-all", dateStr === selectedDay && "ring-2 ring-blue-400")}>
                                                 <DroppableDay day={day} plans={plans.filter(p => p.plan_date === dateStr)}
                                                     employeeEvents={employeeEvents} employees={employees}
-                                                    onDelete={handleDeletePlan} onEditPlan={openEditPlan} />
+                                                    onDelete={handleDeletePlan} onEditPlan={openEditPlan}
+                                                    onAddStaff={addStaffToPlan} />
                                             </div>
                                         );
                                     })}

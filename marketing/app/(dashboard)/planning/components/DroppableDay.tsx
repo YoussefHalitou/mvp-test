@@ -2,7 +2,7 @@ import React from 'react';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { format, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { Clock, GripVertical, Pencil, Truck, Users } from 'lucide-react';
+import { Clock, GripVertical, Pencil, Truck, UserPlus, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MorningPlan, EmployeeEvent, Employee } from './types';
 
@@ -21,15 +21,24 @@ interface DroppableDayProps {
     employees?: Employee[];
     onDelete: (id: string, e: React.MouseEvent) => void;
     onEditPlan: (plan: MorningPlan) => void;
+    onAddStaff: (planId: string, employeeId: string) => void;
 }
 
 /** A single draggable plan card inside the week/month calendar */
-function DraggablePlanCard({ plan, onDelete, onEditPlan }: { plan: MorningPlan; onDelete: (id: string, e: React.MouseEvent) => void; onEditPlan: (plan: MorningPlan) => void }) {
+function DraggablePlanCard({ plan, employees, onDelete, onEditPlan, onAddStaff }: {
+    plan: MorningPlan;
+    employees: Employee[];
+    onDelete: (id: string, e: React.MouseEvent) => void;
+    onEditPlan: (plan: MorningPlan) => void;
+    onAddStaff: (planId: string, employeeId: string) => void;
+}) {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: `plan-${plan.plan_id}`,
         data: { type: 'plan', plan },
     });
     const isBesichtigung = plan.is_besichtigung;
+    const assignedEmployeeIds = new Set((plan.staff || []).map(staff => staff.employee_id).filter(Boolean));
+    const availableEmployees = employees.filter(employee => !assignedEmployeeIds.has(employee.employee_id));
 
     return (
         <div ref={setNodeRef}
@@ -46,7 +55,7 @@ function DraggablePlanCard({ plan, onDelete, onEditPlan }: { plan: MorningPlan; 
                 className="absolute top-1 left-1 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 p-0.5 touch-none">
                 <GripVertical className="h-3 w-3" />
             </div>
-            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+            <div className="absolute top-1 right-1 opacity-60 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
                 <button onClick={() => onEditPlan(plan)} className="text-slate-400 hover:text-blue-600 text-xs p-0.5"><Pencil className="h-3 w-3" /></button>
                 <button onClick={(e) => onDelete(plan.plan_id, e)} type="button" className="text-slate-400 hover:text-red-500 text-xs p-0.5">×</button>
             </div>
@@ -83,6 +92,28 @@ function DraggablePlanCard({ plan, onDelete, onEditPlan }: { plan: MorningPlan; 
                                 <span key={s.id} className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full truncate max-w-[60px]">{s.employee?.name?.split(' ')[0] || '?'}</span>
                             ))}
                         </div>
+                        <div className="relative mt-1">
+                            <UserPlus className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+                            <select
+                                aria-label={`Mitarbeiter zu ${plan.project?.name || 'Einsatz'} hinzufügen`}
+                                disabled={availableEmployees.length === 0}
+                                className="h-6 w-full rounded border border-slate-200 bg-white pl-5 pr-1 text-[10px] text-slate-600 hover:border-blue-300 focus:border-blue-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-300"
+                                defaultValue=""
+                                onPointerDown={event => event.stopPropagation()}
+                                onClick={event => event.stopPropagation()}
+                                onChange={event => {
+                                    if (event.target.value) {
+                                        onAddStaff(plan.plan_id, event.target.value);
+                                        event.target.value = '';
+                                    }
+                                }}
+                            >
+                                <option value="">{availableEmployees.length > 0 ? 'Mitarbeiter hinzufügen' : 'Alle zugewiesen'}</option>
+                                {availableEmployees.map(employee => (
+                                    <option key={employee.employee_id} value={employee.employee_id}>{employee.name}</option>
+                                ))}
+                            </select>
+                        </div>
                     </>
                 )}
             </div>
@@ -90,7 +121,7 @@ function DraggablePlanCard({ plan, onDelete, onEditPlan }: { plan: MorningPlan; 
     );
 }
 
-export function DroppableDay({ day, plans, employeeEvents = [], employees = [], onDelete, onEditPlan }: DroppableDayProps) {
+export function DroppableDay({ day, plans, employeeEvents = [], employees = [], onDelete, onEditPlan, onAddStaff }: DroppableDayProps) {
     const dateStr = format(day, 'yyyy-MM-dd');
     const { setNodeRef, isOver } = useDroppable({ id: `day-${dateStr}`, data: { date: dateStr } });
     const isToday = isSameDay(day, new Date());
@@ -129,7 +160,14 @@ export function DroppableDay({ day, plans, employeeEvents = [], employees = [], 
 
             <div className="flex-1 p-1.5 bg-slate-50/30 space-y-1.5 overflow-y-auto">
                 {plans.map(plan => (
-                    <DraggablePlanCard key={plan.plan_id} plan={plan} onDelete={onDelete} onEditPlan={onEditPlan} />
+                    <DraggablePlanCard
+                        key={plan.plan_id}
+                        plan={plan}
+                        employees={employees}
+                        onDelete={onDelete}
+                        onEditPlan={onEditPlan}
+                        onAddStaff={onAddStaff}
+                    />
                 ))}
                 {plans.length === 0 && dayEvents.length === 0 && !isOver && (
                     <div className="h-full min-h-[80px] border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center text-slate-300 text-[10px]">Frei</div>

@@ -52,6 +52,8 @@ export function ProjectCard({
     };
 
     const isBesichtigung = plan.is_besichtigung;
+    const assignedEmployeeIds = new Set((plan.staff || []).map(staff => staff.employee_id).filter(Boolean));
+    const availableEmployees = employees.filter(employee => !assignedEmployeeIds.has(employee.employee_id));
 
     return (
         <div ref={setNodeRef} style={style} className={cn(
@@ -187,7 +189,7 @@ export function ProjectCard({
                                 }}
                             >
                                 <option value="">Mitarbeiter hinzufügen...</option>
-                                {employees.map(emp => (
+                                {availableEmployees.map(emp => (
                                     <option key={emp.employee_id} value={emp.employee_id}>
                                         {emp.name} ({emp.contract_type || '?'})
                                     </option>
